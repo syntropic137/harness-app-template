@@ -1,6 +1,28 @@
-# Decision: secret-scanner — Gitleaks
+---
+name: "Secret Scanner"
+description: "Use Gitleaks for secret scanning"
+status: accepted
+---
 
-**Status:** active · **Date:** 2026-05-16 · **Next review:** 2026-11-16
+# ADR-0009: Secret Scanner
+
+**Date:** 2026-05-16
+**Category:** Slot
+**Next review:** 2026-11-16
+
+## Context
+
+The secret-scanner slot needs broad credential pattern coverage in pre-commit and CI without copyleft or language-runtime distribution constraints.
+
+## Decision
+
+Use Gitleaks as the reference secret scanner.
+
+## Consequences
+
+The template gets a fast MIT-licensed scanner with broad pattern coverage. Verified-secret semantics remain a possible CI-only second layer if licensing and runtime costs become acceptable.
+
+## Details
 
 > The slot is `secret-scanner`. Today's pick is Gitleaks. This doc captures
 > the rationale so a future swap (or a confirmation-on-review) lands as

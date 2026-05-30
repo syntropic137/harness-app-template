@@ -1,6 +1,28 @@
-# Decision: inspector — Playwright (Node) + spawned ffmpeg binary
+---
+name: "Inspector"
+description: "Playwright inspector with spawned ffmpeg for evidence capture"
+status: accepted
+---
 
-**Status:** active · **Date:** 2026-05-14 · **Next review:** 2026-11-14
+# ADR-0002: Inspector
+
+**Date:** 2026-05-14
+**Category:** Slot
+**Next review:** 2026-11-14
+
+## Context
+
+The inspector slot must capture screenshot pairs, flow recordings, DOM snapshots, and reviewable visual evidence bundles. Browser-control alternatives do not yet match Playwright trace artifacts.
+
+## Decision
+
+Keep Playwright as the browser automation engine and invoke ffmpeg as a subprocess for video/keyframe post-processing.
+
+## Consequences
+
+The slot keeps best-in-class browser evidence capture at the cost of a Node-based toolchain for inspector workflows. Rust browser backends should only replace it after measured parity on trace-viewer-quality artifacts.
+
+## Details
 
 ## Current pick
 

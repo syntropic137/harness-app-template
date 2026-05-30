@@ -1,6 +1,6 @@
 # Updating your fork
 
-How to keep your fork's harness in sync with upstream improvements, without your application code ever being touched. This is the consumer-facing reference for `just update`; the implementation lives at [`scripts/update.ts`](../scripts/update.ts) and the architectural rationale at [`docs/decisions/cha-sync-source-of-truth.md`](./decisions/cha-sync-source-of-truth.md).
+How to keep your fork's harness in sync with upstream improvements, without your application code ever being touched. This is the consumer-facing reference for `just update`; the implementation lives at [`scripts/update.ts`](../scripts/update.ts) and the architectural rationale at [`docs/adr/ADR-0015-cha-sync-source-of-truth.md`](./adr/ADR-0015-cha-sync-source-of-truth.md).
 
 ## TL;DR
 
@@ -153,7 +153,7 @@ The script exits 0 with `already up to date with upstream <sha>` when your templ
 - **No `infra/` changes.** `infra/` is reserved for *your* deploy infra (compose files for your app's databases, k8s manifests, etc.). The harness's observability compose lives at `harness/observability/compose.harness.yml`.
 - **No rebase semantics.** Path-scoped checkout + commit produces a fast-forward-shaped history, but the underlying mechanic is `git checkout` + `git commit`, not `git rebase`. If you want a linear history relative to upstream, run `just update` regularly so the per-update commits stay small.
 - **No automatic conflict resolution.** If `--force` stashes dirty harness-owned edits and the upstream changes conflict, you'll see the conflict in `git stash pop` and resolve normally. The script doesn't try to be smart about it.
-- **No lab upstream.** The R&D lab ([`agentic-harness-lab`](https://github.com/NeuralEmpowerment/agentic-harness-lab)) is research, NOT a live upstream. `upstream` always points at the canonical template repo ([`syntropic137/harness-app-template`](https://github.com/syntropic137/harness-app-template)). See [`docs/decisions/cha-sync-source-of-truth.md`](./decisions/cha-sync-source-of-truth.md) for the standalone framing.
+- **No lab upstream.** The R&D lab ([`agentic-harness-lab`](https://github.com/NeuralEmpowerment/agentic-harness-lab)) is research, NOT a live upstream. `upstream` always points at the canonical template repo ([`syntropic137/harness-app-template`](https://github.com/syntropic137/harness-app-template)). See [`docs/adr/ADR-0015-cha-sync-source-of-truth.md`](./adr/ADR-0015-cha-sync-source-of-truth.md) for the standalone framing.
 
 ## Pushing improvements back upstream
 
@@ -168,6 +168,6 @@ The `from <your-repo>@<sha>` suffix lets the maintainer trace the improvement ba
 ## Related reading
 
 - [`scripts/update.ts`](../scripts/update.ts) — the implementation. ~250 lines, no external deps beyond `node:fs`, `node:path`, and the in-tree `lib/git.ts`.
-- [`docs/decisions/cha-sync-source-of-truth.md`](./decisions/cha-sync-source-of-truth.md) — the architectural decision: why the canonical repo is standalone, why the update is path-scoped, what was rejected and why.
-- [`docs/decisions/task-runner.md`](./decisions/task-runner.md) — why `just` is the human-facing entrypoint.
+- [`docs/adr/ADR-0015-cha-sync-source-of-truth.md`](./adr/ADR-0015-cha-sync-source-of-truth.md) — the architectural decision: why the canonical repo is standalone, why the update is path-scoped, what was rejected and why.
+- [`docs/adr/ADR-0008-task-runner.md`](./adr/ADR-0008-task-runner.md) — why `just` is the human-facing entrypoint.
 - [`security.md`](../security.md) — the security standard, including the controls that run on every commit / push.

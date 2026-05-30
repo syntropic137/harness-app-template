@@ -1,5 +1,28 @@
-# Decision: task-runner — `just`
-**Status:** active · **Date:** 2026-05-14 · **Next review:** 2026-11-14
+---
+name: "Task Runner"
+description: "Use just as the human-facing polyglot task runner"
+status: accepted
+---
+
+# ADR-0008: Task Runner
+
+**Date:** 2026-05-14
+**Category:** Slot
+**Next review:** 2026-11-14
+
+## Context
+
+Humans and agents need a terse, discoverable command surface for a polyglot monorepo without making npm, cargo, or make the universal entrypoint.
+
+## Decision
+
+Use `just` as the root task runner and keep recipes as the canonical human-facing commands.
+
+## Consequences
+
+The template gets single-binary task discovery and polyglot recipe bodies. Windows users may need a compatible shell; Windows-first templates should re-evaluate `go-task`.
+
+## Details
 
 ## Current pick
 `just` (casey/just), v1.51.0 released 2026-05-10 ([release page][rel]). Single Rust binary, MIT-licensed.

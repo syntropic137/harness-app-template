@@ -1,6 +1,28 @@
-# Decision: hooks — lefthook
+---
+name: "Hooks"
+description: "Use lefthook for fast polyglot Git hooks"
+status: accepted
+---
 
-**Status:** active · **Date:** 2026-05-14 · **Next review:** 2026-11-14
+# ADR-0003: Hooks
+
+**Date:** 2026-05-14
+**Category:** Slot
+**Next review:** 2026-11-14
+
+## Context
+
+The template needs fast, diff-scoped Git hooks that work across TypeScript, Rust, Python, and Go without forcing every consumer into one language runtime.
+
+## Decision
+
+Use lefthook with staged-file filtering, parallel command execution, and a language-agnostic `lefthook.yml`.
+
+## Consequences
+
+Contributors get a single hook runner with per-language skip behavior. Hook commands must remain fast and scoped; if lefthook maintenance stalls or a Rust-native polyglot runner reaches parity, re-evaluate.
+
+## Details
 
 ## Current pick
 

@@ -1,6 +1,28 @@
-# Decision: coverage-enforcement — high-threshold gates, no broken windows
+---
+name: "Coverage Enforcement"
+description: "Use high-threshold coverage gates with explicit opt-outs"
+status: accepted
+---
 
-**Status:** active · **Date:** 2026-05-16 · **Next review:** 2027-05-16
+# ADR-0013: Coverage Enforcement
+
+**Date:** 2026-05-16
+**Category:** Policy
+**Next review:** 2027-05-16
+
+## Context
+
+Coverage thresholds are only useful if they are explicit, measured, and resistant to quiet lowering as the codebase changes.
+
+## Decision
+
+Keep high, mechanically enforced coverage gates per stack and treat threshold lowering as an experiment-backed exception, not a routine config tweak.
+
+## Consequences
+
+The template prevents normalized coverage drift but must still treat coverage as a floor rather than a correctness proof. Untestable lines require explicit rationale.
+
+## Details
 
 > Mechanically enforced coverage thresholds across all three language
 > stacks. **No silent threshold lowering.** Every opt-out is enumerated

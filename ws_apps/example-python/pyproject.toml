@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Minimal Python example wired to the telemetry-sdk slot (OTEL). Proves the harness's hello-world for Python apps in the polyglot-monorepo template."
 requires-python = ">=3.11"
 dependencies = [
-  # Per docs/standard/decisions/telemetry-sdk.md: SDK 1.41+ for stable traces/logs/metrics.
+  # Per docs/adr/ADR-0004-telemetry-sdk.md: SDK 1.41+ for stable traces/logs/metrics.
   # opentelemetry-distro adds the `opentelemetry-instrument` zero-code CLI.
   "opentelemetry-api>=1.41,<2",
   "opentelemetry-sdk>=1.41,<2",

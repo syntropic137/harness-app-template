@@ -1,6 +1,28 @@
-# Decision: sensors — Rust aggregator + adapter set
+---
+name: "Sensors"
+description: "Use an opt-in Rust aggregator with language adapters for architectural fitness signals"
+status: accepted
+---
 
-**Status:** active (current-state summary; opt-in slot) · **Date:** 2026-05-14 · **Next review:** 2026-11-14
+# ADR-0006: Sensors
+
+**Date:** 2026-05-14
+**Category:** Slot
+**Next review:** 2026-11-14
+
+## Context
+
+Architectural fitness signals span language ecosystems. No one tool computes Martin A/I/D metrics and APSS-style policy signals across all template languages.
+
+## Decision
+
+Keep the sensors slot opt-in and use a Rust aggregator with swappable adapters for TypeScript, Python, Rust, Go, and the sentrux governance overlay.
+
+## Consequences
+
+Forks can adopt architecture-quality gates without forcing every project to pay the cost by default. Adapter health and CI runtime remain the main re-evaluation triggers.
+
+## Details
 
 > **Consumer summary (hybrid).** This file ships only the current state. The full v0.3 evolution — including the APSS-canonical dispatcher / policy / exclude design and the rationale for retiring per-language adapters from the v0.3 agent image — was authored in the upstream R&D lab and is preserved there: [`agentic-harness-lab/docs/standard/decisions/sensors.md`](https://github.com/NeuralEmpowerment/agentic-harness-lab/blob/main/docs/standard/decisions/sensors.md) and [`sensors-v0.3-apss-canonical.md`](https://github.com/NeuralEmpowerment/agentic-harness-lab/blob/main/docs/standard/decisions/sensors-v0.3-apss-canonical.md). The current state below is the part you act on in a consumer fork.
 

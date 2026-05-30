@@ -1,6 +1,28 @@
-# Decision: doc-validator — custom Rust crate at harness/doc-validator/
+---
+name: "Doc Validator"
+description: "Use a custom Rust crate for internal Markdown cross-reference validation"
+status: accepted
+---
 
-**Status:** active · **Date:** 2026-05-16 · **Next review:** 2026-11-16
+# ADR-0010: Doc Validator
+
+**Date:** 2026-05-16
+**Category:** Slot
+**Next review:** 2026-11-16
+
+## Context
+
+The doc-validator slot needs fast internal Markdown path and anchor validation without taking on a broad external-link checker by default.
+
+## Decision
+
+Use a custom Rust crate in `harness/doc-validator/` focused on internal cross-references.
+
+## Consequences
+
+The implementation stays narrow and easy to ship as a single binary. If scope expands to external URL checks or complex Markdown parsing, switch to an established validator or parser-backed implementation.
+
+## Details
 
 ## Current pick
 

@@ -9,7 +9,7 @@ name = "example-rust"
 path = "src/main.rs"
 
 [dependencies]
-# Per docs/standard/decisions/telemetry-sdk.md: opentelemetry 0.31.x; traces still
+# Per docs/adr/ADR-0004-telemetry-sdk.md: opentelemetry 0.31.x; traces still
 # Beta but logs/metrics are stable. Pin minor to avoid breaking changes across
 # patch lines that this ecosystem still ships frequently.
 opentelemetry = { version = "0.31", features = ["trace", "logs", "metrics"] }
@@ -25,7 +25,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # ── HARNESS-ENGINEERING PROTECTED LINTS ─────────────────────────────────────
 # DO NOT RELAX. Binds the metadata declarations below (`strict_clippy`,
 # `no_unsafe`) to actual enforcement via the Rust 1.74+ [lints] table.
-# Per strict-typing audit (docs/standard/decisions/strict-typing.md).
+# Per strict-typing audit (docs/adr/ADR-0014-strict-typing.md).
 # ───────────────────────────────────────────────────────────────────────────
 [lints.rust]
 unsafe_code = "forbid"

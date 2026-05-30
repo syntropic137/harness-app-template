@@ -1,5 +1,28 @@
-# Decision: agent-plugins — `.claude/` canonical + vendor symlinks
-**Status:** active · **Date:** 2026-05-14 · **Next review:** 2026-08-14 (faster cadence — this space evolves quickly)
+---
+name: "Agent Plugins"
+description: "Use .claude as canonical agent context with vendor symlinks"
+status: accepted
+---
+
+# ADR-0007: Agent Plugins
+
+**Date:** 2026-05-14
+**Category:** Slot
+**Next review:** 2026-08-14
+
+## Context
+
+The template needs one canonical source for agent context, skills, commands, hooks, and settings while remaining usable by multiple coding-agent CLIs.
+
+## Decision
+
+Use `.claude/` and `CLAUDE.md` as canonical, then expose compatible vendor entrypoints through symlinks such as `AGENTS.md`, `GEMINI.md`, `.codex/`, and `.gemini/`.
+
+## Consequences
+
+The template avoids duplicating agent instructions across vendors. Vendor-specific rule formats that require frontmatter or directory schemas remain out of scope until they can be represented without drift.
+
+## Details
 
 Confirms Standard v0.1 §4.7. `.claude/` is canonical (primary user's vendor); other tools interop via symlinks.
 

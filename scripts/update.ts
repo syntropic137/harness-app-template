@@ -9,7 +9,7 @@ import { git, shortSha } from './lib/git';
  *
  * **There is no lab upstream.** The lab is R&D only; the canonical
  * template is a standalone repo that was extracted from the lab once
- * and then evolves on its own. See `docs/standard/decisions/cha-sync-source-of-truth.md`.
+ * and then evolves on its own. See `docs/adr/ADR-0015-cha-sync-source-of-truth.md`.
  *
  * Mechanic: `git fetch upstream <ref>` then `git checkout upstream/<ref> --
  * <harness-paths>` (path-scoped — NEVER `git merge upstream/<ref>`, which

@@ -1,6 +1,28 @@
-# Decision: stack-manager — Rust binary (bollard + portpicker, shell-out to `docker compose`)
+---
+name: "Stack Manager"
+description: "Rust binary stack manager using bollard, portpicker, and docker compose"
+status: accepted
+---
 
-**Status:** active · **Date:** 2026-05-14 · **Next review:** 2026-11-14
+# ADR-0001: Stack Manager
+
+**Date:** 2026-05-14
+**Category:** Slot
+**Next review:** 2026-11-14
+
+## Context
+
+The template needs a stack-manager slot that can inspect local container runtimes, allocate ports, and drive the harness observability stack without making downstream projects depend on a Node runtime.
+
+## Decision
+
+Use a Rust `harness-stack` binary built around `bollard` for Docker/Podman inspection, `portpicker` for port allocation, and a thin shell-out to the official `docker compose` CLI for lifecycle commands.
+
+## Consequences
+
+The harness keeps a single-binary, cross-platform stack-manager contract while avoiding a bespoke compose engine. Consumers still need the Docker/Podman compose CLI, and the Rust implementation must be smoke-tested across macOS, Linux, and Windows named-pipe paths.
+
+## Details
 
 ## Current pick
 - **Rust binary** combining [`bollard`](https://crates.io/crates/bollard) **v0.21.0** (released 2026-05-04) for daemon inspection, [`portpicker`](https://crates.io/crates/portpicker) for free-port allocation, and a thin shell-out to the official `docker compose` CLI for `boot`/`stop`/`destroy`.

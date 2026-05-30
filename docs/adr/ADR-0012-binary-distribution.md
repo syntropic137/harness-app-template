@@ -1,6 +1,28 @@
-# Decision: binary-distribution — cargo-dist + cargo-binstall
+---
+name: "Binary Distribution"
+description: "Use cargo-dist and cargo-binstall for Rust harness binary distribution"
+status: accepted
+---
 
-**Status:** active · **Date:** 2026-05-16 · **Next review:** 2026-11-16
+# ADR-0012: Binary Distribution
+
+**Date:** 2026-05-16
+**Category:** Policy
+**Next review:** 2026-11-16
+
+## Context
+
+Harness binaries should reach consumers without requiring every consumer to compile Rust locally.
+
+## Decision
+
+Use cargo-dist for packaging/releasing Rust binaries and cargo-binstall for consumer installation, with `cargo install --path` as the local fallback.
+
+## Consequences
+
+Consumers can install harness binaries from release artifacts with no Rust toolchain. GitHub Releases remain the distribution constraint until a larger release-audit surface is needed.
+
+## Details
 
 > **Consumer summary (hybrid).** This file ships only the outcome. The full comparison (alternatives considered, vendor evaluations, marketplace landscape) was authored in the upstream R&D lab and is preserved there as historical context: [`agentic-harness-lab/docs/standard/decisions/binary-distribution.md`](https://github.com/NeuralEmpowerment/agentic-harness-lab/blob/main/docs/standard/decisions/binary-distribution.md). The outcome below is the part you act on in a consumer fork.
 

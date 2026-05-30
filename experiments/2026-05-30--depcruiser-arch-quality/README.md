@@ -7,7 +7,7 @@ hypothesis: >
   metrics (Ca, Ce, I) on the harness-app-template's ws_apps TypeScript
   workspace with no extra config, and the numbers it returns are
   meaningful enough to justify populating the sensors slot with the
-  Rust aggregator described in docs/decisions/sensors.md.
+  Rust aggregator described in docs/adr/ADR-0006-sensors.md.
 ---
 
 # Architecture-quality probe — dependency-cruiser on `ws_apps`
@@ -60,7 +60,7 @@ Distribution (workspace only):
 - `src/` sits at I=0.5 with balanced Ca/Ce — exactly where the Martin rule of thumb would put a small library boundary, and a sane baseline for any later policy gate.
 - `telemetry.ts` is the most depended-on workspace module (Ca=2 from `main.ts` + `main.test.ts`) and itself depends only on the two OTel packages → on the stable end (I=0.0–0.5). Consistent with its role as the SDK seam.
 - Tests and the app-root folder land at I=1.0 (pure consumers). That's correct, not a finding — it's the expected shape of `tests/` and a workspace root that re-exports nothing.
-- **Abstractness (A)** is not in the cruiser output by design — Martin's `D = |A + I − 1|` needs an `A` source. `docs/decisions/sensors.md` already assigns that to **ts-morph**; the cruiser output alone can't compute `D`.
+- **Abstractness (A)** is not in the cruiser output by design — Martin's `D = |A + I − 1|` needs an `A` source. `docs/adr/ADR-0006-sensors.md` already assigns that to **ts-morph**; the cruiser output alone can't compute `D`.
 
 ## Anomalies worth noting
 
@@ -70,7 +70,7 @@ Distribution (workspace only):
 
 ## Recommendation on the sensors slot
 
-**Populate the Rust aggregator** described in `docs/decisions/sensors.md` and ship it default-off (the slot is already opt-in at v0.4.0 — that doesn't need to change). Concretely:
+**Populate the Rust aggregator** described in `docs/adr/ADR-0006-sensors.md` and ship it default-off (the slot is already opt-in at v0.4.0 — that doesn't need to change). Concretely:
 
 1. **Do it.** The TS adapter half (`dep-cruiser → Ca/Ce/I`) is real and the JSON shape is exactly what an aggregator wants. The numbers above prove the pipeline works end-to-end on the scaffold with no config beyond `--no-config + --metrics`.
 2. **The aggregator earns its keep on three jobs the raw cruiser output does not handle, all visible in this 5-module probe:**

@@ -1,6 +1,28 @@
-# Decision: strict-typing — current state + proposed tightenings
+---
+name: "Strict Typing"
+description: "Track strict typing posture and proposed tightenings as an audit record"
+status: proposed
+---
 
-**Status:** audit (2026-05-16) · **Next review:** 2026-08-16
+# ADR-0014: Strict Typing
+
+**Date:** 2026-05-16
+**Category:** Policy
+**Next review:** 2026-08-16
+
+## Context
+
+The template advertises strict typing across languages, but declarations and enforcement can diverge if hooks or compiler settings are incomplete.
+
+## Decision
+
+Track the strict-typing posture as an audit record and prioritize concrete enforcement gaps before introducing new lint rules.
+
+## Consequences
+
+The record identifies where strictness is real and where it is only declarative. Proposed rule additions need source confirmation before becoming gates.
+
+## Details
 
 > Audit-only decision doc. Items marked **[no-research]** are config tightenings using tools we already have — safe to ship. Items marked **[needs-research]** propose new lint-rule names; must be confirmed against current-year tool docs via WebSearch before merging per CLAUDE.md rule #0.
 

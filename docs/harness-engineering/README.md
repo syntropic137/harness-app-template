@@ -28,7 +28,7 @@ Slots are stable (the Standard changes slowly, with a versioned contract). Plugi
 
 **We are trying to build:**
 
-- A measured, opinionated default belt that ships with one plugin per slot — each pick research-backed, each pick documented in [`../adr/<slot>.md`](../adr/).
+- A measured, opinionated default belt that ships with one plugin per slot — each pick research-backed, each pick documented in the numbered [ADR index](../adr/).
 - A scaffolder (`create-harness-app`) that materializes the belt onto a fresh repo.
 - An augment path that retrofits the belt onto an existing repo without restructuring it.
 - A self-instrumenting harness: this template governs itself with the same gates it ships to consumers. Eat-our-own-dogfood is non-negotiable.
@@ -67,7 +67,7 @@ When proposing new work, the proposal should open by anchoring to:
 | Question | Canonical answer (this repo) |
 |---|---|
 | What contract does the harness offer? | [`../../harness.manifest.json`](../../harness.manifest.json) (manifest) + [`../adr/`](../adr/) (per-slot ADRs). A versioned `docs/standard/v0.X.md` is a deferred port. |
-| Which tool fills slot X today, and why? | [`../adr/<slot>.md`](../adr/) |
+| Which tool fills slot X today, and why? | The numbered [ADR index](../adr/) |
 | What have we measured? | `experiments/<date>--<slug>/` directories; the rollup `executive-summary.md` is a deferred port. |
 | Per-experiment hypotheses + verdicts | `experiments/<date>--<slug>/` |
 | Per-experiment lessons | `docs/retrospectives/` (deferred port — distilled retros from the lab will land here as a curated subset, not the full 24-doc history) |
@@ -91,4 +91,4 @@ Future supporting docs (placeholders — add as work lands):
 
 - `slot-design-rationale.md` — why each slot exists, what failure mode it prevents, what alternatives we rejected
 - `augment-vs-scaffold.md` — when each path applies and how they share infrastructure
-- `binary-distribution-design.md` — the cargo-dist + cargo-binstall + local-fallback story (today: mostly in [`../adr/binary-distribution.md`](../adr/binary-distribution.md))
+- `binary-distribution-design.md` — the cargo-dist + cargo-binstall + local-fallback story (today: mostly in [`../adr/ADR-0012-binary-distribution.md`](../adr/ADR-0012-binary-distribution.md))

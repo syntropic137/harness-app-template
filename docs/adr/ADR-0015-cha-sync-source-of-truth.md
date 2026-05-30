@@ -1,6 +1,29 @@
-# Decision: cha-sync-source-of-truth — CHA is a STANDALONE canonical repo (no live lab upstream)
+---
+name: "CHA Sync Source of Truth"
+description: "Treat the template as standalone canonical repo, not live-synced from the lab"
+status: accepted
+---
 
-**Status:** active · **Date:** 2026-05-29 · **Next review:** 2026-11-29
+# ADR-0015: CHA Sync Source of Truth
+
+**Date:** 2026-05-29
+**Category:** Template governance
+**Next review:** 2026-11-29
+
+## Context
+
+The canonical template was extracted from the R&D lab, but lab cadence is experiment-driven and unsuitable as a live upstream for consumer forks.
+
+## Decision
+
+Treat `syntropic137/harness-app-template` as the standalone canonical repo. Consumer updates flow from canonical to fork through path-scoped `just update`; lab findings are cherry-picked manually.
+
+## Consequences
+
+The template avoids live lab-sync noise and protects consumer-owned code. Maintainers must still manage manual extraction batches when lab learnings mature.
+
+## Details
+
 **Revision pass 2 (re-scope):** 2026-05-29 — patched to align with the
 operator re-scope `docs/specs/_arc-rescope-template-primary.md` (npm /
 tarball language removed; canonical artifact is the polyglot monorepo

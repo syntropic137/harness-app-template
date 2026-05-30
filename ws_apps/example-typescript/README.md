@@ -33,4 +33,4 @@ curl 'http://localhost:9428/select/tempo/api/search?service=example-typescript'
 
 ## Why HTTP/protobuf default?
 
-Per `docs/standard/decisions/telemetry-sdk.md`: Node SDK 0.218 defaults to HTTP/protobuf on port 4318. The template pins this default to avoid the cross-SDK transport mismatch gotcha (Rust/Python default to gRPC/4317).
+Per `docs/adr/ADR-0004-telemetry-sdk.md`: Node SDK 0.218 defaults to HTTP/protobuf on port 4318. The template pins this default to avoid the cross-SDK transport mismatch gotcha (Rust/Python default to gRPC/4317).

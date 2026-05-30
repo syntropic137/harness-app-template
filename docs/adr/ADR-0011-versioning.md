@@ -1,6 +1,28 @@
-# Decision: versioning — cocogitto
+---
+name: "Versioning"
+description: "Use cocogitto for conventional commits, version bumps, changelog generation, and tags"
+status: accepted
+---
 
-**Status:** active · **Date:** 2026-05-16 · **Next review:** 2026-11-16
+# ADR-0011: Versioning
+
+**Date:** 2026-05-16
+**Category:** Slot
+**Next review:** 2026-11-16
+
+## Context
+
+The versioning slot needs mechanical conventional-commit validation, semantic version bumps, changelog generation, and tag creation in one cross-platform tool.
+
+## Decision
+
+Use cocogitto as the reference versioning plugin.
+
+## Consequences
+
+The template gets a single Rust binary for commit validation and release flow. Deep per-package versioning needs may warrant Changesets or a secondary plugin for TS-only monorepos.
+
+## Details
 
 > The slot is `versioning` (Standard §4.11). Today's pick is cocogitto. This doc captures the rationale.
 
@@ -13,7 +35,7 @@
 
 ## Justification
 
-- **Single-binary Rust** — matches harness-doc-validator + harness-sensors distribution shape (per `docs/standard/decisions/binary-distribution.md`)
+- **Single-binary Rust** — matches harness-doc-validator + harness-sensors distribution shape (per `docs/adr/ADR-0012-binary-distribution.md`)
 - **All-in-one** — `cog commit` (conventional-commits-validated commit creation), `cog bump` (semver bump + tag + changelog append), `cog changelog` (generate from history). One tool replaces what would otherwise be 2-3 tools chained.
 - **Conventional-commits-native** — the lab already uses conventional commits by convention. cocogitto enforces it mechanically.
 - **Pre-commit hook ready** — `cog verify` validates a single commit message; ms-class. Wires into lefthook trivially.

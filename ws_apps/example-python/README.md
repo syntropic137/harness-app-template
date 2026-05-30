@@ -33,7 +33,7 @@ Seven tests; all run with telemetry disabled so the OTEL SDK isn't required to i
 
 ## Why HTTP/protobuf not gRPC?
 
-Per `docs/standard/decisions/telemetry-sdk.md`: the Python SDK historically defaults to gRPC/4317, but the polyglot-monorepo template pins HTTP/protobuf (4318) across all language SDKs so a single OTEL endpoint config works identically for Node, Rust, and Python apps.
+Per `docs/adr/ADR-0004-telemetry-sdk.md`: the Python SDK historically defaults to gRPC/4317, but the polyglot-monorepo template pins HTTP/protobuf (4318) across all language SDKs so a single OTEL endpoint config works identically for Node, Rust, and Python apps.
 
 ## Zero-code instrumentation
 

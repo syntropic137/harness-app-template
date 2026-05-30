@@ -1,6 +1,28 @@
-# Decision: telemetry-sdk — per-language picks
+---
+name: "Telemetry SDK"
+description: "Use official OpenTelemetry SDKs per language"
+status: accepted
+---
 
-**Status:** active · **Date:** 2026-05-14 · **Next review:** 2026-11-14
+# ADR-0004: Telemetry SDK
+
+**Date:** 2026-05-14
+**Category:** Slot
+**Next review:** 2026-11-14
+
+## Context
+
+The telemetry slot is inherently language-specific, but all languages need to emit compatible logs, metrics, and traces into the same harness observability stack.
+
+## Decision
+
+Use official OpenTelemetry SDKs per language: Node `@opentelemetry/sdk-node`, Rust `opentelemetry`/`opentelemetry-otlp`, and Python `opentelemetry-distro` plus framework instrumentation.
+
+## Consequences
+
+The template aligns on OTLP while preserving language-native instrumentation. SDK versions need periodic review because semantic conventions and Rust tracing support continue to evolve.
+
+## Details
 
 Per Standard v0.1 §4.4, this slot is intrinsically per-language. OTEL is the
 mandated wire format (OTLP); the picks below are the official OTEL SDKs for

@@ -28,7 +28,7 @@ Requires `npx` on `$PATH` (Node ≥ 18). The cruiser version is pinned at `17.4.
 ## What this does **not** ship yet
 
 - A pass/fail policy gate. Even with A and D in hand, the scaffold still has too few workspace modules for a threshold to be anything but noise.
-- Adapters for Python (`grimp`), Rust (`cargo-modules`), Go (`go-arch-lint`), or the `sentrux` overlay. Each is a separate increment per `docs/decisions/sensors.md`.
+- Adapters for Python (`grimp`), Rust (`cargo-modules`), Go (`go-arch-lint`), or the `sentrux` overlay. Each is a separate increment per `docs/adr/ADR-0006-sensors.md`.
 
 When those land, this directory grows; the `just sensors` recipe stays the same.
 

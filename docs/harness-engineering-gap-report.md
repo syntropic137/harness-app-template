@@ -60,7 +60,7 @@ What the agent can see when it runs.
 | | |
 |---|---|
 | **Lab has** | `docs/harness-engineering/upstream-update-flow.md` (5.2 KB): provenance block (`.harness-provenance.json`), Tier-1 (manual cherry-pick), Tier-2 (semi-automated crawler), Tier-3 (LLM-as-judge). |
-| **Template has** | Hints in `docs/updating.md` (10 KB) and the new `docs/adr/0015-cha-sync-source-of-truth.md`, but no explicit upstream→downstream contract that an agent can mechanically follow. |
+| **Template has** | Hints in `docs/updating.md` (10 KB) and the new `docs/adr/ADR-0015-cha-sync-source-of-truth.md`, but no explicit upstream→downstream contract that an agent can mechanically follow. |
 | **Why this is a governance gap, not just a doc gap** | Without a written-down sync mechanism the principles + ADRs *in this fork* drift silently from the lab. The governance-every-run posture is undermined the moment the spec a gate checks against goes stale. |
 | **Proposed bead** | port `upstream-update-flow.md` adapted for "we are now the downstream"; include a provenance check in `just doctor`. |
 
@@ -76,11 +76,11 @@ What the agent can see when it runs.
 | **Recommended posture (don't copy — reference)** | The upstream skills are a maintained Claude plugin (`.claude-plugin` at the root of `syntropic137/harness-engineering`). Vendoring duplicates load-bearing prose that drifts. Install the plugin and reference it from `CLAUDE.md`, with a note for each that isn't yet useful in this template's shape (e.g., `worktree-isolation` is moot until the template ships per-task worktree wiring). |
 | **Proposed beads** | (a) install / reference the upstream `harness-engineering` plugin and document the routing surface in `CLAUDE.md`. (b) audit the 5 in-tree skills against their lab counterparts and decide for each: keep, merge-with-upstream-by-reference, or retire. |
 
-### G4 — ADR format: now numbered (`docs/adr/0001-*.md`), no shape template yet
+### G4 — ADR format: now numbered (`docs/adr/ADR-0001-*.md`), no shape template yet
 
 | | |
 |---|---|
-| **State (post-rename by another agent in this session)** | `docs/decisions/<slot>.md` → `docs/adr/0001-stack-manager.md`...`0016-createapp-wrapper-design.md`. The README index is at `docs/adr/README.md`. **The renumbering is already done — this bead can close as observation.** |
+| **State (post-rename by another agent in this session)** | Legacy per-slot decision docs moved to `docs/adr/ADR-0001-stack-manager.md`...`ADR-0016-createapp-wrapper-design.md`. The README index is at `docs/adr/README.md`. **The renumbering is already done — this bead can close as observation.** |
 | **What's still missing** | A `_template.md` at `docs/adr/` showing the canonical ADR shape (Status / Context / Decision / Consequences) so future records have a stable form. |
 | **Connection to governance-every-run** | The doc-validator slot (currently a stub) should eventually *enforce* the ADR shape — see G11. |
 | **Proposed bead** | small: add `docs/adr/_template.md` documenting the shape; cross-reference from `docs/harness-engineering/README.md`. |
@@ -133,7 +133,7 @@ The Ford/Parsons/Kua frame: a fitness function is a *mechanical, continuous, aut
 | | |
 |---|---|
 | **Lab has** | `docs/standard/decisions/sensors-v0.3-apss-canonical.md` — declares sentrux **retired** from the v0.3 agent image, replaced by APSS (Architecture Policy Score Sheet) as the canonical measurement layer. |
-| **Template has** | `docs/adr/0006-sensors.md` still references sentrux as an "AI-governance overlay." This fork is misrepresenting a tool the upstream has retired. |
+| **Template has** | `docs/adr/ADR-0006-sensors.md` still references sentrux as an "AI-governance overlay." This fork is misrepresenting a tool the upstream has retired. |
 | **Proposed bead** | mark sentrux as superseded in `0006-sensors.md`; add a short APSS-canonical record (either as content in `0006` or as a follow-on numbered ADR). |
 | **Priority** | **P1.** Correctness fix. |
 
@@ -217,7 +217,7 @@ Ranked by impact on the governance-every-run north star.
 
 - **82 lab experiments** — out of scope. Load-bearing for the lab, not for a consumer fork.
 - **Retro-by-retro port** — downgraded to a single P3 bead that seeds a distilled subset.
-- **ADR renumbering** — *already done in this session* by another agent (`docs/decisions/*.md` → `docs/adr/0001-*.md` ... `0016-*.md`). No bead.
+- **ADR renumbering** — *already done in this session* by another agent (legacy decision docs → `docs/adr/ADR-0001-*.md` ... `ADR-0016-*.md`). No bead.
 - **`docs/journal/`** — beads + Agent Mail cover the in-flight context need at this template's scale.
 - **Sensors policy gate "deferred until 50 modules"** — that framing is **superseded** by the governance-every-run lens. The new framing is *baseline-snapshot-and-forbid-worsening* now, with thresholds promoted as the codebase grows.
 

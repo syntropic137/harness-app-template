@@ -1,8 +1,27 @@
-# Design Note: `create-harness-app` npx wrapper
+---
+name: "Create Harness App Wrapper"
+description: "Design a future npx create-harness-app wrapper as an additive scaffolding path"
+status: proposed
+---
+
+# ADR-0016: Create Harness App Wrapper
 
 **Date:** 2026-05-30
-**Status:** Draft / Research
-**Bead:** `create-harness-app-z1d`
+**Category:** Template governance
+
+## Context
+
+A future `create-harness-app` CLI can improve ergonomics for users who prefer `npx` scaffolding over GitHub template creation.
+
+## Decision
+
+Design the wrapper as a separate Node.js CLI that fetches the template from GitHub, performs variable substitution, initializes Git, and hands off to local bootstrap steps.
+
+## Consequences
+
+The template remains the canonical artifact while the wrapper stays additive. The wrapper must manage GitHub download rate limits and avoid hiding bootstrap failures from users.
+
+## Details
 
 ## Objective
 Build `create-harness-app` as a separate, `npx`-deployable Node.js CLI tool that scaffolds projects using the `syntropic137/harness-app-template` repository. It must support multi-template selection and variable substitution.

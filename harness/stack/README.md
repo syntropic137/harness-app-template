@@ -25,7 +25,7 @@ This stub provides:
 
 When the real plugin lands, swap the whole `harness/stack/` directory
 with the plugin's source. The slot's contract is documented at
-`docs/standard/decisions/stack-manager.md` (per
+`docs/adr/ADR-0001-stack-manager.md` (per
 `harness.manifest.json#slots.stack-manager.decisionAt`).
 
 Concretely the replacement must keep:

@@ -1,5 +1,28 @@
-# Decision: observability-stack — VictoriaLogs + VictoriaMetrics + VictoriaTraces (via OTEL Collector contrib)
-**Status:** active · **Date:** 2026-05-14 · **Next review:** 2026-11-14
+---
+name: "Observability Stack"
+description: "Use OTEL Collector with VictoriaLogs, VictoriaMetrics, and VictoriaTraces"
+status: accepted
+---
+
+# ADR-0005: Observability Stack
+
+**Date:** 2026-05-14
+**Category:** Slot
+**Next review:** 2026-11-14
+
+## Context
+
+Agentic engineering requires a local, queryable observability stack that can run on developer machines without heavyweight SaaS dependencies.
+
+## Decision
+
+Use OTEL Collector contrib in front of VictoriaLogs, VictoriaMetrics, and VictoriaTraces, queried with LogsQL, PromQL, and TraceQL.
+
+## Consequences
+
+The stack stays laptop-friendly and single-node while preserving standard OTLP ingestion. The team must re-benchmark if VictoriaTraces stalls or a lighter single-binary stack proves better.
+
+## Details
 
 ## Current pick
 OTEL Collector (contrib) fronting **VictoriaLogs**, **VictoriaMetrics**, and **VictoriaTraces** — three single-binary services behind one OTLP ingress, queried via LogsQL / PromQL / TraceQL. Matches today's `infra/` reference.
