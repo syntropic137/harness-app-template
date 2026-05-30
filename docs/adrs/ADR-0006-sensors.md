@@ -8,6 +8,7 @@ status: accepted
 
 **Date:** 2026-05-14
 **Category:** Slot
+**Superseded by:** [`ADR-0017-sensors-v03-apss-canonical`](./ADR-0017-sensors-v03-apss-canonical.md) (partial — promotes APSS to canonical primary; preserves this ADR's adapter catalog including sentrux as available)
 **Next review:** 2026-11-14
 
 ## Context
