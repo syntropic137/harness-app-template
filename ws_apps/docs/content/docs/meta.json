@@ -1,0 +1,11 @@
+{
+  "title": "Harness App Template",
+  "pages": [
+    "index",
+    "getting-started",
+    "harness-slots",
+    "workspaces",
+    "github-pages",
+    "updating"
+  ]
+}

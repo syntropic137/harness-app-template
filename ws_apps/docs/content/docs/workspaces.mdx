@@ -1,0 +1,44 @@
+---
+title: Workspaces
+description: How application, package, and harness members are organized in the monorepo.
+---
+
+# Workspaces
+
+The repository uses a pnpm workspace with three top-level member families:
+
+```yaml
+packages:
+  - ws_apps/*
+  - ws_packages/*
+  - harness/*
+```
+
+`ws_apps/` contains deployable application examples. `ws_packages/` is reserved
+for shared libraries. `harness/` contains the harness slot implementations and
+stubs that the template owns.
+
+## Polyglot members
+
+TypeScript, Rust, Python, and Go members can participate in the same task graph.
+Non-JavaScript members use a small `package.json` wrapper so Turborepo can call
+their native commands:
+
+```json
+{
+  "scripts": {
+    "build": "cargo build --release",
+    "test": "cargo test",
+    "lint": "cargo clippy --all-targets -- -D warnings"
+  }
+}
+```
+
+That wrapper is only an orchestration bridge. The language-native manifest still
+owns the actual package.
+
+## Ownership boundary
+
+After a project is initialized, `ws_apps/`, `ws_packages/`, and `infra/` are
+consumer-owned. The update path deliberately avoids those directories so your
+application code is not overwritten by upstream harness changes.

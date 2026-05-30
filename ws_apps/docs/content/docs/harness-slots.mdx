@@ -1,0 +1,35 @@
+---
+title: Harness Slots
+description: The stable contracts and reference plugin picks that ship with the template.
+---
+
+# Harness slots
+
+The harness is a set of stable contracts plus plugin picks. A slot defines the
+shape of a capability; the plugin is the concrete implementation that fills it.
+
+## Slot inventory
+
+| Slot | Reference pick |
+| --- | --- |
+| `stack-manager` | Stubbed harness stack slot, ready for the Rust implementation |
+| `inspector` | Playwright and ffmpeg |
+| `hooks` | lefthook |
+| `telemetry-sdk` | OpenTelemetry SDKs per language |
+| `observability-stack` | OTEL Collector, VictoriaLogs, VictoriaMetrics, VictoriaTraces |
+| `sensors` | Stubbed opt-in harness sensors slot |
+| `agent-plugins` | `.claude/` canonical skills and settings |
+| `task-runner` | just |
+| `secret-scanner` | Gitleaks |
+| `doc-validator` | Stubbed harness doc-validator slot |
+| `versioning` | cocogitto |
+
+Each load-bearing pick has an ADR under `docs/decisions/`. Forks should keep
+those inherited decisions and add new ADRs when they make new architectural or
+tooling choices.
+
+## Why slots matter
+
+Slots let the template evolve without pretending every downstream project needs
+the same implementation forever. You can replace a plugin when your fork has a
+better reason, but the surrounding contract stays legible to humans and agents.

@@ -6,6 +6,8 @@
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "build": "bun run scripts/build.ts",
+    "docs:build": "pnpm --filter @harness/docs build",
+    "docs:dev": "pnpm --filter @harness/docs dev",
     "test": "bun run scripts/test.ts",
     "test:scripts": "vitest run scripts/tests --coverage",
     "lint": "bun run scripts/lint.ts"

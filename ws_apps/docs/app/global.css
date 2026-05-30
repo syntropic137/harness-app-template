@@ -1,0 +1,64 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+@theme {
+  --color-fd-background: #f8fafc;
+  --color-fd-foreground: #111827;
+  --color-fd-muted: #eef2f7;
+  --color-fd-muted-foreground: #64748b;
+  --color-fd-popover: #ffffff;
+  --color-fd-popover-foreground: #111827;
+  --color-fd-card: #ffffff;
+  --color-fd-card-foreground: #111827;
+  --color-fd-border: rgba(15, 23, 42, 0.12);
+  --color-fd-primary: #0f766e;
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-secondary: #f1f5f9;
+  --color-fd-secondary-foreground: #111827;
+  --color-fd-accent: #b45309;
+  --color-fd-accent-foreground: #ffffff;
+  --color-fd-ring: rgba(15, 118, 110, 0.35);
+}
+
+.dark {
+  --color-fd-background: #111827;
+  --color-fd-foreground: #f9fafb;
+  --color-fd-muted: #1f2937;
+  --color-fd-muted-foreground: #94a3b8;
+  --color-fd-popover: #172033;
+  --color-fd-popover-foreground: #f9fafb;
+  --color-fd-card: #172033;
+  --color-fd-card-foreground: #f9fafb;
+  --color-fd-border: rgba(148, 163, 184, 0.2);
+  --color-fd-primary: #2dd4bf;
+  --color-fd-primary-foreground: #0f172a;
+  --color-fd-secondary: #253044;
+  --color-fd-secondary-foreground: #f9fafb;
+  --color-fd-accent: #fbbf24;
+  --color-fd-accent-foreground: #111827;
+  --color-fd-ring: rgba(45, 212, 191, 0.35);
+}
+
+body {
+  background: var(--color-fd-background);
+  color: var(--color-fd-foreground);
+}
+
+pre,
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+article a:not([class]) {
+  color: var(--color-fd-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.home-grid {
+  background-image:
+    linear-gradient(rgba(15, 118, 110, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 118, 110, 0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+}

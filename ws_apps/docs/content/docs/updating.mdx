@@ -1,0 +1,45 @@
+---
+title: Updating Forks
+description: Pull harness improvements from upstream without merging consumer-owned code.
+---
+
+# Updating forks
+
+The template includes a path-scoped update command for downstream repositories.
+The goal is to pull harness improvements without merging over application code.
+
+## One-time setup
+
+Add the canonical upstream remote:
+
+```sh
+git remote add upstream https://github.com/syntropic137/harness-app-template
+```
+
+## Preview or apply updates
+
+Run:
+
+```sh
+just update
+```
+
+In a TTY, the command applies harness-owned updates. In non-interactive
+environments it previews the pending changes and tells you how to opt in.
+
+Useful explicit modes:
+
+```sh
+just update -- --check
+just update -- --write
+just update -- --force
+```
+
+## What upstream owns
+
+The update script is limited to harness-owned surfaces such as `harness/`,
+`.claude/`, `scripts/`, selected root tooling config, `security.md`, and the
+GitHub workflow files that maintain the harness.
+
+It does not update `ws_apps/`, `ws_packages/`, or `infra/`. Those are owned by
+the project created from the template.

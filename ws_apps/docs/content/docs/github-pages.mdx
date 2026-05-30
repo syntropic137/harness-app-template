@@ -1,0 +1,40 @@
+---
+title: GitHub Pages
+description: How this Fumadocs site is exported and deployed with GitHub Actions.
+---
+
+# GitHub Pages
+
+This documentation site follows the same Fumadocs shape as the Syntropic137 docs
+application: a `source.config.ts`, generated Fumadocs source, App Router docs
+routes, static search through `RootProvider`, and `fumadocs-ui` layouts.
+
+The template-specific difference is deployment. The docs app is configured for
+Next static export so GitHub Pages can serve the generated `out/` directory.
+
+## Local build
+
+Build the site from the repository root:
+
+```sh
+pnpm --filter @harness/docs build
+```
+
+The root shortcut is:
+
+```sh
+pnpm docs:build
+```
+
+## Pages build
+
+The workflow at `.github/workflows/pages.yml` runs on pushes to `main`, installs
+workspace dependencies, builds `@harness/docs` with `GITHUB_PAGES=true`, writes a
+`.nojekyll` file, uploads `ws_apps/docs/out`, and deploys it through GitHub Pages.
+
+When `GITHUB_PAGES=true`, `next.config.mjs` derives the base path from
+`GITHUB_REPOSITORY`, so `syntropic137/harness-app-template` publishes under:
+
+```txt
+https://syntropic137.github.io/harness-app-template/
+```

@@ -1,0 +1,32 @@
+{
+  "name": "@harness/docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev -p 3001",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fumadocs-core": "16.6.2",
+    "fumadocs-mdx": "14.2.7",
+    "fumadocs-ui": "16.6.2",
+    "lucide-react": "0.468.0",
+    "next": "^16.2.2",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "shiki": "3.2.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.0",
+    "@types/mdx": "2.0.13",
+    "@types/node": "22.14.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "postcss": "8.5.3",
+    "tailwindcss": "4.1.0",
+    "typescript": "5.8.2"
+  }
+}

@@ -1,0 +1,48 @@
+---
+title: Getting Started
+description: Create a project from the template and verify the harness locally.
+---
+
+# Getting started
+
+The supported path is fork-first. GitHub creates a repository from the template,
+then the local initialization script renames the seed project surfaces and writes
+provenance for future updates.
+
+## Fork the template
+
+Use GitHub's **Use this template** button or fork the repository directly. Clone
+the new repository to your machine, then add the canonical upstream remote:
+
+```sh
+git remote add upstream https://github.com/syntropic137/harness-app-template
+```
+
+GitHub template creation does not add an upstream remote automatically. The
+remote is only needed when you later run `just update`.
+
+## Initialize your project
+
+Run the template initializer with the project name you want:
+
+```sh
+just init my-project
+```
+
+The initializer rewrites the seed names, updates language manifests, stamps
+`.harness-provenance.json`, removes template-only README text, and installs the
+local Git hooks.
+
+## Verify the harness
+
+After initialization, run the bootstrap and validation path:
+
+```sh
+just bootstrap
+just build
+just test
+```
+
+The template expects `bun`, `pnpm`, `cargo`, and `uv` for the full polyglot
+surface. If your fork removes a language, delete that language's workspace member
+and wrapper rather than keeping unused gates.
