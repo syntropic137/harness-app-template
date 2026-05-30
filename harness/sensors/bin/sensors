@@ -1,17 +1,92 @@
 #!/usr/bin/env bash
+# harness/sensors/bin/sensors — first-increment TypeScript adapter.
+#
+# Wraps `npx dependency-cruiser` with the workspace-scoped config at the
+# repo root and pipes the JSON through aggregate.mjs (de-dup + scope-filter
+# + per-folder/per-module Martin Ca/Ce/I).  Report-only — no policy gate
+# yet (see experiments/2026-05-30--depcruiser-arch-quality/ for why).
+#
+# When abstractness (ts-morph) and the cross-language Rust aggregator land,
+# this dispatcher gains `gate`/`apss` subcommands; today it only knows
+# `report` and `--help`.
 set -euo pipefail
 
-case "${1:---help}" in
-  --help|-h|help)
-    cat <<'EOF'
-harness sensors
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$HERE/../.." && pwd)"
+DEPCRUISER_VERSION="17.4.0"
 
-The sensors slot is present as an opt-in stub in this template. Install or
-replace harness/sensors with a real sensor aggregator before using sensor gates.
+usage() {
+  cat <<'EOF'
+harness sensors — workspace architecture-quality metrics
+
+Subcommands:
+  report [--format json|md]   Run dependency-cruiser against ws_apps & ws_packages
+                              and print Martin Ca/Ce/I per folder & per module.
+  --help                      This text.
+
+Notes:
+  - Reads .dependency-cruiser.cjs at the repo root for scope (includeOnly +
+    excludePattern). De-dup and workspace-scope filtering happen here, not in
+    cruiser.
+  - Report-only at v0.4.x. The policy gate is intentionally deferred until
+    a consumer fork has >= 50 workspace modules — see the experiment under
+    experiments/2026-05-30--depcruiser-arch-quality/ for the rationale.
 EOF
+}
+
+case "${1:-}" in
+  ""|--help|-h|help)
+    usage
+    ;;
+  report)
+    shift
+    fmt="json"
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --format)
+          fmt="${2:-json}"
+          shift 2 || true
+          ;;
+        --format=*)
+          fmt="${1#--format=}"
+          shift
+          ;;
+        --md)
+          fmt="md"
+          shift
+          ;;
+        --json)
+          fmt="json"
+          shift
+          ;;
+        *)
+          echo "error: unknown report flag: $1" >&2
+          exit 2
+          ;;
+      esac
+    done
+    if ! command -v npx >/dev/null 2>&1; then
+      echo "error: npx not found — install Node.js to run the TS adapter" >&2
+      exit 2
+    fi
+    cd "$REPO_ROOT"
+    # Globs (not bare dir args) — cruiser's CLI does not expand directories
+    # into entry points without them; see experiment notes.
+    # Buffer to a tempfile rather than piping: cruiser writes its JSON in
+    # multiple chunks and EPIPEs if the downstream reader closes early
+    # (intermittent — depends on scheduling).
+    tmpfile="$(mktemp -t harness-sensors-cruiser-XXXXXX.json)"
+    trap 'rm -f "$tmpfile"' EXIT
+    npx --yes "dependency-cruiser@${DEPCRUISER_VERSION}" \
+      --metrics --output-type json \
+      'ws_apps/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
+      'ws_packages/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
+      > "$tmpfile"
+    node "$HERE/aggregate.mjs" "--format=$fmt" < "$tmpfile"
     ;;
   *)
-    echo "[stub] harness-sensors: no sensor aggregator is installed in this template." >&2
-    exit 0
+    echo "error: unknown sensors subcommand: $1" >&2
+    echo "try: just sensors --help" >&2
+    exit 2
     ;;
 esac

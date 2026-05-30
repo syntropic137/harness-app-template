@@ -34,8 +34,8 @@
     },
     "sensors": {
       "plugin": "harness-sensors",
-      "version": "0.6-stub",
-      "implementation": "Opt-in stub that exits cleanly until the Rust aggregator is installed.",
+      "version": "0.6.1-ts-adapter",
+      "implementation": "TypeScript adapter only: dependency-cruiser 17.4.0 + Node aggregator (de-dup + scope-filter + per-folder/per-module Martin Ca/Ce/I). Report-only; policy gate deferred until consumer forks have >= 50 workspace modules. Polyglot adapters (ts-morph for A, grimp/cargo-modules/go-arch-lint, sentrux overlay) land in later increments.",
       "decisionAt": "docs/decisions/sensors.md"
     },
     "agent-plugins": {
