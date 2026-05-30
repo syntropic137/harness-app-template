@@ -97,6 +97,14 @@ pre-push:
       #     than rewriting the vendored material.
       run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ .
 
+    perf-gate:
+      # Startup-time fitness function (bead create-harness-app-n48.13).
+      # Runs hyperfine against ws_apps/example-typescript's cold-start
+      # path and compares the mean against harness/perf/baseline.json.
+      # Soft-skips when hyperfine is missing (bench.sh emits a no-op
+      # JSON sentinel that the gate treats as "no benchmarks this run").
+      run: harness/perf/bench.sh | node harness/perf/gate.mjs
+
     ubs-diff:
       run: |
         sh -eu -c '
