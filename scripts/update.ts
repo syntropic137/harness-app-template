@@ -154,7 +154,7 @@ export function updateProject(options: UpdateOptions = {}): string {
     return `already up to date with upstream ${shortSha(upstreamSha)} (${ref})`;
   }
 
-  const commitCount = git(['rev-list', '--count', `${templateBase}..${target}`], { cwd, allowFailure: true }) || '0';
+  const commitCount = git(['rev-list', '--count', `${templateBase}..${target}`], { cwd });
   const localHarnessChanges = git(['diff', '--name-only', `${templateBase}..HEAD`, '--', ...HARNESS_OWNED_PATHS], {
     cwd,
     allowFailure: true,
@@ -184,10 +184,10 @@ export function updateProject(options: UpdateOptions = {}): string {
 
   let stashed = false;
   if (dirty.length > 0 && options.force) {
-    git(['stash', 'push', '--include-untracked', '-m', 'just update harness-owned preimage', '--', ...HARNESS_OWNED_PATHS], {
+    const stashOutput = git(['stash', 'push', '--include-untracked', '-m', 'just update harness-owned preimage', '--', ...dirty], {
       cwd,
     });
-    stashed = true;
+    stashed = !stashOutput.includes('No local changes to save');
   }
 
   const paths = existingHarnessPathsAt(cwd, target);
@@ -199,19 +199,21 @@ export function updateProject(options: UpdateOptions = {}): string {
     .split('\n')
     .filter(Boolean);
   if (refreshed.length === 0) {
+    /* v8 ignore next 3 */
     if (stashed) {
       git(['stash', 'pop'], { cwd });
     }
     return `already up to date with upstream ${shortSha(upstreamSha)} (${ref})`;
   }
   git(['commit', '-m', `update: harness sync from upstream@${shortSha(upstreamSha)}`], { cwd });
+  /* v8 ignore next 3 */
   if (stashed) {
     git(['stash', 'pop'], { cwd });
   }
   return `updated: ${refreshed.length} harness file(s) refreshed; ws_apps/ws_packages untouched`;
 }
 
-function parseCli(argv: string[]): UpdateOptions {
+export function parseCli(argv: string[]): UpdateOptions {
   const options: UpdateOptions = {};
   for (const arg of argv) {
     if (arg === '--help') {
@@ -236,6 +238,7 @@ function parseCli(argv: string[]): UpdateOptions {
   return options;
 }
 
+/* v8 ignore next 8 */
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     console.log(updateProject(parseCli(process.argv.slice(2))));

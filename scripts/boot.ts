@@ -1,4 +1,10 @@
 import { runInherit } from './lib/git';
 
-runInherit('docker', ['compose', '-f', 'harness/observability/compose.harness.yml', ...process.argv.slice(2)]);
+export function main(argv: string[]): void {
+  runInherit('docker', ['compose', '-f', 'harness/observability/compose.harness.yml', ...argv]);
+}
 
+/* v8 ignore next 3 */
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main(process.argv.slice(2));
+}

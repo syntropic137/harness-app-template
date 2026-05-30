@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cmd="${1:-help}"
+if [ "$#" -gt 0 ]; then
+  shift
+fi
+
+case "$cmd" in
+  screenshot-pair|screenshot)
+    exec node harness/inspector/screenshot-pair.mjs "$@"
+    ;;
+  record-flow|record)
+    exec node harness/inspector/record-flow.mjs "$@"
+    ;;
+  keyframe-grid|keyframes)
+    exec node harness/inspector/keyframe-grid.mjs "$@"
+    ;;
+  help|--help|-h)
+    cat <<'EOF'
+harness inspector
+
+Usage:
+  just inspector screenshot-pair [args]
+  just inspector record-flow [args]
+  just inspector keyframe-grid [args]
+
+This is the thin dispatcher for the shipped Node evidence-capture scripts.
+EOF
+    ;;
+  *)
+    echo "error: unknown inspector command: $cmd" >&2
+    echo "try: just inspector --help" >&2
+    exit 2
+    ;;
+esac

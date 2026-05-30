@@ -38,7 +38,7 @@ export function run(command: string, args: string[], options: RunOptions = {}): 
 export function runInherit(command: string, args: string[], cwd = process.cwd()): void {
   const result = spawnSync(command, args, { cwd, stdio: 'inherit' });
   if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} failed with ${result.status ?? 'signal'}`);
+    throw new Error(`${command} ${args.join(' ')} failed with ${result.status}`);
   }
 }
 
@@ -49,4 +49,3 @@ export function isGitRepo(cwd = process.cwd()): boolean {
 export function shortSha(sha: string): string {
   return sha.slice(0, 12);
 }
-

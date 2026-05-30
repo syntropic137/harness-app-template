@@ -101,7 +101,7 @@ Adopt TypeScript, Rust, Python, or Go inside `ws_apps/` — the gates, the telem
 
 ### 5. The harness ships its own gates.
 
-The pre-commit hooks, the test runners, the fitness-sensor gate, the doc-validator — they all run on this repo's own code, every commit. When you fork, you get the same gates the maintainers use to police their own work. See [`security.md`](./security.md) for the full controls list.
+The pre-commit hooks and test runners are wired to run on this repo's own code. The `sensors` and `doc-validator` slots ship visible stubs so the slot contracts are present without pretending the full plugins have landed. See [`security.md`](./security.md) for the full controls list.
 
 ## What ships in this repo
 
@@ -114,11 +114,11 @@ Eleven slots, eleven plugin picks. Standard pinned at **v0.2** (additive-only si
 | `hooks`               | lefthook                                                                            | [`docs/decisions/hooks.md`](./docs/decisions/hooks.md) |
 | `telemetry-sdk`       | `@opentelemetry/sdk-node` (TS) / `opentelemetry-otlp` (Rust) / `opentelemetry-sdk+distro` (Py) | [`docs/decisions/telemetry-sdk.md`](./docs/decisions/telemetry-sdk.md) |
 | `observability-stack` | OTEL Collector → VictoriaLogs / VictoriaMetrics / VictoriaTraces                   | [`docs/decisions/observability-stack.md`](./docs/decisions/observability-stack.md) |
-| `sensors` (opt-in)    | Rust aggregator + adapters                                                          | [`docs/decisions/sensors.md`](./docs/decisions/sensors.md) |
+| `sensors` (opt-in)    | Stubbed `harness/sensors` slot; replace with Rust aggregator when needed             | [`docs/decisions/sensors.md`](./docs/decisions/sensors.md) |
 | `agent-plugins`       | `.claude/` canonical + vendor symlinks                                              | [`docs/decisions/agent-plugins.md`](./docs/decisions/agent-plugins.md) |
 | `task-runner`         | `just`                                                                              | [`docs/decisions/task-runner.md`](./docs/decisions/task-runner.md) |
 | `secret-scanner`      | Gitleaks                                                                            | [`docs/decisions/secret-scanner.md`](./docs/decisions/secret-scanner.md) |
-| `doc-validator`       | `harness-doc-validator` (Rust)                                                      | [`docs/decisions/doc-validator.md`](./docs/decisions/doc-validator.md) |
+| `doc-validator`       | Stubbed `harness/doc-validator` slot; replace with Rust validator when needed        | [`docs/decisions/doc-validator.md`](./docs/decisions/doc-validator.md) |
 | `versioning`          | cocogitto                                                                           | [`docs/decisions/versioning.md`](./docs/decisions/versioning.md) |
 
 All workspace members under `ws_apps/` and `ws_packages/` participate in the same Turborepo task graph regardless of primary language, via the [language-wrapper](#6-language-wrapper) pattern.
@@ -152,7 +152,7 @@ Deeper details — preview mode, the `just update --force` semantics for uncommi
 
 ## Security
 
-This template ships a security standard at [`security.md`](./security.md): supply-chain hardening (lockfiles + pinned deps + transitive audit), SAST + secret scanning + UBS bug scanning wired through pre-commit / pre-push / `Claude PostToolUse` gates (per the `hooks` slot), and a Sigstore-based signing model for future binary releases. The threat model and a coordinated-disclosure reporting path are at the top of that file. If you fork, read `security.md` once and run `just doctor` to verify the required tools are present — silently-skipping gates are a worse posture than no gates.
+This template ships a security standard at [`security.md`](./security.md): consumer-owned lockfile policy, dependency-audit expectations, SAST + secret scanning + UBS bug scanning wired through pre-commit / pre-push / `Claude PostToolUse` gates (per the `hooks` slot), and a Sigstore-based signing model for future binary releases. The threat model and a coordinated-disclosure reporting path are at the top of that file. If you fork, read `security.md` once and run `just doctor` to verify the required tools are present — silently-skipping gates are a worse posture than no gates.
 
 ## Inspiration & prior art
 

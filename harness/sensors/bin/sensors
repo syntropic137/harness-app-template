@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:---help}" in
+  --help|-h|help)
+    cat <<'EOF'
+harness sensors
+
+The sensors slot is present as an opt-in stub in this template. Install or
+replace harness/sensors with a real sensor aggregator before using sensor gates.
+EOF
+    ;;
+  *)
+    echo "[stub] harness-sensors: no sensor aggregator is installed in this template." >&2
+    exit 0
+    ;;
+esac

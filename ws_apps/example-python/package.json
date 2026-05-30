@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build": "uv build",
+    "typecheck": "uv run python -m compileall src tests",
     "test": "uv run pytest",
     "lint": "uv run ruff check ."
   }

@@ -1,3 +1,10 @@
 import { runInherit } from './lib/git';
 
-runInherit('pnpm', ['turbo', 'run', 'lint', ...process.argv.slice(2)]);
+export function main(argv: string[]): void {
+  runInherit('pnpm', ['turbo', 'run', 'lint', ...argv]);
+}
+
+/* v8 ignore next 3 */
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main(process.argv.slice(2));
+}

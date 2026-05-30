@@ -1,3 +1,5 @@
+name: agentic-harness-monorepo
+
 services:
   otel-collector:
     image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.133.0
@@ -5,7 +7,7 @@ services:
     volumes:
       - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
     ports:
-      - "${OTEL_OTLP_PORT}:4318"
+      - "${OTEL_OTLP_PORT:-4318}:4318"
     depends_on: [victorialogs, victoriametrics, victoriatraces]
 
   victorialogs:
@@ -13,7 +15,7 @@ services:
     command: ["-storageDataPath=/data", "-httpListenAddr=:9428"]
     volumes: [victorialogs_data:/data]
     ports:
-      - "${VL_PORT}:9428"
+      - "${VL_PORT:-9428}:9428"
 
   victoriametrics:
     image: victoriametrics/victoria-metrics:v1.128.0
@@ -23,14 +25,14 @@ services:
       - "-search.maxQueryDuration=120s"
     volumes: [victoriametrics_data:/data]
     ports:
-      - "${VM_PORT}:8428"
+      - "${VM_PORT:-8428}:8428"
 
   victoriatraces:
     image: victoriametrics/victoria-traces:v0.4.0
     command: ["-storageDataPath=/data", "-httpListenAddr=:10428"]
     volumes: [victoriatraces_data:/data]
     ports:
-      - "${VT_PORT}:10428"
+      - "${VT_PORT:-10428}:10428"
 
 volumes:
   victorialogs_data:

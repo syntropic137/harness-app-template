@@ -45,6 +45,9 @@ pre-push:
           pnpm turbo run test --filter="...[$base]"
         '
 
+    scripts-coverage:
+      run: pnpm exec vitest run scripts/tests --coverage
+
     ubs-diff:
       run: |
         sh -eu -c '

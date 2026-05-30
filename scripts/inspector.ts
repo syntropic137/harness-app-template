@@ -1,4 +1,10 @@
 import { runInherit } from './lib/git';
 
-runInherit('harness/inspector/bin/inspector', process.argv.slice(2));
+export function main(argv: string[]): void {
+  runInherit('harness/inspector/bin/inspector', argv);
+}
 
+/* v8 ignore next 3 */
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main(process.argv.slice(2));
+}

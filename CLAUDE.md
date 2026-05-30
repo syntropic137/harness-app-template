@@ -6,16 +6,16 @@
 
 A polyglot monorepo scaffolded from `templates/polyglot-monorepo` against [Tool-Belt Harness Standard v0.1](./docs/standard/v0.1.md) (or whichever version this scaffold targets — check the template's `manifest.json`).
 
-The harness gives you 8 named slots wired in: `stack-manager`, `inspector`, `hooks`, `telemetry-sdk`, `observability-stack`, `sensors`, `agent-plugins`, `task-runner`. Each slot has a contract; each plugin satisfies its contract.
+The harness gives you 11 named slots wired in: `stack-manager`, `inspector`, `hooks`, `telemetry-sdk`, `observability-stack`, `sensors`, `agent-plugins`, `task-runner`, `secret-scanner`, `doc-validator`, and `versioning`. Some slots ship as stubs until you replace them with a real plugin; each slot has a contract.
 
 ## Quick runbook
 
 ```sh
 just                  # list every recipe with a one-line description
 just bootstrap        # install vendor symlinks + validate cross-cutting deps
-just stack boot       # boot the dev stack (allocates ports, runs compose)
-just stack inspect    # JSON describing project name + allocated ports
-just inspect --help   # evidence-capture utilities (screenshot, record, keyframes)
+just boot up          # boot the observability compose stack
+just stack --help     # stack-manager slot stub / replacement entrypoint
+just inspector --help # evidence-capture utilities (screenshot, record, keyframes)
 ```
 
 ## Skills available in this project

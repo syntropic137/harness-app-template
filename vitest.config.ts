@@ -8,5 +8,18 @@ export default defineConfig({
   test: {
     include: ['scripts/tests/**/*.test.ts'],
     environment: 'node',
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary'],
+      all: true,
+      include: ['scripts/**/*.ts'],
+      exclude: ['scripts/tests/**/*.ts'],
+      thresholds: {
+        lines: 100,
+        branches: 100,
+        functions: 100,
+        statements: 100,
+      },
+    },
   },
 });

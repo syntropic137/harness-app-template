@@ -2,8 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { chdir, cwd as processCwd } from 'node:process';
 import { describe, expect, test } from 'vitest';
-import { updateProject } from '../update';
+import { parseCli, updateProject } from '../update';
 
 function run(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -46,6 +47,35 @@ function setupCanonicalAndFork(root: string): { canonical: string; fork: string 
 }
 
 describe('updateProject', () => {
+  test('parses CLI update flags', () => {
+    expect(parseCli(['--check', '--write', '--force', '--strategy=preview'])).toEqual({
+      check: true,
+      strategy: 'preview',
+      force: true,
+    });
+    expect(() => parseCli(['--strategy=bad'])).toThrow(/--strategy/);
+    expect(() => parseCli(['--bogus'])).toThrow(/unknown argument/);
+  });
+
+  test('parseCli --help prints usage and exits', () => {
+    const originalLog = console.log;
+    const originalExit = process.exit;
+    const logs: string[] = [];
+    console.log = (message?: unknown) => {
+      logs.push(String(message));
+    };
+    process.exit = ((code?: string | number | null | undefined): never => {
+      throw new Error(`exit ${code}`);
+    }) as typeof process.exit;
+    try {
+      expect(() => parseCli(['--help'])).toThrow('exit 0');
+      expect(logs[0]).toContain('usage: bun run scripts/update.ts');
+    } finally {
+      console.log = originalLog;
+      process.exit = originalExit;
+    }
+  });
+
   test('preview leaves working tree intact; merge applies harness paths only', () => {
     const root = mkdtempSync(join(tmpdir(), 'cha-update-'));
     try {
@@ -89,6 +119,131 @@ describe('updateProject', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test('defaults to merge in an interactive cwd run', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-defaults-'));
+    const originalCwd = processCwd();
+    const originalIsTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+      write(join(canonical, 'harness/file.txt'), 'v2\n');
+      commitAll(canonical, 'harness bump');
+
+      chdir(fork);
+      Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+      const result = updateProject();
+      expect(result).toContain('harness file(s) refreshed');
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe('v2\n');
+    } finally {
+      chdir(originalCwd);
+      if (originalIsTty) {
+        Object.defineProperty(process.stdout, 'isTTY', originalIsTty);
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('defaults to preview in a non-interactive cwd run', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-default-preview-'));
+    const originalCwd = processCwd();
+    const originalIsTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+      write(join(canonical, 'harness/file.txt'), 'v2\n');
+      commitAll(canonical, 'harness bump');
+
+      chdir(fork);
+      Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
+      const result = updateProject();
+      expect(result).toContain('preview only');
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe('v1\n');
+    } finally {
+      chdir(originalCwd);
+      if (originalIsTty) {
+        Object.defineProperty(process.stdout, 'isTTY', originalIsTty);
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('reports already up to date when upstream HEAD is the merge base', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-current-'));
+    try {
+      const { fork } = setupCanonicalAndFork(root);
+      const result = updateProject({ cwd: fork, strategy: 'merge' });
+      expect(result).toContain('already up to date');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('returns no harness-owned paths when upstream changed only consumer paths', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-no-harness-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+      write(join(canonical, 'ws_apps/app.txt'), 'upstream seed edit\n');
+      commitAll(canonical, 'consumer seed update');
+      const result = updateProject({ cwd: fork, strategy: 'merge' });
+      expect(result).toContain('already up to date');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('reports no harness-owned paths when upstream has none', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-no-paths-'));
+    try {
+      const canonical = join(root, 'canonical');
+      const fork = join(root, 'fork');
+      mkdirSync(canonical);
+      initRepo(canonical);
+      write(join(canonical, 'docs-consumer/readme.md'), 'v1\n');
+      commitAll(canonical, 'initial non-harness template');
+
+      execFileSync('git', ['clone', canonical, fork], { stdio: 'ignore' });
+      run(fork, ['config', 'user.email', 'test@example.invalid']);
+      run(fork, ['config', 'user.name', 'Template Test']);
+      run(fork, ['config', 'commit.gpgsign', 'false']);
+      run(fork, ['remote', 'add', 'upstream', canonical]);
+
+      write(join(canonical, 'docs-consumer/readme.md'), 'v2\n');
+      commitAll(canonical, 'consumer-only upstream update');
+
+      const result = updateProject({ cwd: fork, strategy: 'merge' });
+      expect(result).toContain('no harness-owned paths found upstream');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses when provenance is dirty', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-dirty-prov-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+      write(join(fork, '.harness-provenance.json'), '{}\n');
+      write(join(canonical, 'harness/file.txt'), 'v2\n');
+      commitAll(canonical, 'bump');
+      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(/immutable after init/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('--force stashes dirty harness edits before no-op harness refresh', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-force-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+      write(join(canonical, 'ws_apps/app.txt'), 'upstream seed edit\n');
+      commitAll(canonical, 'consumer seed update');
+      write(join(fork, 'harness/file.txt'), 'local harness edit\n');
+      const result = updateProject({ cwd: fork, strategy: 'merge', force: true });
+      expect(result).toContain('already up to date');
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe('v1\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
 
   test('refuses without upstream remote', () => {
     const root = mkdtempSync(join(tmpdir(), 'cha-update-no-up-'));
@@ -164,6 +319,51 @@ describe('updateProject', () => {
       const preview = updateProject({ cwd: fork, strategy: 'preview' });
       expect(preview).toContain(`forked at ${canonicalHead.slice(0, 7)}`);
       expect(preview).toContain('2026-05-29T22:00:00.000Z');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('uses unknown date when provenance omits fork timestamp', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-prov-no-date-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+      const canonicalHead = run(canonical, ['rev-parse', 'HEAD']);
+      write(
+        join(fork, '.harness-provenance.json'),
+        JSON.stringify(
+          {
+            schemaVersion: '1.0',
+            canonical_commit: canonicalHead,
+          },
+          null,
+          2,
+        ),
+      );
+      commitAll(fork, 'stamp provenance without timestamp');
+
+      write(join(canonical, 'harness/file.txt'), 'v2\n');
+      commitAll(canonical, 'bump');
+
+      const preview = updateProject({ cwd: fork, strategy: 'preview' });
+      expect(preview).toContain(`forked at ${canonicalHead.slice(0, 12)} (unknown date)`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('treats malformed committed provenance as not initialized', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-bad-prov-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+      write(join(fork, '.harness-provenance.json'), '{bad json\n');
+      commitAll(fork, 'stamp malformed provenance');
+
+      write(join(canonical, 'harness/file.txt'), 'v2\n');
+      commitAll(canonical, 'bump');
+
+      const preview = updateProject({ cwd: fork, strategy: 'preview' });
+      expect(preview).toContain('provenance: not initialized');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

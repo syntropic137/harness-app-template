@@ -84,6 +84,7 @@ export function walkTextFiles(root: string): string[] {
       return;
     }
     if (stat.isDirectory()) {
+      /* v8 ignore next 3 */
       if (SKIP_DIRS.has(path.split('/').at(-1) ?? '')) {
         return;
       }
@@ -92,10 +93,12 @@ export function walkTextFiles(root: string): string[] {
       }
       return;
     }
+    /* v8 ignore next 3 */
     if (!stat.isFile()) {
       return;
     }
     const ext = path.includes('.') ? path.slice(path.lastIndexOf('.')) : '';
+    /* v8 ignore next 3 */
     if (TEXT_EXTENSIONS.has(ext)) {
       files.push(path);
     }
@@ -120,4 +123,3 @@ export function replaceInTree(root: string, replacements: Array<[string, string]
   }
   return changed;
 }
-

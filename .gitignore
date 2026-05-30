@@ -30,6 +30,7 @@ GEMINI.md
 
 # Node / TS
 node_modules/
+pnpm-lock.yaml
 dist/
 build/
 coverage/
@@ -37,12 +38,14 @@ coverage/
 *.tsbuildinfo
 
 # Rust
+Cargo.lock
 target/
 **/target/
 *.rs.bk
 Cargo.lock.bak
 
 # Python
+uv.lock
 .venv/
 **/__pycache__/
 **/*.pyc
@@ -51,3 +54,6 @@ Cargo.lock.bak
 .ruff_cache/
 .mypy_cache/
 *.egg-info/
+
+# Go
+go.sum

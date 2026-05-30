@@ -4,7 +4,8 @@
 > template's **security standard** — what this repo commits to do to
 > protect the supply chain, the agent's working environment, and the
 > humans who fork from here. Some controls are **wired today** (lefthook
-> hooks, Gitleaks, lockfiles, UBS); some are **standard** (signed commits,
+> hooks, Gitleaks, UBS); some are **standard** (lockfile review,
+> signed commits,
 > signed releases, transitive audit gates per language) and will trip
 > their CI gate once enabled. Each control labels its state so you can
 > read this once and know what's enforced versus aspirational.
@@ -13,7 +14,7 @@
 > threat model → controls → verification → key handling → reporting. The
 > UBS document targets a binary distributable; this template is a
 > forkable Git repo, so the supply-chain primitives are adapted (Git
-> history + sync-PR review + lockfile integrity + transitive audit
+> history + template review + consumer-owned lockfile integrity + transitive audit
 > instead of signed binary tarballs).
 
 ## Scope
@@ -43,8 +44,8 @@ The threats this template defends against, in rough order of likelihood:
 
 - **Compromised transitive dependency.** A package deep in your `pnpm`
   / `cargo` / `uv` / `go.mod` graph is taken over and an update ships
-  malicious code. **Hardened by:** lockfile policy + pinned deps +
-  transitive audit gates (§Controls 1, 2, 3).
+  malicious code. **Hardened by:** consumer-owned lockfiles + pinned deps
+  where practical + transitive audit gates (§Controls 1, 2, 3).
 - **Secrets leaked into the repository.** Keys, tokens, or credentials
   committed by accident (human or agent). **Hardened by:** Gitleaks
   pre-commit + CI scan (§Controls 5); lefthook diff-scope (§Controls 8).
@@ -84,28 +85,30 @@ that implements it, the state today, and the decision-doc anchor.
 
 ### 1. Lockfile policy
 
-**State: wired.** Every workspace ecosystem commits its lockfile:
+**State: standard; consumer-owned.** This template intentionally does **not**
+commit lockfiles. Under the standalone / Option-2 model, fork consumers own
+their dependency graph and generate lockfiles after `just init` / bootstrap:
 
-- TypeScript / Node — `pnpm-lock.yaml` (root, frozen on CI via `pnpm install --frozen-lockfile`).
-- Rust — `Cargo.lock` at the workspace root.
-- Python — `uv.lock` at the workspace root.
-- Go — `go.sum` per module.
+- TypeScript / Node — `pnpm-lock.yaml` (ignored by the template).
+- Rust — `Cargo.lock` (ignored by the template).
+- Python — `uv.lock` (ignored by the template).
+- Go — `go.sum` (ignored by the template).
 
-CI MUST fail if lockfile drift is detected (`pnpm install --frozen-lockfile`
-errors on drift; `cargo` and `uv` and `go mod verify` have equivalent
-modes). The pre-push hook (§Controls 8) runs `pnpm install --frozen-lockfile`
-locally before push so the round-trip is fast.
+Consumer projects SHOULD commit and review their own lockfiles once they have
+chosen their application dependencies. The template's `.gitignore` keeps
+canonical-template lockfiles out of the distributable seed so one consumer's
+resolved graph is not presented as the upstream contract for every fork.
 
-**Rationale:** Without lockfiles, a transitive bump on an attacker-owned
-package becomes an automatic install. Frozen lockfiles mean a malicious
-upstream has to wait for a *review-gated* lockfile bump, which is the
-window §Controls 3 closes.
+**Rationale:** A forkable template is not the application dependency owner.
+Lockfile integrity is still important, but it belongs to the consumer repo
+after initialization. Review lockfile bumps in the fork where the actual
+dependency graph exists.
 
 ### 2. Pinned / immutable dependencies
 
-**State: wired (template). Standard for consumer deps.** Top-level
-dependency versions are exact (no `^`, `~`, or `>=` ranges) in the
-template itself; consumer projects SHOULD adopt the same rule:
+**State: standard.** The template keeps its seed dependencies intentionally
+minimal; consumer projects SHOULD pin production dependencies when the real
+application graph appears:
 
 - `package.json` entries pinned (e.g. `"vitest": "3.2.4"` not `"^3.2.4"`).
 - `Cargo.toml` entries pinned (`tokio = "=1.42.0"` not `tokio = "1"`).
@@ -114,11 +117,10 @@ template itself; consumer projects SHOULD adopt the same rule:
 - GitHub Actions pinned by **commit SHA**, not tag (`uses: actions/checkout@a1b2c3d4...`
   not `@v5`). Mutable-tag overwrite is a real attack class.
 
-**Rationale:** A tag and a `^` range both mean "trust whatever the
-upstream pushes next." Pinning to an immutable reference (a hash, an
-exact version locked by `Cargo.lock` / `pnpm-lock.yaml`) means an
-attacker has to compromise a *specific* artifact, and CI's diff review
-catches the bump.
+**Rationale:** A tag and a broad semver range both mean "trust whatever the
+upstream pushes next." Pinning to an immutable reference or a reviewed
+consumer-owned lockfile means an attacker has to compromise a *specific*
+artifact, and diff review catches the bump.
 
 ### 3. Transitive-dependency audit gates
 

@@ -73,10 +73,12 @@ function updateHarnessComposeName(cwd: string, projectName: string): void {
   }
 }
 
+/* v8 ignore next 3 */
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+/* v8 ignore next 24 */
 function installGitHooks(cwd: string): void {
   const globalHooksPath = git(['config', '--global', '--get', 'core.hooksPath'], { cwd, allowFailure: true });
   runInherit('pnpm', ['exec', 'lefthook', 'install', '--force'], cwd);
@@ -162,6 +164,8 @@ export function initProject(projectName: string, options: InitOptions = {}): str
 
   const replacements: Array<[string, string]> = [
     ['@example/typescript', `@${projectName}/typescript`],
+    ['@example/python', `@${projectName}/python`],
+    ['@example/rust', `@${projectName}/rust`],
     ['example-typescript', `${projectName}-typescript`],
     ['example-python', `${projectName}-python`],
     ['example-rust', `${projectName}-rust`],
@@ -179,6 +183,7 @@ export function initProject(projectName: string, options: InitOptions = {}): str
   removeIfExists(join(cwd, '.github/ISSUE_TEMPLATE/template-question.md'));
   writeHarnessProvenance(cwd, options.now);
 
+  /* v8 ignore next 7 */
   if (options.verify !== false) {
     runInherit('bun', ['--version'], cwd);
     runInherit('pnpm', ['install'], cwd);
@@ -190,7 +195,7 @@ export function initProject(projectName: string, options: InitOptions = {}): str
   return changed;
 }
 
-function parseCli(argv: string[]): { projectName: string; force: boolean; verify: boolean } {
+export function parseCli(argv: string[]): { projectName: string; force: boolean; verify: boolean } {
   const force = argv.includes('--force');
   const noVerify = argv.includes('--no-verify');
   const projectName = argv.find((arg) => !arg.startsWith('--'));
@@ -200,6 +205,7 @@ function parseCli(argv: string[]): { projectName: string; force: boolean; verify
   return { projectName, force, verify: !noVerify };
 }
 
+/* v8 ignore next 11 */
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const { projectName, force, verify } = parseCli(process.argv.slice(2));

@@ -1,0 +1,11 @@
+{
+  "name": "@harness/sensors",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "bash -n bin/sensors",
+    "typecheck": "bash -n bin/sensors",
+    "test": "bin/sensors --help >/dev/null",
+    "lint": "bash -n bin/sensors"
+  }
+}
