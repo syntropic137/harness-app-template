@@ -32,6 +32,63 @@ Invocation pattern (this is how the Skill tool dispatches them):
 Skill({skill: "running-experiments"})
 ```
 
+## Upstream harness-engineering principle skills
+
+This template references, but does not vendor, the upstream harness-engineering
+plugin skills from
+[`syntropic137/harness-engineering/skills`](https://github.com/syntropic137/harness-engineering/tree/main/skills).
+Keeping the principle bodies upstream avoids duplicated guidance drifting across
+consumer forks.
+
+Install the Claude plugin from a local clone:
+
+```sh
+git clone https://github.com/syntropic137/harness-engineering.git ~/.claude/plugins/harness-engineering
+claude plugin install ~/.claude/plugins/harness-engineering --scope project
+```
+
+For Codex-style skill discovery, keep the same upstream clone and symlink the
+skills directory:
+
+```sh
+git clone https://github.com/syntropic137/harness-engineering.git ~/.codex/harness-engineering
+mkdir -p ~/.agents/skills
+ln -s ~/.codex/harness-engineering/skills ~/.agents/skills/harness-engineering
+```
+
+Smoke-check the reference from a fresh clone:
+
+```sh
+bun run scripts/harness-engineering-skills.ts --fresh-clone
+```
+
+The upstream skill inventory is:
+
+| Skill | Role | Template note |
+|---|---|---|
+| `application-legibility` | Expose runtime state, errors, causal chains, and trace context as machine-readable application surfaces. | Use when adding real app endpoints; the bare template has only example apps. |
+| `approved-scenarios` | Define what agents may do unilaterally versus what requires escalation. | Reference-only until this template grows a machine-readable approval policy file. |
+| `authoring-skills` | Author or audit Claude skills and their routing/frontmatter shape. | Useful immediately for project-local skill maintenance. |
+| `autonomous-validation-loop` | Shape observe-fix-restart-rerun-diff loops with iteration budgets and structured verdicts. | Use when a consumer adds deterministic workloads or UI journeys. |
+| `browser-legibility` | Wire browser perception through CDP, Playwright, DOM, accessibility tree, network, console, screenshots, and video evidence. | Complements the local Playwright and Chrome DevTools skills. |
+| `harness-review` | Orchestrate the sibling principle skills into a parallel harness audit. | Invoke from a top-level `claude -p` session after installing the plugin. |
+| `long-running-durability` | Keep multi-hour agent tasks resumable through checkpoints, durable state, retries, and budgets. | Reference-only until long-running task state is wired into this template. |
+| `performance-gates` | Design startup, latency, span-duration, and journey performance budgets as mechanical gates. | Useful now for the startup-time gate; expand as consumers add real workloads. |
+| `repo-knowledge-map` | Keep agent-facing context small, discoverable, co-located, and mechanically drift-checked. | Useful now; this `CLAUDE.md` is the repo map entry point. |
+| `skill-testing` | Empirically test skill routing and whether a skill body earns its context cost. | Useful for both upstream plugin and in-tree skill edits. |
+| `telemetry-pipeline` | Shape OTLP/OpenTelemetry collection, routing, enrichment, fanout, buffering, and backend independence. | Useful with the template observability stack; apps must still emit signal. |
+| `telemetry-query` | Make logs, metrics, traces, schemas, and cross-signal correlation queryable by agents. | Pairs with the local concrete `observability-queries` skill. |
+| `worktree-isolation` | Separate parallel agent work by worktree, ports, databases, logs, telemetry labels, and teardown. | Design guide only until per-task worktree wiring lands. |
+
+Use the upstream orchestrator like this after installation:
+
+```sh
+claude -p --verbose \
+  --permission-mode bypassPermissions \
+  --append-system-prompt-file ./CLAUDE.md \
+  "Use the harness-review skill from the installed harness-engineering plugin to audit this repository. Target: . Return findings first, then residual risks."
+```
+
 ## Workspace layout
 
 - `ws_apps/` — your runnable units. Each subdir can pick its own stack (TS, Rust, Python, Go, …).

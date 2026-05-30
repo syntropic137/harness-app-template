@@ -21,6 +21,9 @@ lint *args:
 doctor *args:
     bun run scripts/doctor.ts {{args}}
 
+harness-engineering-skills *args:
+    bun run scripts/harness-engineering-skills.ts {{args}}
+
 boot *args:
     bun run scripts/boot.ts {{args}}
 
