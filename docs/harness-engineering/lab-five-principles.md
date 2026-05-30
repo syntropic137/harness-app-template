@@ -68,7 +68,7 @@ When proposing new work, the proposal should open by anchoring to:
 |---|---|
 | What contract does the harness offer? | [`../../harness.manifest.json`](../../harness.manifest.json) (manifest) + [`../adrs/`](../adrs/) (per-slot ADRs). A versioned `docs/standard/v0.X.md` is a deferred port. |
 | Which tool fills slot X today, and why? | The numbered [ADR index](../adrs/) |
-| What have we measured? | `experiments/<date>--<slug>/` directories; the rollup `executive-summary.md` is a deferred port. |
+| What have we measured? | [`docs/executive-summary.md`](../executive-summary.md) — the single-page rollup. Per-experiment depth lives in `experiments/<date>--<slug>/`. |
 | Per-experiment hypotheses + verdicts | `experiments/<date>--<slug>/` |
 | Per-experiment lessons | `docs/retrospectives/` (deferred port — distilled retros from the lab will land here as a curated subset, not the full 24-doc history) |
 | How this fork stays in sync with upstream | [`upstream-update-flow.md`](./upstream-update-flow.md) |
