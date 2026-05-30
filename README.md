@@ -101,7 +101,7 @@ Adopt TypeScript, Rust, Python, or Go inside `ws_apps/` — the gates, the telem
 
 ### 5. The harness ships its own gates.
 
-The pre-commit hooks and test runners are wired to run on this repo's own code. The `sensors` and `doc-validator` slots ship visible stubs so the slot contracts are present without pretending the full plugins have landed. See [`security.md`](./security.md) for the full controls list.
+The pre-commit hooks and test runners are wired to run on this repo's own code. The `stack-manager`, `sensors`, and `doc-validator` slots ship visible stubs so the slot contracts are present without pretending the full plugins have landed. See [`security.md`](./security.md) for the full controls list.
 
 ## What ships in this repo
 
@@ -109,7 +109,7 @@ Eleven slots, eleven plugin picks. Standard pinned at **v0.2** (additive-only si
 
 | Slot | Plugin | Decision doc |
 |---|---|---|
-| `stack-manager`       | Rust binary (bollard + portpicker)                                                  | [`docs/decisions/stack-manager.md`](./docs/decisions/stack-manager.md) |
+| `stack-manager`       | Stubbed `harness/stack` slot; replace with the Rust binary (bollard + portpicker) when needed                                                  | [`docs/decisions/stack-manager.md`](./docs/decisions/stack-manager.md) |
 | `inspector`           | Playwright + ffmpeg                                                                 | [`docs/decisions/inspector.md`](./docs/decisions/inspector.md) |
 | `hooks`               | lefthook                                                                            | [`docs/decisions/hooks.md`](./docs/decisions/hooks.md) |
 | `telemetry-sdk`       | `@opentelemetry/sdk-node` (TS) / `opentelemetry-otlp` (Rust) / `opentelemetry-sdk+distro` (Py) | [`docs/decisions/telemetry-sdk.md`](./docs/decisions/telemetry-sdk.md) |
