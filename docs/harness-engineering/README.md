@@ -25,6 +25,8 @@ This area covers patterns, principles, and tools for making AI agents reliable, 
 
 **[Lab five principles](lab-five-principles.md)** — supplementary; the lab's own discipline framing (measured-not-assumed, token-aware, polyglot-first, cross-platform, eat-own-dogfood). Use alongside, not instead of, the canonical above.
 
+**[Upstream update flow](upstream-update-flow.md)** — Tier 1 / Tier 2 / Tier 3 mechanism for keeping consumer forks and the canonical template coherent, anchored by `.harness-provenance.json`.
+
 ## References
 
 The full 11-row canonical table (cross-checked against `/tmp/he-canonical.md`). Per-source extractive summaries live under [`references/`](./references/).

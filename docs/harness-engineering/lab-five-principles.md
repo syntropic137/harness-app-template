@@ -2,7 +2,7 @@
 
 > **One sentence:** an agentic engineering harness is a portable infrastructure pattern that lets an AI coding agent diagnose, fix, and verify changes in any codebase, with every architectural choice grounded in measurement rather than assumption.
 
-> **Source:** ported from the upstream lab at `NeuralEmpowerment/agentic-harness-lab/docs/harness-engineering/README.md`. Edits here adapt the framing for a consumer fork; the **five principles** below transport verbatim. When upstream evolves them, pull updates per `upstream-update-flow.md` (deferred port — bead `create-harness-app-n48.8`).
+> **Source:** ported from the upstream lab at `NeuralEmpowerment/agentic-harness-lab/docs/harness-engineering/README.md`. Edits here adapt the framing for a consumer fork; the **five principles** below transport verbatim. When upstream evolves them, pull updates per [`upstream-update-flow.md`](./upstream-update-flow.md).
 
 This directory is the canonical hub for **what the harness is, why it exists, what principles govern it, and the mechanisms that keep this consumer fork coherent over time.** Other docs in this repo reference this one; this one references no other doc as authoritative on its own scope.
 
@@ -11,7 +11,7 @@ If you're orienting from scratch, read in this order:
 1. [What an agentic engineering harness actually is](#what-an-agentic-engineering-harness-actually-is)
 2. [What we are + aren't trying to build](#what-we-are-and-arent-trying-to-build)
 3. [The five principles](#the-five-principles-in-order-of-load-bearing-ness)
-4. `upstream-update-flow.md` (deferred port — bead `create-harness-app-n48.8`) — how this fork stays coherent with the lab and contributes back (to be ported alongside)
+4. [`upstream-update-flow.md`](./upstream-update-flow.md) — how this fork stays coherent with the canonical template and contributes reusable lessons back
 5. The Tool-Belt Standard the principles govern — currently the [`harness.manifest.json`](../../harness.manifest.json) in this repo and the per-slot decision docs under [`../adrs/`](../adrs/). A consumer-fork copy of `docs/standard/v0.X.md` is a deferred port (see the gap report)
 
 ---
@@ -71,7 +71,7 @@ When proposing new work, the proposal should open by anchoring to:
 | What have we measured? | `experiments/<date>--<slug>/` directories; the rollup `executive-summary.md` is a deferred port. |
 | Per-experiment hypotheses + verdicts | `experiments/<date>--<slug>/` |
 | Per-experiment lessons | `docs/retrospectives/` (deferred port — distilled retros from the lab will land here as a curated subset, not the full 24-doc history) |
-| How this fork stays in sync with upstream | `upstream-update-flow.md` (deferred port — bead `create-harness-app-n48.8`) (deferred port) |
+| How this fork stays in sync with upstream | [`upstream-update-flow.md`](./upstream-update-flow.md) |
 | How an agent orients itself in this repo | [`../../CLAUDE.md`](../../CLAUDE.md) |
 | How a downstream consumer adopts the harness | [`../../README.md`](../../README.md) |
 | Which skills agents should reach for | [`../../.claude/skills/`](../../.claude/skills/) (ship-in-tree) + the upstream `syntropic137/harness-engineering` plugin (deferred wire-up; see gap report) |
@@ -85,7 +85,7 @@ When proposing new work, the proposal should open by anchoring to:
 
 ## Supporting docs in this directory
 
-- `upstream-update-flow.md` (deferred port — bead `create-harness-app-n48.8`) — Tier 1 / Tier 2 / Tier 3 mechanism for pulling lessons between consumer forks and the lab. **Deferred port** — see the gap report.
+- [`upstream-update-flow.md`](./upstream-update-flow.md) — Tier 1 / Tier 2 / Tier 3 mechanism for pulling lessons between consumer forks and the canonical template.
 
 Future supporting docs (placeholders — add as work lands):
 

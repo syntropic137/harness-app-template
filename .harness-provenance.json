@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "fresh",
+  "template": "polyglot-monorepo",
+  "templateVersion": "0.4.0",
+  "standardVersion": "0.2",
+  "canonical_repo": "https://github.com/syntropic137/harness-app-template",
+  "canonical_commit": "436a6155a7d8e11eac46a94270acfd77533d799a",
+  "forked_at": "2026-05-30T18:33:00.000Z"
+}
