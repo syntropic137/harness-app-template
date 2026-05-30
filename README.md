@@ -101,7 +101,7 @@ Adopt TypeScript, Rust, Python, or Go inside `ws_apps/` — the gates, the telem
 
 ### 5. The harness ships its own gates.
 
-The pre-commit hooks and test runners are wired to run on this repo's own code. The `stack-manager`, `sensors`, and `doc-validator` slots ship visible stubs so the slot contracts are present without pretending the full plugins have landed. See [`security.md`](./security.md) for the full controls list.
+The pre-commit hooks and test runners are wired to run on this repo's own code. The `stack-manager` slot ships a working Node/TS interim implementation, while later slots can still ship visible placeholders where the full plugin has not landed. See [`security.md`](./security.md) for the full controls list.
 
 ## What ships in this repo
 
@@ -109,7 +109,7 @@ Eleven slots, eleven plugin picks. Standard pinned at **v0.2** (additive-only si
 
 | Slot | Plugin | Decision doc |
 |---|---|---|
-| `stack-manager`       | Stubbed `harness/stack` slot; replace with the Rust binary (bollard + portpicker) when needed                                                  | [`docs/adrs/ADR-0001-stack-manager.md`](./docs/adrs/ADR-0001-stack-manager.md) |
+| `stack-manager`       | Working Node/TS `harness/stack` manager; Rust binary target preserved under `harness/stack/rust-stub`                                           | [`docs/adrs/ADR-0001-stack-manager.md`](./docs/adrs/ADR-0001-stack-manager.md) |
 | `inspector`           | Playwright + ffmpeg                                                                 | [`docs/adrs/ADR-0002-inspector.md`](./docs/adrs/ADR-0002-inspector.md) |
 | `hooks`               | lefthook                                                                            | [`docs/adrs/ADR-0003-hooks.md`](./docs/adrs/ADR-0003-hooks.md) |
 | `telemetry-sdk`       | `@opentelemetry/sdk-node` (TS) / `opentelemetry-otlp` (Rust) / `opentelemetry-sdk+distro` (Py) | [`docs/adrs/ADR-0004-telemetry-sdk.md`](./docs/adrs/ADR-0004-telemetry-sdk.md) |

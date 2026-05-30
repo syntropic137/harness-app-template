@@ -48,5 +48,6 @@ export default defineHarnessConfig({
 ## Tests
 
 ```sh
-bunx vitest run harness/stack/tests
+corepack pnpm --filter @harness/stack test
+corepack pnpm --filter @harness/stack typecheck
 ```

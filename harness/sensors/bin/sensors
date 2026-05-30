@@ -38,7 +38,8 @@ EOF
 }
 
 # Build the merged report JSON to a path the caller chooses.
-# Sets globals: $cruiser_tmp $abs_tmp $report_tmp (caller cleans up via trap).
+# Sets globals: $cruiser_tmp $abs_tmp $cplx_tmp $report_tmp (caller cleans
+# up via trap).
 build_report() {
   local out_format="$1"
   local out_path="$2"
@@ -49,18 +50,23 @@ build_report() {
   cd "$REPO_ROOT"
   cruiser_tmp="$(mktemp -t harness-sensors-cruiser-XXXXXX.json)"
   abs_tmp="$(mktemp -t harness-sensors-abs-XXXXXX.json)"
+  cplx_tmp="$(mktemp -t harness-sensors-cplx-XXXXXX.json)"
   npx --yes "dependency-cruiser@${DEPCRUISER_VERSION}" \
     --metrics --output-type json \
     'ws_apps/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
     'ws_packages/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
     > "$cruiser_tmp"
-  # ts-morph Abstractness adapter — extracts workspace .ts/.tsx sources
-  # from the cruiser output and counts abstract vs concrete declarations.
+  # ts-morph adapters — both take raw cruiser JSON, extract workspace
+  # .ts/.tsx sources, and emit per-source readings. Abstractness counts
+  # abstract vs concrete declarations; complexity walks function-shaped
+  # AST nodes for per-function cyclomatic + cognitive metrics (bead
+  # create-harness-app-n48.5).
   node "$HERE/abstractness.mjs" < "$cruiser_tmp" > "$abs_tmp"
+  node "$HERE/complexity.mjs" < "$cruiser_tmp" > "$cplx_tmp"
   if [ "$out_path" = "-" ]; then
-    node "$HERE/aggregate.mjs" "--format=$out_format" "--abstractness=$abs_tmp" < "$cruiser_tmp"
+    node "$HERE/aggregate.mjs" "--format=$out_format" "--abstractness=$abs_tmp" "--complexity=$cplx_tmp" < "$cruiser_tmp"
   else
-    node "$HERE/aggregate.mjs" "--format=$out_format" "--abstractness=$abs_tmp" < "$cruiser_tmp" > "$out_path"
+    node "$HERE/aggregate.mjs" "--format=$out_format" "--abstractness=$abs_tmp" "--complexity=$cplx_tmp" < "$cruiser_tmp" > "$out_path"
   fi
 }
 
@@ -97,7 +103,8 @@ case "${1:-}" in
     done
     cruiser_tmp=""
     abs_tmp=""
-    trap 'rm -f "$cruiser_tmp" "$abs_tmp"' EXIT
+    cplx_tmp=""
+    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp"' EXIT
     build_report "$fmt" "-"
     ;;
   gate)
@@ -125,8 +132,9 @@ case "${1:-}" in
     done
     cruiser_tmp=""
     abs_tmp=""
+    cplx_tmp=""
     report_tmp="$(mktemp -t harness-sensors-report-XXXXXX.json)"
-    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$report_tmp"' EXIT
+    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$report_tmp"' EXIT
     build_report "json" "$report_tmp"
     node "$HERE/gate.mjs" "${gate_args[@]+"${gate_args[@]}"}" < "$report_tmp"
     ;;

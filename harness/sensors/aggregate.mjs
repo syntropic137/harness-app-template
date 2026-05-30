@@ -202,6 +202,87 @@ function summarizeA(modules) {
   };
 }
 
+/**
+ * Merge ts-morph-complexity readings into a workspace report.  Adds
+ * `function_count`, `max_cyclomatic`, `max_cognitive`, plus medians, to
+ * each module.  Per-folder: `max_cyclomatic` and `max_cognitive` are the
+ * max across the folder's modules (worst-case fitness signal); folder
+ * `function_count` is the sum.  Non-mutating.
+ */
+export function mergeComplexity(report, complexity) {
+  const byModule = new Map();
+  for (const r of complexity?.readings ?? []) {
+    if (r && typeof r.source === 'string') {
+      byModule.set(r.source, r);
+    }
+  }
+  const modules = report.workspace.modules.map((m) => {
+    const reading = byModule.get(m.source);
+    if (!reading) {
+      return {
+        ...m,
+        function_count: 0,
+        max_cyclomatic: null,
+        median_cyclomatic: null,
+        max_cognitive: null,
+        median_cognitive: null,
+      };
+    }
+    return {
+      ...m,
+      function_count: reading.function_count ?? 0,
+      max_cyclomatic: typeof reading.max_cyclomatic === 'number' ? reading.max_cyclomatic : null,
+      median_cyclomatic: typeof reading.median_cyclomatic === 'number' ? reading.median_cyclomatic : null,
+      max_cognitive: typeof reading.max_cognitive === 'number' ? reading.max_cognitive : null,
+      median_cognitive: typeof reading.median_cognitive === 'number' ? reading.median_cognitive : null,
+    };
+  });
+  const folders = report.workspace.folders.map((f) => {
+    const prefix = `${f.name}/`;
+    const inFolder = modules.filter((m) => m.source === f.name || m.source.startsWith(prefix));
+    const cycValues = inFolder.map((m) => m.max_cyclomatic).filter((v) => typeof v === 'number');
+    const cogValues = inFolder.map((m) => m.max_cognitive).filter((v) => typeof v === 'number');
+    const fnSum = inFolder.reduce((acc, m) => acc + (m.function_count ?? 0), 0);
+    return {
+      ...f,
+      function_count: fnSum,
+      max_cyclomatic: cycValues.length === 0 ? null : Math.max(...cycValues),
+      max_cognitive: cogValues.length === 0 ? null : Math.max(...cogValues),
+    };
+  });
+  return {
+    ...report,
+    complexityTool: complexity?.tool ?? null,
+    workspace: {
+      ...report.workspace,
+      modules,
+      folders,
+      complexityDistribution: summarizeComplexity(modules),
+    },
+  };
+}
+
+function summarizeComplexity(modules) {
+  const cyc = modules.map((m) => m.max_cyclomatic).filter((v) => typeof v === 'number');
+  const cog = modules.map((m) => m.max_cognitive).filter((v) => typeof v === 'number');
+  const fnCount = modules.reduce((acc, m) => acc + (m.function_count ?? 0), 0);
+  if (cyc.length === 0 && cog.length === 0) {
+    return { count: modules.length, definedCyc: 0, definedCog: 0, totalFunctions: fnCount };
+  }
+  const sortedCyc = [...cyc].sort((a, b) => a - b);
+  const sortedCog = [...cog].sort((a, b) => a - b);
+  return {
+    count: modules.length,
+    definedCyc: cyc.length,
+    definedCog: cog.length,
+    totalFunctions: fnCount,
+    maxCyc: cyc.length === 0 ? null : sortedCyc[sortedCyc.length - 1],
+    medianCyc: cyc.length === 0 ? null : sortedCyc[Math.floor(sortedCyc.length / 2)],
+    maxCog: cog.length === 0 ? null : sortedCog[sortedCog.length - 1],
+    medianCog: cog.length === 0 ? null : sortedCog[Math.floor(sortedCog.length / 2)],
+  };
+}
+
 /** Aggregate a cruiser JSON object into a workspace-scoped report. */
 export function aggregate(cruiser) {
   const rawModules = Array.isArray(cruiser?.modules) ? cruiser.modules : [];
@@ -229,13 +310,19 @@ function fmtI(i) {
   return i === null || i === undefined ? '—' : i.toFixed(3);
 }
 
+function fmtInt(n) {
+  return n === null || n === undefined ? '—' : String(n);
+}
+
 /** Render the report as Markdown for human eyes. */
 export function renderMarkdown(report) {
   const hasA = report.abstractnessTool !== null && report.abstractnessTool !== undefined;
+  const hasC = report.complexityTool !== null && report.complexityTool !== undefined;
   const lines = [];
-  const title = hasA
-    ? '# Workspace architecture metrics (dependency-cruiser + ts-morph)'
-    : '# Workspace architecture metrics (dependency-cruiser)';
+  const tools = ['dependency-cruiser'];
+  if (hasA) tools.push('ts-morph A');
+  if (hasC) tools.push('ts-morph complexity');
+  const title = `# Workspace architecture metrics (${tools.join(' + ')})`;
   lines.push(`${title}\n`);
   const r = report.raw;
   lines.push(
@@ -295,6 +382,25 @@ export function renderMarkdown(report) {
       );
     }
   }
+  if (hasC) {
+    const c = report.workspace.complexityDistribution;
+    lines.push('');
+    if (c.definedCyc === 0 && c.definedCog === 0) {
+      lines.push(
+        `_No modules with measurable complexity (ts-morph saw ${c.totalFunctions} function(s) total)._`,
+      );
+    } else {
+      lines.push(
+        `- functions scanned: **${c.totalFunctions}** across ${c.definedCyc} module(s) with cyclomatic, ${c.definedCog} with cognitive`,
+      );
+      lines.push(
+        `- per-module max cyclomatic — median / max: **${fmtInt(c.medianCyc)} / ${fmtInt(c.maxCyc)}**`,
+      );
+      lines.push(
+        `- per-module max cognitive — median / max: **${fmtInt(c.medianCog)} / ${fmtInt(c.maxCog)}**`,
+      );
+    }
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -310,6 +416,15 @@ function parseAbstractnessFlag(argv) {
   for (const a of argv) {
     if (a.startsWith('--abstractness=')) {
       return a.slice('--abstractness='.length);
+    }
+  }
+  return null;
+}
+
+function parseComplexityFlag(argv) {
+  for (const a of argv) {
+    if (a.startsWith('--complexity=')) {
+      return a.slice('--complexity='.length);
     }
   }
   return null;
@@ -354,6 +469,17 @@ export async function main(
       return 2;
     }
     report = mergeAbstractness(report, abstractness);
+  }
+  const complexityPath = parseComplexityFlag(argv);
+  if (complexityPath) {
+    let complexity;
+    try {
+      complexity = JSON.parse(io.readFile(complexityPath));
+    } catch (err) {
+      process.stderr.write(`aggregate: failed to read --complexity=${complexityPath} (${err.message})\n`);
+      return 2;
+    }
+    report = mergeComplexity(report, complexity);
   }
   io.write(format === 'md' ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
   return 0;
