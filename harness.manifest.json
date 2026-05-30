@@ -6,9 +6,9 @@
   "description": "Polyglot monorepo with the 11-slot tool-belt harness wired in.",
   "slots": {
     "stack-manager": {
-      "plugin": "rust-bollard-portpicker",
-      "version": "0.1.0-stub",
-      "implementation": "Stubbed Rust slot wrapper; replace with a port-allocating stack manager when the real plugin lands.",
+      "plugin": "harness-stack-node",
+      "version": "0.2.0-node-interim+rust-stub",
+      "implementation": "Working Node/TS stack-manager ported from the lab harness/stack implementation; Rust ADR target remains preserved under harness/stack/rust-stub.",
       "decisionAt": "docs/adrs/ADR-0001-stack-manager.md"
     },
     "inspector": {

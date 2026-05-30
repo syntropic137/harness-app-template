@@ -24,6 +24,11 @@ The harness keeps a single-binary, cross-platform stack-manager contract while a
 
 ## Details
 
+## 2026-05-30 implementation note
+- The active template implementation is the ported lab Node/TS stack-manager under `harness/stack/src` with the executable wrapper at `harness/stack/bin/stack`.
+- The Rust implementation target remains this ADR's accepted direction and is preserved as a future target under `harness/stack/rust-stub`.
+- This keeps the stack-manager slot usable now without mixing it into `harness/sensors` or changing the sensor subtree.
+
 ## Current pick
 - **Rust binary** combining [`bollard`](https://crates.io/crates/bollard) **v0.21.0** (released 2026-05-04) for daemon inspection, [`portpicker`](https://crates.io/crates/portpicker) for free-port allocation, and a thin shell-out to the official `docker compose` CLI for `boot`/`stop`/`destroy`.
 - Picked over the current TS/Node `harness/stack/` because §4.1 of the Standard explicitly decorates this slot **Rust-first** (single binary, cross-platform, no Node runtime).

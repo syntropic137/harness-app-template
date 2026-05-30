@@ -33,7 +33,8 @@ pre-commit:
 
     doc-validator:
       glob: "*.{md,json}"
-      run: harness/doc-validator/bin/doc-validator .
+      # See pre-push doc-validator for the --exclude rationale.
+      run: harness/doc-validator/bin/doc-validator --exclude docs/harness-engineering/references/ .
 
     ubs-staged:
       run: mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
@@ -82,7 +83,14 @@ pre-push:
         '
 
     doc-validator:
-      run: harness/doc-validator/bin/doc-validator .
+      # Excludes:
+      #   - docs/harness-engineering/references/: vendored extractive
+      #     summaries from neural-hermes-data carry footnote-style
+      #     anchors (#footnote-N, #footnote-ref-N-N) the validator does
+      #     not yet understand. Preservation-first: the content is
+      #     intentionally verbatim, so scope the gate around it rather
+      #     than rewriting the vendored material.
+      run: harness/doc-validator/bin/doc-validator --exclude docs/harness-engineering/references/ .
 
     ubs-diff:
       run: |

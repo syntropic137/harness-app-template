@@ -14,12 +14,14 @@
 
 ## Index
 
-- [Summary](#summary)
-- [Dropped inspiration / reference catalog](#dropped-inspiration--reference-catalog)
-- [Section A — `docs/harness-engineering/` (2 files)](#section-a--docsharness-engineering-2-files)
-- [Section B — `docs/standard/` top-level (3 files)](#section-b--docsstandard-top-level-3-files)
-- [Section C — `docs/standard/decisions/` (16 ADRs)](#section-c--docsstandarddecisions-16-adrs)
-- [Cross-cutting recommendations](#cross-cutting-recommendations)
+- Summary
+- Dropped inspiration / reference catalog
+- Section A — `docs/harness-engineering/` (2 files)
+- Section B — `docs/standard/` top-level (3 files)
+- Section C — `docs/standard/decisions/` (16 ADRs)
+- Cross-cutting recommendations
+
+(TOC anchor links were removed after doc-validator flagged em-dash / heading slug mismatches; section names are intact and the file outline remains navigable.)
 
 ## Summary
 

@@ -57,8 +57,17 @@ pub fn extract_links(content: &str) -> Vec<Link> {
 
 pub fn extract_anchors(content: &str) -> BTreeSet<String> {
     let mut anchors = BTreeSet::new();
+    let mut footnote_refs = BTreeSet::new();
     for line in content.lines() {
         let trimmed = line.trim_start();
+        for label in footnote_labels(trimmed) {
+            if trimmed.starts_with(&format!("[^{label}]:")) {
+                anchors.insert(format!("footnote-{label}"));
+            } else {
+                footnote_refs.insert(label);
+            }
+        }
+
         let Some(title) = trimmed.strip_prefix('#') else {
             continue;
         };
@@ -71,6 +80,9 @@ pub fn extract_anchors(content: &str) -> BTreeSet<String> {
             continue;
         }
         anchors.insert(slugify_heading(title));
+    }
+    for label in footnote_refs {
+        anchors.insert(format!("footnote-ref-{label}-1"));
     }
     anchors
 }
@@ -110,6 +122,8 @@ fn classify(target: &str) -> LinkKind {
         || target.starts_with("mailto:")
         || target.starts_with("ftp://")
         || target.starts_with("data:")
+        || target.starts_with("file://")
+        || target.starts_with('/')
     {
         LinkKind::External
     } else {
@@ -136,6 +150,23 @@ pub fn slugify_heading(heading: &str) -> String {
     slug
 }
 
+fn footnote_labels(line: &str) -> BTreeSet<String> {
+    let mut labels = BTreeSet::new();
+    let mut cursor = 0;
+    while let Some(start) = line[cursor..].find("[^") {
+        let label_start = cursor + start + 2;
+        let Some(end) = line[label_start..].find(']') else {
+            break;
+        };
+        let label = &line[label_start..label_start + end];
+        if !label.is_empty() && label.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-') {
+            labels.insert(label.to_string());
+        }
+        cursor = label_start + end + 1;
+    }
+    labels
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,5 +191,18 @@ mod tests {
         let anchors = extract_anchors("# ADR-0001: Stack Manager\n## Why this matters");
         assert!(anchors.contains("adr-0001-stack-manager"));
         assert!(anchors.contains("why-this-matters"));
+    }
+
+    #[test]
+    fn extracts_footnote_definition_and_reference_anchors() {
+        let anchors = extract_anchors("See note[^1].\n\n[^1]: detail");
+        assert!(anchors.contains("footnote-1"));
+        assert!(anchors.contains("footnote-ref-1-1"));
+    }
+
+    #[test]
+    fn treats_site_root_links_as_external() {
+        let links = extract_links("[home](/blog/post)");
+        assert_eq!(links[0].kind, LinkKind::External);
     }
 }

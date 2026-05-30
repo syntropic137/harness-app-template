@@ -1,11 +1,31 @@
 {
   "name": "@harness/stack",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "harness-stack": "./bin/stack"
+  },
   "scripts": {
-    "build": "cargo build --release",
-    "typecheck": "cargo check",
-    "test": "cargo test",
-    "lint": "cargo clippy --all-targets -- -D warnings"
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "tsc --noEmit",
+    "harness": "tsx ./bin/harness.ts",
+    "build:binary": "node ./scripts/build-binary.mjs"
+  },
+  "dependencies": {
+    "tsx": "^4.16.2",
+    "yaml": "^2.5.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.2",
+    "vitest": "^2.0.0"
   }
 }

@@ -1,44 +1,52 @@
-# `harness/stack` — stub for the `stack-manager` slot
+# `harness/stack`
 
-> **Status:** stub (bead `agentic-harness-lab-impl-f-harness-7yf`, S1 r3.3 C20).
-> The real `stack-manager` plugin (`rust-bollard-portpicker` per
-> `harness.manifest.json#slots.stack-manager`) replaces this whole crate.
+Working stack-manager slot implementation ported from the lab.
 
-## Why this exists
+The active implementation is Node/TypeScript and provides:
 
-The canonical template's dogfoodability promise (S1 r3.3 C13:
-`git clone && just bootstrap && just test` succeeds on a fresh clone)
-requires every declared slot to have a buildable, invokable placeholder
-before the real plugin lands.
+- per-worktree isolation from git root + branch
+- deterministic port allocation
+- `.harness/<iso>.env` writing
+- generated compose overlays that include `harness/observability/compose.harness.yml`
+- CLI commands: `boot`, `stop`, `destroy`, `inspect`, `ports`, and `doctor`
 
-This stub provides:
+Run from the repository root:
 
-- `Cargo.toml` + `src/{main,lib}.rs` — minimal Rust crate; `cargo check`
-  + `cargo test` pass with the workspace's protected lints (`unsafe_code = "forbid"`,
-  `unused = "deny"`, `clippy.all = "deny"`).
-- `package.json` — six-line Turborepo wrapper (S1 r3.3 C4) so
-  `pnpm turbo run build/test/lint` cache the slot.
-- `bin` — executable bash shim the `justfile` delegates to via
-  `just stack {{args}}`. Prints a one-line `[stub] ...` hint and exits 0.
+```sh
+just stack inspect
+just stack ports
+just stack boot
+just stack stop
+just stack destroy
+just stack doctor
+```
 
-## Replacing this stub
+The Rust stub that originally occupied this slot is preserved under
+`harness/stack/rust-stub/` as the future ADR-0001 target. The TypeScript
+implementation is the working interim stack-manager so the template has an
+operational slot before the Rust `bollard` + `portpicker` binary lands.
 
-When the real plugin lands, swap the whole `harness/stack/` directory
-with the plugin's source. The slot's contract is documented at
-`docs/adrs/ADR-0001-stack-manager.md` (per
-`harness.manifest.json#slots.stack-manager.decisionAt`).
+## Configuration
 
-Concretely the replacement must keep:
+If a root `harness.config.ts` exists, the stack manager loads it with
+`defineHarnessConfig`. If it does not exist, the manager uses an empty default
+config and boots only the harness observability compose file.
 
-- `[package].name = "harness-stack"` so the workspace `members` glob
-  (`harness/<slot>`) keeps matching.
-- An executable at `harness/stack/bin` so the existing `justfile`
-  `just stack {{args}}` recipe doesn't break.
-- A `package.json` with `scripts.build/test/lint` so Turborepo keeps
-  caching it.
+Consumer services can be added with:
 
-## Observability stack
+```ts
+import { defineHarnessConfig } from './harness/stack/src/index.js';
 
-For the observability-stack slot (OTel collector + Victoria* services),
-see [`harness/observability/`](../observability/) (moved here from
-`infra/{otel,docker}/` per S1 r3.2 C15 + this bead's commit).
+export default defineHarnessConfig({
+  services: {
+    web: { build: './ws_apps/example-typescript', port: 'WEB_PORT', healthcheck: '/' },
+  },
+  telemetry: { services: ['web'] },
+});
+```
+
+## Tests
+
+```sh
+bunx vitest run harness/stack/tests
+```
