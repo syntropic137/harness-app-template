@@ -1,3 +1,14 @@
+<p align="center">
+  <img src="assets/banner.svg" alt="create-harness-app" width="760">
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome">
+  <img src="https://img.shields.io/badge/polyglot-TS%20%C2%B7%20Rust%20%C2%B7%20Python%20%C2%B7%20Go-8a63d2" alt="Polyglot">
+  <img src="https://img.shields.io/badge/harness-diff--scoped%20gates-1f8a4c" alt="Harness gates">
+</p>
+
 # create-harness-app
 
 > **A canonical, forkable agentic-engineering harness monorepo.** The repo IS the artifact. You start by clicking GitHub's **"Use this template"** button (or `git clone` + fork) and running a one-shot `just init <your-project-name>`.
