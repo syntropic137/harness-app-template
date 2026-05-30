@@ -26,7 +26,7 @@ The template extraction carried the **shape** of the harness (slot picks, ADRs, 
 3. **`.harness/governance.toml` foundation** — eat-own-dogfood seed file ported in this commit.
 4. **`harness/sensors/` Rust crate** with 5 adapters + plugin discovery + gate — the largest single implementation gap; closure governed by `n48.3 / n48.4 / n48.5`.
 5. **`harness/doc-validator/` Rust crate** — `n48.6`.
-6. **`template-hygiene-gate.mjs`** — missing from `harness/hooks/`; small port done in this commit.
+6. **`template-hygiene-gate.mjs`** — _initially planned as a port; on re-read the lab file is **lab-only by design** (path-filtered to `templates/` + `harness/create-harness-app/`, neither of which this template has). Not a port. See "Reversal noted" below._
 7. **Continuous-governance pre-push gates** — 1 of 6 architectural-fitness dimensions enforced today (coverage); the rest are filed as P0/P1 beads.
 
 This commit closes items 2, 3, and 6 and lays out the plan for the rest.
@@ -43,7 +43,7 @@ This commit closes items 2, 3, and 6 and lays out the plan for the rest.
 | `harness/sensors/` Rust crate (5 adapters, plugin discovery, gate) | Lab ~5,686 LOC + 95/94 % coverage; template ~18 KB Node ESM + 2 adapters, report-only | Beads `n48.3` + `n48.4` + `n48.5` (multi-step). |
 | `harness/doc-validator/` Rust crate | Lab 638 LOC; template 18-line bash stub | Bead `n48.6`. |
 | `harness/stack/` Node/TS impl (5 commands, 714 LOC, 15 tests) | Lab has working impl; template has 51-LOC Rust stub | **New bead this pass** (P2) — "Port lab `harness/stack/` Node/TS as the working stack-manager until the Rust binary lands." |
-| `harness/hooks/template-hygiene-gate.mjs` | Lab has it; template missing | **Closed** in this commit — file ported + test ported. |
+| `harness/hooks/template-hygiene-gate.mjs` | Lab file is **lab-only by design** (path-filtered to `templates/` + `harness/create-harness-app/`); template has neither path | **Not ported** — port would be inert. Deferred until/unless the template grows a `templates/` sub-tree. See "Reversal noted" below. |
 | `harness/versioning/` Rust crate | Lab has 301-LOC binary wrapping cocogitto; template has cocogitto wired globally but no orchestrator crate | **New bead this pass** (P3). |
 | `harness/downstream-crawler/` | Only `target/` visible in lab; source elsewhere | Investigate under existing `n48.8` (upstream-update-flow port + provenance). |
 | `harness/inspector-ue/` + `harness/ue-plugin/` | UE-specific | Out of scope. **No bead.** |
@@ -121,7 +121,7 @@ Per gap report 03 § Top-5 leverage:
 | Order | Port | Source | Bead |
 |---:|---|---|---|
 | 1 | `.harness/governance.toml` seed | `lab/harness/.harness/governance.toml` (37 lines) | **this commit** |
-| 2 | `template-hygiene-gate.mjs` hook + test | `lab/harness/hooks/template-hygiene-gate.mjs` | **this commit** |
+| 2 | _(reserved; was `template-hygiene-gate.mjs` — see Reversal note below)_ | — | — |
 | 3 | `harness/doc-validator/` Rust crate (638 LOC) | `lab/harness/doc-validator/` | `n48.6` |
 | 4 | `harness/sensors/` APSS adapter pieces (incremental) | `lab/harness/sensors/` | `n48.3` (multi-step under Plan 1) |
 | 5 | `harness/stack/` Node/TS impl | `lab/harness/stack/` | **new bead this pass** (P2) |
@@ -151,4 +151,4 @@ Each port carries the lab's content verbatim where the contract is shared.
 - **Pass timestamp:** 2026-05-30.
 - **Sub-agents:** two Explore agents (gap-03 harness implementations + gap-05 APSS conformance) on top of two earlier (gap-01 docs + ADR fidelity spot-checks).
 - **Decisions recorded:** ADR-0017 (this commit) + memory `preserve-references-on-port.md` (saved 2026-05-30 earlier in the session).
-- **Implementing artefacts this commit:** ADR-0017, `.harness/governance.toml` seed, `template-hygiene-gate.mjs` hook + companion test.
+- **Implementing artefacts this commit:** ADR-0017 (recorded both-vs-reduce decision), ADR-0006 `Superseded by:` backlink, `harness/.harness/governance.toml` seed (the file is at the `harness/.harness/` slot path matching the lab's location; an explicit `!harness/.harness/` un-ignore line lands in `.gitignore` to allow it under the consumer-side `.harness/` exclusion).

@@ -16,7 +16,12 @@
 .env.local
 
 # Harness internals
+# Top-level consumer-side .harness/ is local-only (per-fork policy / scratch).
+# The slot-side governance file at harness/.harness/governance.toml is the
+# *committed* eat-own-dogfood seed — un-ignore it explicitly below.
 .harness/
+!harness/.harness/
+!harness/.harness/**
 .worktrees/
 .sentrux/
 

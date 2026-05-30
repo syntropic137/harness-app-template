@@ -1,0 +1,36 @@
+# harness/.harness/governance.toml — Eat-our-own-dogfood fitness gate.
+#
+# This file is the architectural fitness contract for the HARNESS ITSELF.
+# Run with: ./target/release/harness-sensors gate harness/
+#
+# ── HARNESS-ENGINEERING PROTECTED ───────────────────────────────────────
+# DO NOT RELAX THESE THRESHOLDS. They are deliberately strict because the
+# harness's job is to GATE other projects — if we can't pass our own gate,
+# we have no credibility. If a threshold here starts blocking real work,
+# the correct move is to:
+#   1. File a hypothesis-first experiment under `experiments/` arguing why
+#      the threshold needs adjustment, citing the specific module + score.
+#   2. Land the experiment's run-commit with a verdict (go / no-go / inc).
+#   3. Update this file as part of that run-commit.
+# Do not silently raise a `max_*` or lower a `min_*` value.
+# ─────────────────────────────────────────────────────────────────────────
+
+[constraints]
+# Sentrux composite. Warn-only per the project-level rationale (EXP-A).
+min_quality_signal = { value = 0.5, severity = "warn" }
+
+# Zero import cycles. Hard fail. The harness must be acyclic.
+max_cycles = 0
+
+# Zero god files. Hard fail. Harness modules must stay focused.
+max_god_file_count = 0
+
+# Martin distance-from-main-sequence cap. Warn-only because some harness
+# modules are wiring (high I) and others are abstract contracts (high A);
+# both legitimately drift from the main sequence.
+max_distance_from_main_sequence = { value = 0.7, severity = "warn" }
+
+# Subscores (require the sentrux patches applied via `just bootstrap-sentrux`).
+min_acyclicity_score = { value = 0.95, severity = "warn" }
+min_modularity_score = { value = 0.4, severity = "warn" }
+max_max_depth = { value = 8, severity = "warn" }
