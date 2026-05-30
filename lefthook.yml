@@ -18,7 +18,7 @@ pre-commit:
       run: gitleaks protect --staged --redact --no-banner
 
     ubs-staged:
-      run: mkdir -p .beads && ubs --staged --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl
+      run: mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
 
 pre-push:
   parallel: true
