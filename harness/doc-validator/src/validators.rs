@@ -57,6 +57,15 @@ pub fn validate_adr_directory(root: &Path) -> Vec<ValidationFinding> {
         if ["README.md", "CLAUDE.md", "AGENTS.md"].contains(&filename) {
             continue;
         }
+        // Skip files beginning with `_` — by convention these are meta /
+        // template / coordination docs (e.g., `_template.md` documents the
+        // ADR shape itself, per bead create-harness-app-n48.12). Mirrors the
+        // APSS ADR01 spec's note that non-ADR files don't belong in the
+        // ADR directory — the underscore prefix is the documented signal
+        // for "in this directory but not an ADR record".
+        if filename.starts_with('_') {
+            continue;
+        }
         if !valid_adr_filename(filename) {
             findings.push(finding(
                 &path,

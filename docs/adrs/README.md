@@ -29,13 +29,20 @@ Forks inherit these records as a baseline. Keep them, then add new numbered ADRs
 | [Strict Typing](ADR-0014-strict-typing.md) | Track strict typing posture and proposed tightenings as an audit record |
 | [CHA Sync Source of Truth](ADR-0015-cha-sync-source-of-truth.md) | Treat the template as standalone canonical repo, not live-synced from the lab |
 | [Create Harness App Wrapper](ADR-0016-createapp-wrapper-design.md) | Design a future npx create-harness-app wrapper as an additive scaffolding path |
+| [Sensors v0.3 — APSS canonical, sentrux preserved](ADR-0017-sensors-v03-apss-canonical.md) | Promote APSS to canonical cross-language measurement; keep sentrux as an opt-in available adapter (deliberate both-vs-reduce decision, not a deletion) |
 
 ## Adding Records
 
 Use the next four-digit number and a kebab-case title:
 
 ```text
-docs/adrs/ADR-0017-my-decision.md
+docs/adrs/ADR-0018-my-decision.md
 ```
 
+The canonical shape lives at [`_template.md`](./_template.md) — **copy it as a starting point** rather than writing from scratch. The leading underscore keeps it sorted before the numbered records and signals "meta / not a record". The doc-validator skips files beginning with `_`, so the template doesn't have to pass its own rule.
+
 Each ADR must include APSS ADR01 front matter with `name`, `description`, and `status`, then the standard `## Context`, `## Decision`, and `## Consequences` sections. Use `## Details` for migrated rationale, alternatives, sources, and operational notes.
+
+Update this README's Index table whenever a new ADR lands; the doc-validator pre-push hook enforces both the ADR-NNNN shape and that every numbered ADR is indexed here.
+
+Authoritative spec for the ADR contract: [`../coordination/APSS-ADR-STANDARD.md`](../coordination/APSS-ADR-STANDARD.md).
