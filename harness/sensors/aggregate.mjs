@@ -14,10 +14,15 @@
 // This file ships report-only.  No policy gate.  Threshold-based pass/fail
 // is deferred until at least one consumer fork has >= 50 workspace modules.
 
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const WORKSPACE_RE = /^(ws_apps|ws_packages)\//;
+// Segments that mean "vendored or generated" anywhere in the path —
+// cruiser enumerates ancestor folders recursively (including a workspace
+// app's nested node_modules), so the top-level `excludePattern` in
+// .dependency-cruiser.cjs is not enough to keep those out of `folders[]`.
+const EXCLUDED_SEGMENT_RE = /(^|\/)(node_modules|dist|build|out|\.next|coverage)(\/|$)/;
 
 /** Return true when a cruiser node name is workspace code (not vendor / not bare). */
 export function isWorkspaceName(name) {
@@ -25,6 +30,9 @@ export function isWorkspaceName(name) {
     return false;
   }
   if (name.startsWith('node_modules')) {
+    return false;
+  }
+  if (EXCLUDED_SEGMENT_RE.test(name)) {
     return false;
   }
   return WORKSPACE_RE.test(name);
@@ -119,6 +127,81 @@ function summarize(modules) {
   };
 }
 
+/** Martin's distance from the main sequence. null when either input is null. */
+export function distanceFromMainSequence(A, I) {
+  if (typeof A !== 'number' || typeof I !== 'number') {
+    return null;
+  }
+  return Math.abs(A + I - 1);
+}
+
+/**
+ * Merge a list of ts-morph abstractness readings into a workspace report
+ * produced by `aggregate()`.  Adds `A` and `D` to each module, then
+ * rolls A up to folders as the module-count-weighted average of defined
+ * per-module A values (folders with no defined A modules get A=null and
+ * therefore D=null).  Non-mutating — returns a new report object.
+ */
+export function mergeAbstractness(report, abstractness) {
+  const byModule = new Map();
+  for (const r of abstractness?.readings ?? []) {
+    if (r && typeof r.source === 'string') {
+      byModule.set(r.source, r);
+    }
+  }
+  const modules = report.workspace.modules.map((m) => {
+    const reading = byModule.get(m.source);
+    const A = reading && typeof reading.A === 'number' ? reading.A : null;
+    return {
+      ...m,
+      A,
+      abstract: reading?.abstract ?? 0,
+      concrete: reading?.concrete ?? 0,
+      D: distanceFromMainSequence(A, m.I),
+    };
+  });
+  const folders = report.workspace.folders.map((f) => {
+    const prefix = `${f.name}/`;
+    const inFolder = modules.filter((m) => m.source === f.name || m.source.startsWith(prefix));
+    const defined = inFolder.filter((m) => typeof m.A === 'number');
+    let A = null;
+    if (defined.length > 0) {
+      const sum = defined.reduce((acc, m) => acc + m.A, 0);
+      A = sum / defined.length;
+    }
+    return { ...f, A, D: distanceFromMainSequence(A, f.I) };
+  });
+  return {
+    ...report,
+    abstractnessTool: abstractness?.tool ?? null,
+    workspace: {
+      ...report.workspace,
+      modules,
+      folders,
+      abstractnessDistribution: summarizeA(modules),
+    },
+  };
+}
+
+function summarizeA(modules) {
+  const definedA = modules.map((m) => m.A).filter((a) => typeof a === 'number');
+  const definedD = modules.map((m) => m.D).filter((d) => typeof d === 'number');
+  if (definedA.length === 0) {
+    return { count: modules.length, definedA: 0, definedD: definedD.length };
+  }
+  const sortedA = [...definedA].sort((a, b) => a - b);
+  return {
+    count: modules.length,
+    definedA: definedA.length,
+    definedD: definedD.length,
+    minA: sortedA[0],
+    medianA: sortedA[Math.floor(sortedA.length / 2)],
+    maxA: sortedA[sortedA.length - 1],
+    nearMainSequence: definedD.filter((d) => d <= 0.3).length,
+    farFromMainSequence: definedD.filter((d) => d > 0.7).length,
+  };
+}
+
 /** Aggregate a cruiser JSON object into a workspace-scoped report. */
 export function aggregate(cruiser) {
   const rawModules = Array.isArray(cruiser?.modules) ? cruiser.modules : [];
@@ -148,8 +231,12 @@ function fmtI(i) {
 
 /** Render the report as Markdown for human eyes. */
 export function renderMarkdown(report) {
+  const hasA = report.abstractnessTool !== null && report.abstractnessTool !== undefined;
   const lines = [];
-  lines.push('# Workspace architecture metrics (dependency-cruiser)\n');
+  const title = hasA
+    ? '# Workspace architecture metrics (dependency-cruiser + ts-morph)'
+    : '# Workspace architecture metrics (dependency-cruiser)';
+  lines.push(`${title}\n`);
   const r = report.raw;
   lines.push(
     `Raw cruise: ${r.totalCruised} modules / ${r.totalDependenciesCruised} deps. ` +
@@ -157,16 +244,34 @@ export function renderMarkdown(report) {
       `Workspace-scoped: ${report.workspace.modules.length} modules in ${report.workspace.folders.length} folders.\n`,
   );
   lines.push('## Per-folder\n');
-  lines.push('| folder | mods | Ca | Ce | I |');
-  lines.push('|---|---:|---:|---:|---:|');
-  for (const f of report.workspace.folders) {
-    lines.push(`| \`${f.name}\` | ${f.moduleCount} | ${f.Ca} | ${f.Ce} | ${fmtI(f.I)} |`);
+  if (hasA) {
+    lines.push('| folder | mods | Ca | Ce | I | A | D |');
+    lines.push('|---|---:|---:|---:|---:|---:|---:|');
+    for (const f of report.workspace.folders) {
+      lines.push(
+        `| \`${f.name}\` | ${f.moduleCount} | ${f.Ca} | ${f.Ce} | ${fmtI(f.I)} | ${fmtI(f.A)} | ${fmtI(f.D)} |`,
+      );
+    }
+  } else {
+    lines.push('| folder | mods | Ca | Ce | I |');
+    lines.push('|---|---:|---:|---:|---:|');
+    for (const f of report.workspace.folders) {
+      lines.push(`| \`${f.name}\` | ${f.moduleCount} | ${f.Ca} | ${f.Ce} | ${fmtI(f.I)} |`);
+    }
   }
   lines.push('\n## Per-module\n');
-  lines.push('| module | Ca | Ce | I |');
-  lines.push('|---|---:|---:|---:|');
-  for (const m of report.workspace.modules) {
-    lines.push(`| \`${m.source}\` | ${m.Ca} | ${m.Ce} | ${fmtI(m.I)} |`);
+  if (hasA) {
+    lines.push('| module | Ca | Ce | I | A | D |');
+    lines.push('|---|---:|---:|---:|---:|---:|');
+    for (const m of report.workspace.modules) {
+      lines.push(`| \`${m.source}\` | ${m.Ca} | ${m.Ce} | ${fmtI(m.I)} | ${fmtI(m.A)} | ${fmtI(m.D)} |`);
+    }
+  } else {
+    lines.push('| module | Ca | Ce | I |');
+    lines.push('|---|---:|---:|---:|');
+    for (const m of report.workspace.modules) {
+      lines.push(`| \`${m.source}\` | ${m.Ca} | ${m.Ce} | ${fmtI(m.I)} |`);
+    }
   }
   const d = report.workspace.distribution;
   lines.push('\n## Distribution\n');
@@ -176,6 +281,19 @@ export function renderMarkdown(report) {
     lines.push(`- modules with defined I: **${d.definedI} / ${d.count}**`);
     lines.push(`- min / median / max I: **${fmtI(d.min)} / ${fmtI(d.median)} / ${fmtI(d.max)}**`);
     lines.push(`- stable (I ≤ 0.2): **${d.stable}**, unstable (I ≥ 0.8): **${d.unstable}**`);
+  }
+  if (hasA) {
+    const a = report.workspace.abstractnessDistribution;
+    lines.push('');
+    if (a.definedA === 0) {
+      lines.push('_No modules with a defined A value (ts-morph saw no class/interface declarations)._');
+    } else {
+      lines.push(`- modules with defined A: **${a.definedA} / ${a.count}**`);
+      lines.push(`- min / median / max A: **${fmtI(a.minA)} / ${fmtI(a.medianA)} / ${fmtI(a.maxA)}**`);
+      lines.push(
+        `- main-sequence: **${a.nearMainSequence}** near (D ≤ 0.3), **${a.farFromMainSequence}** far (D > 0.7), ${a.definedD} with defined D`,
+      );
+    }
   }
   return `${lines.join('\n')}\n`;
 }
@@ -188,8 +306,24 @@ async function readStdin() {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+function parseAbstractnessFlag(argv) {
+  for (const a of argv) {
+    if (a.startsWith('--abstractness=')) {
+      return a.slice('--abstractness='.length);
+    }
+  }
+  return null;
+}
+
 /** CLI entry: read cruiser JSON from stdin, print JSON or Markdown to stdout. */
-export async function main(argv = process.argv.slice(2), io = { read: readStdin, write: (s) => process.stdout.write(s) }) {
+export async function main(
+  argv = process.argv.slice(2),
+  io = {
+    read: readStdin,
+    write: (s) => process.stdout.write(s),
+    readFile: (p) => readFileSync(p, 'utf8'),
+  },
+) {
   const format = argv.includes('--format=md') || argv.includes('--md') ? 'md' : 'json';
   let raw;
   try {
@@ -209,7 +343,18 @@ export async function main(argv = process.argv.slice(2), io = { read: readStdin,
     process.stderr.write(`aggregate: stdin is not valid JSON (${err.message})\n`);
     return 2;
   }
-  const report = aggregate(parsed);
+  let report = aggregate(parsed);
+  const abstractnessPath = parseAbstractnessFlag(argv);
+  if (abstractnessPath) {
+    let abstractness;
+    try {
+      abstractness = JSON.parse(io.readFile(abstractnessPath));
+    } catch (err) {
+      process.stderr.write(`aggregate: failed to read --abstractness=${abstractnessPath} (${err.message})\n`);
+      return 2;
+    }
+    report = mergeAbstractness(report, abstractness);
+  }
   io.write(format === 'md' ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
   return 0;
 }

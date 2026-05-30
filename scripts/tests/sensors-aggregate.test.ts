@@ -4,8 +4,17 @@
 // (de-dup, scope-filter, aggregate, renderMarkdown) and the CLI entry
 // (`main`) via in-process IO stubs — no child_process spawns.
 import { describe, expect, test } from 'vitest';
-// @ts-expect-error — plain ESM, no .d.ts ships with the slot.
-import { aggregate, dedupeModules, isWorkspaceName, main, renderMarkdown, scopeFolders } from '../../harness/sensors/aggregate.mjs';
+import {
+  aggregate,
+  dedupeModules,
+  distanceFromMainSequence,
+  isWorkspaceName,
+  main,
+  mergeAbstractness,
+  renderMarkdown,
+  scopeFolders,
+  // @ts-expect-error — plain ESM, no .d.ts ships with the slot.
+} from '../../harness/sensors/aggregate.mjs';
 
 describe('sensors aggregate — pure functions', () => {
   test('isWorkspaceName accepts only ws_apps / ws_packages paths', () => {
@@ -17,6 +26,12 @@ describe('sensors aggregate — pure functions', () => {
     expect(isWorkspaceName('')).toBe(false);
     // biome-ignore lint/suspicious/noExplicitAny: testing non-string input rejection
     expect(isWorkspaceName(undefined as any)).toBe(false);
+    // Nested vendor / generated segments are also excluded (a workspace
+    // app's own node_modules / dist / build / out / .next / coverage).
+    expect(isWorkspaceName('ws_apps/docs/node_modules/@types/node')).toBe(false);
+    expect(isWorkspaceName('ws_apps/docs/dist/index.js')).toBe(false);
+    expect(isWorkspaceName('ws_apps/docs/.next/static/chunks/main.js')).toBe(false);
+    expect(isWorkspaceName('ws_apps/coverage')).toBe(false);
   });
 
   test('dedupeModules merges duplicate source entries and recomputes I', () => {
@@ -209,6 +224,168 @@ describe('sensors aggregate — CLI main', () => {
         throw new Error('stdin closed');
       },
       write: (s: string) => writes.push(s),
+    });
+    expect(code).toBe(2);
+    expect(writes).toEqual([]);
+  });
+});
+
+describe('sensors aggregate — abstractness merge (Martin A/I/D)', () => {
+  test('distanceFromMainSequence implements |A + I − 1| and returns null on missing inputs', () => {
+    expect(distanceFromMainSequence(1, 0)).toBeCloseTo(0);
+    expect(distanceFromMainSequence(0, 1)).toBeCloseTo(0);
+    expect(distanceFromMainSequence(0.5, 0.5)).toBeCloseTo(0);
+    expect(distanceFromMainSequence(0, 0)).toBeCloseTo(1);
+    expect(distanceFromMainSequence(1, 1)).toBeCloseTo(1);
+    expect(distanceFromMainSequence(null, 0.5)).toBeNull();
+    expect(distanceFromMainSequence(0.5, null)).toBeNull();
+    expect(distanceFromMainSequence(undefined, undefined)).toBeNull();
+  });
+
+  test('mergeAbstractness joins per-module A and computes folder-level A as a mean over defined modules', () => {
+    const baseReport = aggregate({
+      summary: { totalCruised: 2, totalDependenciesCruised: 1 },
+      modules: [
+        { source: 'ws_apps/a/lib/abs.ts', dependents: [{ name: 'ws_apps/a/main.ts' }], dependencies: [] },
+        { source: 'ws_apps/a/main.ts', dependents: [], dependencies: [{ resolved: 'ws_apps/a/lib/abs.ts' }] },
+      ],
+      folders: [
+        { name: 'ws_apps/a', moduleCount: 2, afferentCouplings: 0, efferentCouplings: 0 },
+        { name: 'ws_apps/a/lib', moduleCount: 1, afferentCouplings: 1, efferentCouplings: 0 },
+      ],
+    });
+    const merged = mergeAbstractness(baseReport, {
+      tool: 'ts-morph',
+      readings: [
+        { source: 'ws_apps/a/lib/abs.ts', abstract: 2, concrete: 0, A: 1 },
+        { source: 'ws_apps/a/main.ts', abstract: 0, concrete: 1, A: 0 },
+        // A reading for a module cruiser didn't surface — must NOT appear in the merged output.
+        { source: 'ws_apps/a/dead.ts', abstract: 1, concrete: 0, A: 1 },
+        // Malformed entries are tolerated.
+        null,
+        { abstract: 5 },
+      ],
+    });
+    expect(merged.abstractnessTool).toBe('ts-morph');
+    expect(merged.workspace.modules).toHaveLength(2);
+    const abs = merged.workspace.modules.find((m: { source: string }) => m.source === 'ws_apps/a/lib/abs.ts');
+    const main = merged.workspace.modules.find((m: { source: string }) => m.source === 'ws_apps/a/main.ts');
+    expect(abs).toMatchObject({ A: 1, abstract: 2, concrete: 0 });
+    // lib/abs.ts has I = 0 (Ca=1, Ce=0) and A = 1 → D = 0 (on the main sequence).
+    expect(abs?.D).toBeCloseTo(0);
+    expect(main).toMatchObject({ A: 0, abstract: 0, concrete: 1 });
+    // main.ts has I = 1 (Ca=0, Ce=1) and A = 0 → D = 0 too.
+    expect(main?.D).toBeCloseTo(0);
+
+    const aFolder = merged.workspace.folders.find((f: { name: string }) => f.name === 'ws_apps/a');
+    const libFolder = merged.workspace.folders.find((f: { name: string }) => f.name === 'ws_apps/a/lib');
+    // ws_apps/a contains both modules → mean A = 0.5.
+    expect(aFolder?.A).toBeCloseTo(0.5);
+    // ws_apps/a/lib contains only abs.ts → A = 1; folder Ca=1/Ce=0 → I = 0 → D = 0.
+    expect(libFolder?.A).toBeCloseTo(1);
+    expect(libFolder?.D).toBeCloseTo(0);
+
+    const dist = merged.workspace.abstractnessDistribution;
+    expect(dist).toMatchObject({ count: 2, definedA: 2, definedD: 2, nearMainSequence: 2 });
+  });
+
+  test('mergeAbstractness handles modules with no matching A reading (A and D null) and an empty distribution', () => {
+    const baseReport = aggregate({
+      modules: [{ source: 'ws_apps/a/x.ts', dependents: [], dependencies: [] }],
+      folders: [{ name: 'ws_apps/a', moduleCount: 1, afferentCouplings: 0, efferentCouplings: 0 }],
+    });
+    const merged = mergeAbstractness(baseReport, { tool: 'ts-morph', readings: [] });
+    const mod = merged.workspace.modules[0];
+    expect(mod.A).toBeNull();
+    expect(mod.D).toBeNull();
+    expect(merged.workspace.folders[0].A).toBeNull();
+    expect(merged.workspace.folders[0].D).toBeNull();
+    expect(merged.workspace.abstractnessDistribution).toMatchObject({ definedA: 0, definedD: 0 });
+  });
+
+  test('mergeAbstractness tolerates a null/empty abstractness payload', () => {
+    const baseReport = aggregate({
+      modules: [{ source: 'ws_apps/a/x.ts', dependents: [], dependencies: [] }],
+      folders: [],
+    });
+    const mergedNull = mergeAbstractness(baseReport, null);
+    expect(mergedNull.abstractnessTool).toBeNull();
+    expect(mergedNull.workspace.modules[0].A).toBeNull();
+    const mergedEmpty = mergeAbstractness(baseReport, {});
+    expect(mergedEmpty.abstractnessTool).toBeNull();
+  });
+
+  test('renderMarkdown shows A and D columns when the report has an abstractnessTool', () => {
+    const baseReport = aggregate({
+      summary: { totalCruised: 1, totalDependenciesCruised: 0 },
+      modules: [{ source: 'ws_apps/a/main.ts', dependents: [], dependencies: [] }],
+      folders: [{ name: 'ws_apps/a', moduleCount: 1, afferentCouplings: 0, efferentCouplings: 1, instability: 1 }],
+    });
+    const merged = mergeAbstractness(baseReport, {
+      tool: 'ts-morph',
+      readings: [{ source: 'ws_apps/a/main.ts', abstract: 0, concrete: 1, A: 0 }],
+    });
+    const md = renderMarkdown(merged);
+    expect(md).toContain('dependency-cruiser + ts-morph');
+    expect(md).toContain('| folder | mods | Ca | Ce | I | A | D |');
+    expect(md).toContain('| module | Ca | Ce | I | A | D |');
+    expect(md).toContain('modules with defined A:');
+  });
+
+  test('renderMarkdown shows the "no defined A" line when ts-morph saw no class/interface declarations', () => {
+    const baseReport = aggregate({
+      modules: [{ source: 'ws_apps/a/main.ts', dependents: [], dependencies: [] }],
+      folders: [],
+    });
+    const merged = mergeAbstractness(baseReport, {
+      tool: 'ts-morph',
+      readings: [{ source: 'ws_apps/a/main.ts', abstract: 0, concrete: 0, A: null }],
+    });
+    const md = renderMarkdown(merged);
+    expect(md).toContain('No modules with a defined A value');
+  });
+});
+
+describe('sensors aggregate — main() with --abstractness flag', () => {
+  test('main reads the abstractness file via the injected readFile and merges A/D into the JSON output', async () => {
+    const cruiser = JSON.stringify({
+      summary: { totalCruised: 1, totalDependenciesCruised: 0 },
+      modules: [{ source: 'ws_apps/a/main.ts', dependents: [], dependencies: [] }],
+      folders: [{ name: 'ws_apps/a', moduleCount: 1, afferentCouplings: 0, efferentCouplings: 1, instability: 1 }],
+    });
+    const abstractness = JSON.stringify({
+      tool: 'ts-morph',
+      readings: [{ source: 'ws_apps/a/main.ts', abstract: 0, concrete: 1, A: 0 }],
+    });
+    const writes: string[] = [];
+    const code = await main(['--abstractness=/fake/path/abs.json'], {
+      read: async () => cruiser,
+      write: (s: string) => writes.push(s),
+      readFile: (path: string) => {
+        expect(path).toBe('/fake/path/abs.json');
+        return abstractness;
+      },
+    });
+    expect(code).toBe(0);
+    let parsed: { abstractnessTool?: string; workspace?: { modules: Array<{ A: number; D: number }> } } = {};
+    try {
+      parsed = JSON.parse(writes[0] ?? '');
+    } catch (err) {
+      throw new Error(`expected JSON output, got: ${(err as Error).message}`);
+    }
+    expect(parsed.abstractnessTool).toBe('ts-morph');
+    expect(parsed.workspace?.modules[0]?.A).toBe(0);
+    expect(parsed.workspace?.modules[0]?.D).toBeCloseTo(0);
+  });
+
+  test('main returns exit code 2 when the abstractness file can not be read', async () => {
+    const writes: string[] = [];
+    const code = await main(['--abstractness=/nope/missing.json'], {
+      read: async () => '{"modules": [], "folders": []}',
+      write: (s: string) => writes.push(s),
+      readFile: () => {
+        throw new Error('ENOENT: file not found');
+      },
     });
     expect(code).toBe(2);
     expect(writes).toEqual([]);

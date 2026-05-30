@@ -1,6 +1,11 @@
 # harness/sensors
 
-Workspace architecture-quality metrics. Currently ships the **TypeScript adapter only** — `dependency-cruiser` wrapped by a small Node aggregator that de-dups duplicate `modules[]` entries and scope-filters everything outside `ws_apps/` and `ws_packages/`, then prints per-folder and per-module Robert C. Martin metrics (Ca, Ce, I).
+Workspace architecture-quality metrics. Ships **two adapters** today:
+
+- `dependency-cruiser` → afferent coupling **Ca**, efferent coupling **Ce**, instability **I**.
+- `ts-morph` → abstractness **A** (`abstract class` + `interface` declarations vs concrete classes).
+
+The aggregator merges both and computes Robert C. Martin's distance from the main sequence, **D = |A + I − 1|**, per module and per folder.
 
 Report-only. The policy gate is **intentionally deferred** until at least one consumer fork has ≥ 50 workspace modules — see `experiments/2026-05-30--depcruiser-arch-quality/README.md` for the rationale.
 
@@ -22,16 +27,23 @@ Requires `npx` on `$PATH` (Node ≥ 18). The cruiser version is pinned at `17.4.
 
 ## What this does **not** ship yet
 
-- Abstractness (A) and Martin's distance (D = |A + I − 1|). Per `docs/decisions/sensors.md` these come from a ts-morph pass — a later increment.
-- A pass/fail policy gate. With ~5 workspace modules in the scaffold, any threshold is noise.
-- Adapters for Python (grimp), Rust (cargo-modules), Go (go-arch-lint), or the `sentrux` overlay. Each is a separate increment.
+- A pass/fail policy gate. Even with A and D in hand, the scaffold still has too few workspace modules for a threshold to be anything but noise.
+- Adapters for Python (`grimp`), Rust (`cargo-modules`), Go (`go-arch-lint`), or the `sentrux` overlay. Each is a separate increment per `docs/decisions/sensors.md`.
 
 When those land, this directory grows; the `just sensors` recipe stays the same.
+
+## Reading the output
+
+`A` and `D` only appear in the report when ts-morph successfully classified at least one source. Modules with no class/interface declarations get `A = null` (and therefore `D = null`); the aggregator never invents a value.
+
+Folder-level `A` is the simple mean of defined per-module A values inside that folder. Folder-level `D = |A + I − 1|` using that folder mean and the cruiser-supplied folder `I`.
 
 ## Layout
 
 - `bin/sensors` — bash dispatcher (`report`, `--help`)
 - `aggregate.mjs` — pure Node ESM aggregator; tested by `scripts/tests/sensors-aggregate.test.ts`
+- `abstractness.mjs` — ts-morph adapter; tested by `scripts/tests/sensors-abstractness.test.ts`
 - `package.json` — minimal package metadata so `pnpm` / `turbo` see the slot
+- `node_modules/ts-morph` — pinned per the slot's `dependencies`; also hoisted to the root so vitest can resolve it from test files
 
 If you want the slot disabled, set `harness.manifest.json#slots.sensors.plugin` to `none` (or just don't call `just sensors`).

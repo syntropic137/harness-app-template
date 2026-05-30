@@ -75,14 +75,20 @@ case "${1:-}" in
     # Buffer to a tempfile rather than piping: cruiser writes its JSON in
     # multiple chunks and EPIPEs if the downstream reader closes early
     # (intermittent — depends on scheduling).
-    tmpfile="$(mktemp -t harness-sensors-cruiser-XXXXXX.json)"
-    trap 'rm -f "$tmpfile"' EXIT
+    cruiser_tmp="$(mktemp -t harness-sensors-cruiser-XXXXXX.json)"
+    abs_tmp="$(mktemp -t harness-sensors-abs-XXXXXX.json)"
+    trap 'rm -f "$cruiser_tmp" "$abs_tmp"' EXIT
     npx --yes "dependency-cruiser@${DEPCRUISER_VERSION}" \
       --metrics --output-type json \
       'ws_apps/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
       'ws_packages/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
-      > "$tmpfile"
-    node "$HERE/aggregate.mjs" "--format=$fmt" < "$tmpfile"
+      > "$cruiser_tmp"
+    # ts-morph Abstractness adapter — extracts workspace .ts/.tsx sources
+    # from the cruiser output and counts abstract vs concrete declarations.
+    # The slot's ts-morph dependency lives in harness/sensors/node_modules,
+    # so node resolves it via the abstractness.mjs file's own walk-up.
+    node "$HERE/abstractness.mjs" < "$cruiser_tmp" > "$abs_tmp"
+    node "$HERE/aggregate.mjs" "--format=$fmt" "--abstractness=$abs_tmp" < "$cruiser_tmp"
     ;;
   *)
     echo "error: unknown sensors subcommand: $1" >&2

@@ -17,6 +17,7 @@
     "@iarna/toml": "^2.2.5",
     "@vitest/coverage-v8": "^2.1.9",
     "lefthook": "^1.13",
+    "ts-morph": "23.0.0",
     "turbo": "^2",
     "vitest": "^2.0"
   }

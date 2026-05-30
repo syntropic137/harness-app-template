@@ -1,12 +1,15 @@
 {
   "name": "@harness/sensors",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bash -n bin/sensors && node --check aggregate.mjs",
-    "typecheck": "bash -n bin/sensors && node --check aggregate.mjs",
-    "test": "bin/sensors --help >/dev/null && node --check aggregate.mjs",
-    "lint": "bash -n bin/sensors && node --check aggregate.mjs"
+    "build": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs",
+    "typecheck": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs",
+    "test": "bin/sensors --help >/dev/null && node --check aggregate.mjs && node --check abstractness.mjs",
+    "lint": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs"
+  },
+  "dependencies": {
+    "ts-morph": "23.0.0"
   }
 }

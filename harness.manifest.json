@@ -34,8 +34,8 @@
     },
     "sensors": {
       "plugin": "harness-sensors",
-      "version": "0.6.1-ts-adapter",
-      "implementation": "TypeScript adapter only: dependency-cruiser 17.4.0 + Node aggregator (de-dup + scope-filter + per-folder/per-module Martin Ca/Ce/I). Report-only; policy gate deferred until consumer forks have >= 50 workspace modules. Polyglot adapters (ts-morph for A, grimp/cargo-modules/go-arch-lint, sentrux overlay) land in later increments.",
+      "version": "0.6.2-ts-adapter+abstractness",
+      "implementation": "TypeScript adapter pair: dependency-cruiser 17.4.0 (Ca/Ce/I) + ts-morph 23.0.0 (Abstractness A), merged by a Node aggregator that emits per-folder and per-module Martin Ca/Ce/I/A/D where D = |A + I − 1|. Report-only; policy gate deferred until consumer forks have >= 50 workspace modules. Polyglot adapters (grimp/cargo-modules/go-arch-lint, sentrux overlay) land in later increments.",
       "decisionAt": "docs/decisions/sensors.md"
     },
     "agent-plugins": {
