@@ -29,13 +29,15 @@ const features = [
   },
 ];
 
+const basePath = process.env['NEXT_PUBLIC_BASE_PATH'] ?? '';
+
 export default function HomePage() {
   return (
     <main className="min-h-screen home-grid">
       <section className="mx-auto flex min-h-screen max-w-6xl flex-col justify-center gap-10 px-6 py-12 md:py-16">
         <div className="max-w-3xl">
           <Image
-            src="/banner.svg"
+            src={`${basePath}/banner.svg`}
             alt="harness-app-template"
             width={760}
             height={220}
