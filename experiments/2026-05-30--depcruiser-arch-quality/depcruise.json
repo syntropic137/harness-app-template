@@ -1,0 +1,4352 @@
+{
+  "modules": [
+    {
+      "source": "ws_apps/example-typescript/src/main.ts",
+      "dependencies": [
+        {
+          "module": "./telemetry.ts",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "ws_apps/example-typescript/src/telemetry.ts",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "@opentelemetry/api",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@opentelemetry/api",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "ws_apps/example-typescript/tests/main.test.ts"
+      ],
+      "orphan": false,
+      "instability": 0.6666666666666666,
+      "valid": true
+    },
+    {
+      "source": "ws_apps/example-typescript/src/telemetry.ts",
+      "followable": false,
+      "coreModule": false,
+      "couldNotResolve": false,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "local",
+        "import"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "ws_apps/example-typescript/src/main.ts",
+        "ws_apps/example-typescript/tests/main.test.ts"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "@opentelemetry/api",
+      "followable": false,
+      "coreModule": false,
+      "couldNotResolve": true,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "unknown"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "ws_apps/example-typescript/src/main.ts"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "ws_apps/example-typescript/src/telemetry.ts",
+      "dependencies": [
+        {
+          "module": "@opentelemetry/auto-instrumentations-node",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@opentelemetry/auto-instrumentations-node",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "@opentelemetry/sdk-node",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@opentelemetry/sdk-node",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "ws_apps/example-typescript/src/main.ts",
+        "ws_apps/example-typescript/tests/main.test.ts"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "@opentelemetry/auto-instrumentations-node",
+      "followable": false,
+      "coreModule": false,
+      "couldNotResolve": true,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "unknown"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "ws_apps/example-typescript/src/telemetry.ts"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "@opentelemetry/sdk-node",
+      "followable": false,
+      "coreModule": false,
+      "couldNotResolve": true,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "unknown"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "ws_apps/example-typescript/src/telemetry.ts"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "ws_apps/example-typescript/tests/integration/cli.integration.test.ts",
+      "dependencies": [
+        {
+          "module": "child_process",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "core",
+            "import"
+          ],
+          "protocol": "node:",
+          "resolved": "child_process",
+          "coreModule": true,
+          "followable": false,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "path",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "core",
+            "import"
+          ],
+          "protocol": "node:",
+          "resolved": "path",
+          "coreModule": true,
+          "followable": false,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "url",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "core",
+            "import"
+          ],
+          "protocol": "node:",
+          "resolved": "url",
+          "coreModule": true,
+          "followable": false,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "vitest",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm-dev",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.8947368421052632,
+          "valid": true
+        }
+      ],
+      "dependents": [],
+      "orphan": false,
+      "instability": 1,
+      "valid": true
+    },
+    {
+      "source": "child_process",
+      "followable": false,
+      "coreModule": true,
+      "couldNotResolve": false,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "core",
+        "import"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "ws_apps/example-typescript/tests/integration/cli.integration.test.ts"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "path",
+      "followable": false,
+      "coreModule": true,
+      "couldNotResolve": false,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "core",
+        "import"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "ws_apps/example-typescript/tests/integration/cli.integration.test.ts"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "url",
+      "followable": false,
+      "coreModule": true,
+      "couldNotResolve": false,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "core",
+        "import"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "ws_apps/example-typescript/tests/integration/cli.integration.test.ts"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "node_modules/vitest/dist/index.js",
+      "dependencies": [
+        {
+          "module": "./chunks/_commonjsHelpers.BFTU3MAI.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/_commonjsHelpers.BFTU3MAI.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "./chunks/benchmark.Cdu9hjj4.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "export"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/benchmark.Cdu9hjj4.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.6666666666666666,
+          "valid": true
+        },
+        {
+          "module": "./chunks/date.W2xKR2qe.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/date.W2xKR2qe.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "./chunks/index.ckWaX2gY.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "export"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/index.ckWaX2gY.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.875,
+          "valid": true
+        },
+        {
+          "module": "./chunks/run-once.2ogXb3JV.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "export"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/run-once.2ogXb3JV.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.3333333333333333,
+          "valid": true
+        },
+        {
+          "module": "./chunks/utils.C8RiOc4B.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/utils.C8RiOc4B.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.16666666666666666,
+          "valid": true
+        },
+        {
+          "module": "./chunks/vi.DgezovHB.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "export"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/vi.DgezovHB.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.8571428571428571,
+          "valid": true
+        },
+        {
+          "module": "@vitest/expect",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/expect/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.75,
+          "valid": true
+        },
+        {
+          "module": "@vitest/runner",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "export"
+          ],
+          "resolved": "node_modules/@vitest/runner/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5555555555555556,
+          "valid": true
+        },
+        {
+          "module": "@vitest/runner/utils",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@vitest/runner/utils",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "@vitest/snapshot",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/snapshot/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.6666666666666666,
+          "valid": true
+        },
+        {
+          "module": "@vitest/spy",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/spy/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.25,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/utils/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.4166666666666667,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils/error",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@vitest/utils/error",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils/source-map",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@vitest/utils/source-map",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "chai",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/chai/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "expect-type",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "export"
+          ],
+          "resolved": "node_modules/expect-type/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.6666666666666666,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "ws_apps/example-typescript/tests/integration/cli.integration.test.ts",
+        "ws_apps/example-typescript/tests/main.test.ts"
+      ],
+      "orphan": false,
+      "instability": 0.8947368421052632,
+      "valid": true
+    },
+    {
+      "source": "@vitest/runner/utils",
+      "followable": false,
+      "coreModule": false,
+      "couldNotResolve": true,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "unknown"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/benchmark.Cdu9hjj4.js",
+        "node_modules/vitest/dist/chunks/vi.DgezovHB.js"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "@vitest/utils/error",
+      "followable": false,
+      "coreModule": false,
+      "couldNotResolve": true,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "unknown"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/@vitest/runner/dist/index.js",
+        "node_modules/@vitest/runner/dist/chunk-tasks.js",
+        "node_modules/vitest/dist/chunks/vi.DgezovHB.js",
+        "node_modules/@vitest/expect/dist/index.js"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "@vitest/utils/source-map",
+      "followable": false,
+      "coreModule": false,
+      "couldNotResolve": true,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "unknown"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/@vitest/runner/dist/index.js",
+        "node_modules/vitest/dist/chunks/vi.DgezovHB.js"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "node_modules/vitest/dist/chunks/_commonjsHelpers.BFTU3MAI.js",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/vi.DgezovHB.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/vitest/dist/chunks/benchmark.Cdu9hjj4.js",
+      "dependencies": [
+        {
+          "module": "./utils.C8RiOc4B.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/utils.C8RiOc4B.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.16666666666666666,
+          "valid": true
+        },
+        {
+          "module": "@vitest/runner",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/runner/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5555555555555556,
+          "valid": true
+        },
+        {
+          "module": "@vitest/runner/utils",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@vitest/runner/utils",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/utils/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.4166666666666667,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/index.ckWaX2gY.js"
+      ],
+      "orphan": false,
+      "instability": 0.6666666666666666,
+      "valid": true
+    },
+    {
+      "source": "node_modules/vitest/dist/chunks/utils.C8RiOc4B.js",
+      "dependencies": [
+        {
+          "module": "@vitest/utils",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/utils/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.4166666666666667,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/benchmark.Cdu9hjj4.js",
+        "node_modules/vitest/dist/chunks/index.ckWaX2gY.js",
+        "node_modules/vitest/dist/chunks/run-once.2ogXb3JV.js",
+        "node_modules/vitest/dist/chunks/vi.DgezovHB.js"
+      ],
+      "orphan": false,
+      "instability": 0.16666666666666666,
+      "valid": true
+    },
+    {
+      "source": "node_modules/@vitest/utils/dist/index.js",
+      "dependencies": [
+        {
+          "module": "./chunk-_commonjsHelpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/utils/dist/chunk-_commonjsHelpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.6666666666666666,
+          "valid": true
+        },
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "export"
+          ],
+          "resolved": "node_modules/@vitest/utils/dist/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "@vitest/pretty-format",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/pretty-format/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.25,
+          "valid": true
+        },
+        {
+          "module": "loupe",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.9,
+          "valid": true
+        },
+        {
+          "module": "tinyrainbow",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/tinyrainbow/dist/node.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.4,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/benchmark.Cdu9hjj4.js",
+        "node_modules/vitest/dist/chunks/utils.C8RiOc4B.js",
+        "node_modules/@vitest/runner/dist/index.js",
+        "node_modules/@vitest/runner/dist/chunk-tasks.js",
+        "node_modules/vitest/dist/chunks/vi.DgezovHB.js",
+        "node_modules/@vitest/expect/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.4166666666666667,
+      "valid": true
+    },
+    {
+      "source": "node_modules/@vitest/utils/dist/chunk-_commonjsHelpers.js",
+      "dependencies": [
+        {
+          "module": "@vitest/pretty-format",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/pretty-format/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.25,
+          "valid": true
+        },
+        {
+          "module": "loupe",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.9,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/@vitest/utils/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.6666666666666666,
+      "valid": true
+    },
+    {
+      "source": "node_modules/@vitest/pretty-format/dist/index.js",
+      "dependencies": [
+        {
+          "module": "tinyrainbow",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/tinyrainbow/dist/node.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.4,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/@vitest/utils/dist/index.js",
+        "node_modules/@vitest/utils/dist/chunk-_commonjsHelpers.js",
+        "node_modules/@vitest/snapshot/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.25,
+      "valid": true
+    },
+    {
+      "source": "node_modules/tinyrainbow/dist/node.js",
+      "dependencies": [
+        {
+          "module": "./chunk-BVHSVHOK.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/tinyrainbow/dist/chunk-BVHSVHOK.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "tty",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "core",
+            "import"
+          ],
+          "resolved": "tty",
+          "coreModule": true,
+          "followable": false,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/@vitest/utils/dist/index.js",
+        "node_modules/@vitest/pretty-format/dist/index.js",
+        "node_modules/@vitest/expect/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.4,
+      "valid": true
+    },
+    {
+      "source": "tty",
+      "followable": false,
+      "coreModule": true,
+      "couldNotResolve": false,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "core",
+        "import"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "node_modules/tinyrainbow/dist/node.js"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "node_modules/tinyrainbow/dist/chunk-BVHSVHOK.js",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/tinyrainbow/dist/node.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/index.js",
+      "dependencies": [
+        {
+          "module": "./arguments.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/arguments.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./array.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/array.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./bigint.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/bigint.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./class.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/class.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./date.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/date.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./error.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/error.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./function.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/function.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "./html.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/html.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./map.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/map.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./number.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/number.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./object.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/object.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.3333333333333333,
+          "valid": true
+        },
+        {
+          "module": "./promise.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/promise.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "./regexp.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/regexp.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./set.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/set.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./string.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/string.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "./symbol.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/symbol.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "./typedarray.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/typedarray.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/@vitest/utils/dist/index.js",
+        "node_modules/@vitest/utils/dist/chunk-_commonjsHelpers.js"
+      ],
+      "orphan": false,
+      "instability": 0.9,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/arguments.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/helpers.js",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/loupe/lib/index.js",
+        "node_modules/loupe/lib/arguments.js",
+        "node_modules/loupe/lib/array.js",
+        "node_modules/loupe/lib/bigint.js",
+        "node_modules/loupe/lib/object.js",
+        "node_modules/loupe/lib/date.js",
+        "node_modules/loupe/lib/error.js",
+        "node_modules/loupe/lib/function.js",
+        "node_modules/loupe/lib/html.js",
+        "node_modules/loupe/lib/map.js",
+        "node_modules/loupe/lib/number.js",
+        "node_modules/loupe/lib/regexp.js",
+        "node_modules/loupe/lib/set.js",
+        "node_modules/loupe/lib/string.js",
+        "node_modules/loupe/lib/typedarray.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/array.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/bigint.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/class.js",
+      "dependencies": [
+        {
+          "module": "./object.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/object.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.3333333333333333,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/object.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js",
+        "node_modules/loupe/lib/class.js"
+      ],
+      "orphan": false,
+      "instability": 0.3333333333333333,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/date.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/error.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/function.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/html.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/map.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/number.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/promise.js",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/regexp.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/set.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/string.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/symbol.js",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/loupe/lib/typedarray.js",
+      "dependencies": [
+        {
+          "module": "./helpers.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/loupe/lib/helpers.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/loupe/lib/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/@vitest/utils/dist/helpers.js",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/@vitest/utils/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/@vitest/runner/dist/index.js",
+      "dependencies": [
+        {
+          "module": "./chunk-tasks.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/runner/dist/chunk-tasks.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.75,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/utils/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.4166666666666667,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils/error",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@vitest/utils/error",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils/source-map",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@vitest/utils/source-map",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "pathe",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/pathe/dist/index.cjs",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.25,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/benchmark.Cdu9hjj4.js",
+        "node_modules/vitest/dist/chunks/index.ckWaX2gY.js",
+        "node_modules/vitest/dist/chunks/vi.DgezovHB.js"
+      ],
+      "orphan": false,
+      "instability": 0.5555555555555556,
+      "valid": true
+    },
+    {
+      "source": "node_modules/@vitest/runner/dist/chunk-tasks.js",
+      "dependencies": [
+        {
+          "module": "@vitest/utils",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/utils/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.4166666666666667,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils/error",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@vitest/utils/error",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "pathe",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/pathe/dist/index.cjs",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.25,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/@vitest/runner/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.75,
+      "valid": true
+    },
+    {
+      "source": "node_modules/pathe/dist/index.cjs",
+      "dependencies": [
+        {
+          "module": "./shared/pathe.1f0a373c.cjs",
+          "moduleSystem": "cjs",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "require"
+          ],
+          "resolved": "node_modules/pathe/dist/shared/pathe.1f0a373c.cjs",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/@vitest/runner/dist/index.js",
+        "node_modules/@vitest/runner/dist/chunk-tasks.js",
+        "node_modules/@vitest/snapshot/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.25,
+      "valid": true
+    },
+    {
+      "source": "node_modules/pathe/dist/shared/pathe.1f0a373c.cjs",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/pathe/dist/index.cjs"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/vitest/dist/chunks/date.W2xKR2qe.js",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/vi.DgezovHB.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/vitest/dist/chunks/index.ckWaX2gY.js",
+      "dependencies": [
+        {
+          "module": "./benchmark.Cdu9hjj4.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/benchmark.Cdu9hjj4.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.6666666666666666,
+          "valid": true
+        },
+        {
+          "module": "./run-once.2ogXb3JV.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/run-once.2ogXb3JV.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.3333333333333333,
+          "valid": true
+        },
+        {
+          "module": "./utils.C8RiOc4B.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/utils.C8RiOc4B.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.16666666666666666,
+          "valid": true
+        },
+        {
+          "module": "./vi.DgezovHB.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/vi.DgezovHB.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.8571428571428571,
+          "valid": true
+        },
+        {
+          "module": "@vitest/runner",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/runner/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5555555555555556,
+          "valid": true
+        },
+        {
+          "module": "chai",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/chai/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "expect-type",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/expect-type/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.6666666666666666,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/vitest/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.875,
+      "valid": true
+    },
+    {
+      "source": "node_modules/vitest/dist/chunks/run-once.2ogXb3JV.js",
+      "dependencies": [
+        {
+          "module": "./utils.C8RiOc4B.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/utils.C8RiOc4B.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.16666666666666666,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/index.ckWaX2gY.js"
+      ],
+      "orphan": false,
+      "instability": 0.3333333333333333,
+      "valid": true
+    },
+    {
+      "source": "node_modules/vitest/dist/chunks/vi.DgezovHB.js",
+      "dependencies": [
+        {
+          "module": "./_commonjsHelpers.BFTU3MAI.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/_commonjsHelpers.BFTU3MAI.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "./date.W2xKR2qe.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/date.W2xKR2qe.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "./utils.C8RiOc4B.js",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/chunks/utils.C8RiOc4B.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.16666666666666666,
+          "valid": true
+        },
+        {
+          "module": "@vitest/expect",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/expect/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.75,
+          "valid": true
+        },
+        {
+          "module": "@vitest/runner",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/runner/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5555555555555556,
+          "valid": true
+        },
+        {
+          "module": "@vitest/runner/utils",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@vitest/runner/utils",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "@vitest/snapshot",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/snapshot/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.6666666666666666,
+          "valid": true
+        },
+        {
+          "module": "@vitest/spy",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/spy/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.25,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/utils/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.4166666666666667,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils/error",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@vitest/utils/error",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils/source-map",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@vitest/utils/source-map",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "chai",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/chai/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/index.ckWaX2gY.js"
+      ],
+      "orphan": false,
+      "instability": 0.8571428571428571,
+      "valid": true
+    },
+    {
+      "source": "node_modules/@vitest/expect/dist/index.js",
+      "dependencies": [
+        {
+          "module": "@vitest/spy",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/spy/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.25,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/utils/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.4166666666666667,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils/diff",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@vitest/utils/diff",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "@vitest/utils/error",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "unknown"
+          ],
+          "resolved": "@vitest/utils/error",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": true,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "chai",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/chai/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "tinyrainbow",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/tinyrainbow/dist/node.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.4,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/vi.DgezovHB.js"
+      ],
+      "orphan": false,
+      "instability": 0.75,
+      "valid": true
+    },
+    {
+      "source": "@vitest/utils/diff",
+      "followable": false,
+      "coreModule": false,
+      "couldNotResolve": true,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "unknown"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "node_modules/@vitest/expect/dist/index.js"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "node_modules/@vitest/spy/dist/index.js",
+      "dependencies": [
+        {
+          "module": "tinyspy",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/tinyspy/dist/index.cjs",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/vi.DgezovHB.js",
+        "node_modules/@vitest/expect/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.25,
+      "valid": true
+    },
+    {
+      "source": "node_modules/tinyspy/dist/index.cjs",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/@vitest/spy/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/chai/index.js",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/index.ckWaX2gY.js",
+        "node_modules/vitest/dist/chunks/vi.DgezovHB.js",
+        "node_modules/@vitest/expect/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/@vitest/snapshot/dist/index.js",
+      "dependencies": [
+        {
+          "module": "@vitest/pretty-format",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/@vitest/pretty-format/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.25,
+          "valid": true
+        },
+        {
+          "module": "magic-string",
+          "moduleSystem": "es6",
+          "dynamic": true,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "dynamic-import"
+          ],
+          "resolved": "node_modules/magic-string/dist/magic-string.cjs.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "pathe",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "import"
+          ],
+          "resolved": "node_modules/pathe/dist/index.cjs",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.25,
+          "valid": true
+        },
+        {
+          "module": "util",
+          "moduleSystem": "cjs",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "core",
+            "require"
+          ],
+          "resolved": "util",
+          "coreModule": true,
+          "followable": false,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/vi.DgezovHB.js"
+      ],
+      "orphan": false,
+      "instability": 0.6666666666666666,
+      "valid": true
+    },
+    {
+      "source": "util",
+      "followable": false,
+      "coreModule": true,
+      "couldNotResolve": false,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "core",
+        "require"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "node_modules/@vitest/snapshot/dist/index.js"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "node_modules/magic-string/dist/magic-string.cjs.js",
+      "dependencies": [
+        {
+          "module": "@jridgewell/sourcemap-codec",
+          "moduleSystem": "cjs",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm",
+            "require"
+          ],
+          "resolved": "node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.umd.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/@vitest/snapshot/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.umd.js",
+      "dependencies": [
+        {
+          "module": "module",
+          "moduleSystem": "amd",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "core",
+            "amd-define"
+          ],
+          "resolved": "module",
+          "coreModule": true,
+          "followable": false,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/magic-string/dist/magic-string.cjs.js"
+      ],
+      "orphan": false,
+      "instability": 0.5,
+      "valid": true
+    },
+    {
+      "source": "module",
+      "followable": false,
+      "coreModule": true,
+      "couldNotResolve": false,
+      "matchesDoNotFollow": false,
+      "dependencyTypes": [
+        "core",
+        "amd-define"
+      ],
+      "dependencies": [],
+      "dependents": [
+        "node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.umd.js"
+      ],
+      "orphan": false,
+      "valid": true
+    },
+    {
+      "source": "node_modules/expect-type/dist/index.js",
+      "dependencies": [
+        {
+          "module": "./branding",
+          "moduleSystem": "cjs",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "require"
+          ],
+          "resolved": "node_modules/expect-type/dist/branding.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "./messages",
+          "moduleSystem": "cjs",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "require"
+          ],
+          "resolved": "node_modules/expect-type/dist/messages.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "./overloads",
+          "moduleSystem": "cjs",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "require"
+          ],
+          "resolved": "node_modules/expect-type/dist/overloads.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        },
+        {
+          "module": "./utils",
+          "moduleSystem": "cjs",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "require"
+          ],
+          "resolved": "node_modules/expect-type/dist/utils.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        "node_modules/vitest/dist/index.js",
+        "node_modules/vitest/dist/chunks/index.ckWaX2gY.js"
+      ],
+      "orphan": false,
+      "instability": 0.6666666666666666,
+      "valid": true
+    },
+    {
+      "source": "node_modules/expect-type/dist/branding.js",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/expect-type/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/expect-type/dist/messages.js",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/expect-type/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/expect-type/dist/overloads.js",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/expect-type/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "node_modules/expect-type/dist/utils.js",
+      "dependencies": [],
+      "dependents": [
+        "node_modules/expect-type/dist/index.js"
+      ],
+      "orphan": false,
+      "instability": 0,
+      "valid": true
+    },
+    {
+      "source": "ws_apps/example-typescript/tests/main.test.ts",
+      "dependencies": [
+        {
+          "module": "../src/main.ts",
+          "moduleSystem": "es6",
+          "dynamic": true,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "dynamic-import"
+          ],
+          "resolved": "ws_apps/example-typescript/src/main.ts",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.6666666666666666,
+          "valid": true
+        },
+        {
+          "module": "../src/telemetry.ts",
+          "moduleSystem": "es6",
+          "dynamic": true,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "local",
+            "dynamic-import"
+          ],
+          "resolved": "ws_apps/example-typescript/src/telemetry.ts",
+          "coreModule": false,
+          "followable": false,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.5,
+          "valid": true
+        },
+        {
+          "module": "vitest",
+          "moduleSystem": "es6",
+          "dynamic": false,
+          "exoticallyRequired": false,
+          "dependencyTypes": [
+            "npm-dev",
+            "import"
+          ],
+          "resolved": "node_modules/vitest/dist/index.js",
+          "coreModule": false,
+          "followable": true,
+          "couldNotResolve": false,
+          "matchesDoNotFollow": false,
+          "circular": false,
+          "instability": 0.8947368421052632,
+          "valid": true
+        }
+      ],
+      "dependents": [],
+      "orphan": false,
+      "instability": 1,
+      "valid": true
+    }
+  ],
+  "folders": [
+    {
+      "name": "ws_apps",
+      "dependencies": [
+        {
+          "name": "@opentelemetry",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "child_process",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "path",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "url",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/vitest/dist",
+          "instability": 0.9285714285714286,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [],
+      "moduleCount": 5,
+      "afferentCouplings": 0,
+      "efferentCouplings": 8,
+      "instability": 1
+    },
+    {
+      "name": "ws_apps/example-typescript",
+      "dependencies": [
+        {
+          "name": "@opentelemetry",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "child_process",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "path",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "url",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/vitest/dist",
+          "instability": 0.9285714285714286,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [],
+      "moduleCount": 5,
+      "afferentCouplings": 0,
+      "efferentCouplings": 8,
+      "instability": 1
+    },
+    {
+      "name": "ws_apps/example-typescript/src",
+      "dependencies": [
+        {
+          "name": "@opentelemetry",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "ws_apps/example-typescript/tests"
+        }
+      ],
+      "moduleCount": 3,
+      "afferentCouplings": 3,
+      "efferentCouplings": 3,
+      "instability": 0.5
+    },
+    {
+      "name": "ws_apps/example-typescript/tests",
+      "dependencies": [
+        {
+          "name": "child_process",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "path",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "url",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/vitest/dist",
+          "instability": 0.9285714285714286,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "ws_apps/example-typescript/src",
+          "instability": 0.5,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [],
+      "moduleCount": 2,
+      "afferentCouplings": 0,
+      "efferentCouplings": 7,
+      "instability": 1
+    },
+    {
+      "name": "ws_apps/example-typescript/tests/integration",
+      "dependencies": [
+        {
+          "name": "child_process",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "path",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "url",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/vitest/dist",
+          "instability": 0.9285714285714286,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [],
+      "moduleCount": 1,
+      "afferentCouplings": 0,
+      "efferentCouplings": 4,
+      "instability": 1
+    },
+    {
+      "name": "node_modules",
+      "dependencies": [
+        {
+          "name": "@vitest/runner",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "@vitest/utils",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "tty",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "util",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "module",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "ws_apps/example-typescript/tests/integration"
+        },
+        {
+          "name": "ws_apps/example-typescript/tests"
+        }
+      ],
+      "moduleCount": 49,
+      "afferentCouplings": 2,
+      "efferentCouplings": 15,
+      "instability": 0.8823529411764706
+    },
+    {
+      "name": "node_modules/vitest",
+      "dependencies": [
+        {
+          "name": "node_modules/@vitest/expect/dist",
+          "instability": 0.75,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/runner/dist",
+          "instability": 0.6363636363636364,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "@vitest/runner",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/snapshot/dist",
+          "instability": 0.6666666666666666,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/spy/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/utils/dist",
+          "instability": 0.4166666666666667,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "@vitest/utils",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/chai",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/expect-type/dist",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "ws_apps/example-typescript/tests/integration"
+        },
+        {
+          "name": "ws_apps/example-typescript/tests"
+        }
+      ],
+      "moduleCount": 8,
+      "afferentCouplings": 2,
+      "efferentCouplings": 26,
+      "instability": 0.9285714285714286
+    },
+    {
+      "name": "node_modules/vitest/dist",
+      "dependencies": [
+        {
+          "name": "node_modules/@vitest/expect/dist",
+          "instability": 0.75,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/runner/dist",
+          "instability": 0.6363636363636364,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "@vitest/runner",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/snapshot/dist",
+          "instability": 0.6666666666666666,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/spy/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/utils/dist",
+          "instability": 0.4166666666666667,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "@vitest/utils",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/chai",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/expect-type/dist",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "ws_apps/example-typescript/tests/integration"
+        },
+        {
+          "name": "ws_apps/example-typescript/tests"
+        }
+      ],
+      "moduleCount": 8,
+      "afferentCouplings": 2,
+      "efferentCouplings": 26,
+      "instability": 0.9285714285714286
+    },
+    {
+      "name": "node_modules/vitest/dist/chunks",
+      "dependencies": [
+        {
+          "name": "node_modules/@vitest/runner/dist",
+          "instability": 0.6363636363636364,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "@vitest/runner",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/utils/dist",
+          "instability": 0.4166666666666667,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/chai",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/expect-type/dist",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/expect/dist",
+          "instability": 0.75,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/snapshot/dist",
+          "instability": 0.6666666666666666,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/spy/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "@vitest/utils",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        }
+      ],
+      "moduleCount": 7,
+      "afferentCouplings": 7,
+      "efferentCouplings": 16,
+      "instability": 0.6956521739130435
+    },
+    {
+      "name": "node_modules/@vitest",
+      "dependencies": [
+        {
+          "name": "node_modules/loupe/lib",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/tinyrainbow/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "@vitest/utils",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/pathe/dist",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/chai",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/tinyspy/dist",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/magic-string/dist",
+          "instability": 0.5,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "util",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        }
+      ],
+      "moduleCount": 9,
+      "afferentCouplings": 14,
+      "efferentCouplings": 17,
+      "instability": 0.5483870967741935
+    },
+    {
+      "name": "node_modules/@vitest/utils",
+      "dependencies": [
+        {
+          "name": "node_modules/@vitest/pretty-format/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/loupe/lib",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/tinyrainbow/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        },
+        {
+          "name": "node_modules/@vitest/runner/dist"
+        },
+        {
+          "name": "node_modules/@vitest/expect/dist"
+        }
+      ],
+      "moduleCount": 3,
+      "afferentCouplings": 7,
+      "efferentCouplings": 5,
+      "instability": 0.4166666666666667
+    },
+    {
+      "name": "node_modules/@vitest/utils/dist",
+      "dependencies": [
+        {
+          "name": "node_modules/@vitest/pretty-format/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/loupe/lib",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/tinyrainbow/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        },
+        {
+          "name": "node_modules/@vitest/runner/dist"
+        },
+        {
+          "name": "node_modules/@vitest/expect/dist"
+        }
+      ],
+      "moduleCount": 3,
+      "afferentCouplings": 7,
+      "efferentCouplings": 5,
+      "instability": 0.4166666666666667
+    },
+    {
+      "name": "node_modules/@vitest/pretty-format",
+      "dependencies": [
+        {
+          "name": "node_modules/tinyrainbow/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/@vitest/utils/dist"
+        },
+        {
+          "name": "node_modules/@vitest/snapshot/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 3,
+      "efferentCouplings": 1,
+      "instability": 0.25
+    },
+    {
+      "name": "node_modules/@vitest/pretty-format/dist",
+      "dependencies": [
+        {
+          "name": "node_modules/tinyrainbow/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/@vitest/utils/dist"
+        },
+        {
+          "name": "node_modules/@vitest/snapshot/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 3,
+      "efferentCouplings": 1,
+      "instability": 0.25
+    },
+    {
+      "name": "node_modules/tinyrainbow",
+      "dependencies": [
+        {
+          "name": "tty",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/@vitest/utils/dist"
+        },
+        {
+          "name": "node_modules/@vitest/pretty-format/dist"
+        },
+        {
+          "name": "node_modules/@vitest/expect/dist"
+        }
+      ],
+      "moduleCount": 2,
+      "afferentCouplings": 3,
+      "efferentCouplings": 1,
+      "instability": 0.25
+    },
+    {
+      "name": "node_modules/tinyrainbow/dist",
+      "dependencies": [
+        {
+          "name": "tty",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/@vitest/utils/dist"
+        },
+        {
+          "name": "node_modules/@vitest/pretty-format/dist"
+        },
+        {
+          "name": "node_modules/@vitest/expect/dist"
+        }
+      ],
+      "moduleCount": 2,
+      "afferentCouplings": 3,
+      "efferentCouplings": 1,
+      "instability": 0.25
+    },
+    {
+      "name": "node_modules/loupe",
+      "dependencies": [],
+      "dependents": [
+        {
+          "name": "node_modules/@vitest/utils/dist"
+        }
+      ],
+      "moduleCount": 19,
+      "afferentCouplings": 2,
+      "efferentCouplings": 0,
+      "instability": 0
+    },
+    {
+      "name": "node_modules/loupe/lib",
+      "dependencies": [],
+      "dependents": [
+        {
+          "name": "node_modules/@vitest/utils/dist"
+        }
+      ],
+      "moduleCount": 19,
+      "afferentCouplings": 2,
+      "efferentCouplings": 0,
+      "instability": 0
+    },
+    {
+      "name": "node_modules/@vitest/runner",
+      "dependencies": [
+        {
+          "name": "node_modules/@vitest/utils/dist",
+          "instability": 0.4166666666666667,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "@vitest/utils",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/pathe/dist",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        }
+      ],
+      "moduleCount": 2,
+      "afferentCouplings": 4,
+      "efferentCouplings": 7,
+      "instability": 0.6363636363636364
+    },
+    {
+      "name": "node_modules/@vitest/runner/dist",
+      "dependencies": [
+        {
+          "name": "node_modules/@vitest/utils/dist",
+          "instability": 0.4166666666666667,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "@vitest/utils",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/pathe/dist",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        }
+      ],
+      "moduleCount": 2,
+      "afferentCouplings": 4,
+      "efferentCouplings": 7,
+      "instability": 0.6363636363636364
+    },
+    {
+      "name": "node_modules/pathe",
+      "dependencies": [],
+      "dependents": [
+        {
+          "name": "node_modules/@vitest/runner/dist"
+        },
+        {
+          "name": "node_modules/@vitest/snapshot/dist"
+        }
+      ],
+      "moduleCount": 2,
+      "afferentCouplings": 3,
+      "efferentCouplings": 0,
+      "instability": 0
+    },
+    {
+      "name": "node_modules/pathe/dist",
+      "dependencies": [],
+      "dependents": [
+        {
+          "name": "node_modules/@vitest/runner/dist"
+        },
+        {
+          "name": "node_modules/@vitest/snapshot/dist"
+        }
+      ],
+      "moduleCount": 2,
+      "afferentCouplings": 3,
+      "efferentCouplings": 0,
+      "instability": 0
+    },
+    {
+      "name": "node_modules/pathe/dist/shared",
+      "dependencies": [],
+      "dependents": [
+        {
+          "name": "node_modules/pathe/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 1,
+      "efferentCouplings": 0,
+      "instability": 0
+    },
+    {
+      "name": "node_modules/@vitest/expect",
+      "dependencies": [
+        {
+          "name": "node_modules/@vitest/spy/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/utils/dist",
+          "instability": 0.4166666666666667,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "@vitest/utils",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/chai",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/tinyrainbow/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 2,
+      "efferentCouplings": 6,
+      "instability": 0.75
+    },
+    {
+      "name": "node_modules/@vitest/expect/dist",
+      "dependencies": [
+        {
+          "name": "node_modules/@vitest/spy/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/@vitest/utils/dist",
+          "instability": 0.4166666666666667,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "@vitest/utils",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/chai",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/tinyrainbow/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 2,
+      "efferentCouplings": 6,
+      "instability": 0.75
+    },
+    {
+      "name": "node_modules/@vitest/spy",
+      "dependencies": [
+        {
+          "name": "node_modules/tinyspy/dist",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        },
+        {
+          "name": "node_modules/@vitest/expect/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 3,
+      "efferentCouplings": 1,
+      "instability": 0.25
+    },
+    {
+      "name": "node_modules/@vitest/spy/dist",
+      "dependencies": [
+        {
+          "name": "node_modules/tinyspy/dist",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        },
+        {
+          "name": "node_modules/@vitest/expect/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 3,
+      "efferentCouplings": 1,
+      "instability": 0.25
+    },
+    {
+      "name": "node_modules/tinyspy",
+      "dependencies": [],
+      "dependents": [
+        {
+          "name": "node_modules/@vitest/spy/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 1,
+      "efferentCouplings": 0,
+      "instability": 0
+    },
+    {
+      "name": "node_modules/tinyspy/dist",
+      "dependencies": [],
+      "dependents": [
+        {
+          "name": "node_modules/@vitest/spy/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 1,
+      "efferentCouplings": 0,
+      "instability": 0
+    },
+    {
+      "name": "node_modules/chai",
+      "dependencies": [],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        },
+        {
+          "name": "node_modules/@vitest/expect/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 4,
+      "efferentCouplings": 0,
+      "instability": 0
+    },
+    {
+      "name": "node_modules/@vitest/snapshot",
+      "dependencies": [
+        {
+          "name": "node_modules/@vitest/pretty-format/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/magic-string/dist",
+          "instability": 0.5,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/pathe/dist",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "util",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 2,
+      "efferentCouplings": 4,
+      "instability": 0.6666666666666666
+    },
+    {
+      "name": "node_modules/@vitest/snapshot/dist",
+      "dependencies": [
+        {
+          "name": "node_modules/@vitest/pretty-format/dist",
+          "instability": 0.25,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/magic-string/dist",
+          "instability": 0.5,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "node_modules/pathe/dist",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        },
+        {
+          "name": "util",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 2,
+      "efferentCouplings": 4,
+      "instability": 0.6666666666666666
+    },
+    {
+      "name": "node_modules/magic-string",
+      "dependencies": [
+        {
+          "name": "node_modules/@jridgewell/sourcemap-codec/dist",
+          "instability": 0.5,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/@vitest/snapshot/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 1,
+      "efferentCouplings": 1,
+      "instability": 0.5
+    },
+    {
+      "name": "node_modules/magic-string/dist",
+      "dependencies": [
+        {
+          "name": "node_modules/@jridgewell/sourcemap-codec/dist",
+          "instability": 0.5,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/@vitest/snapshot/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 1,
+      "efferentCouplings": 1,
+      "instability": 0.5
+    },
+    {
+      "name": "node_modules/@jridgewell",
+      "dependencies": [
+        {
+          "name": "module",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/magic-string/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 1,
+      "efferentCouplings": 1,
+      "instability": 0.5
+    },
+    {
+      "name": "node_modules/@jridgewell/sourcemap-codec",
+      "dependencies": [
+        {
+          "name": "module",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/magic-string/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 1,
+      "efferentCouplings": 1,
+      "instability": 0.5
+    },
+    {
+      "name": "node_modules/@jridgewell/sourcemap-codec/dist",
+      "dependencies": [
+        {
+          "name": "module",
+          "instability": 0,
+          "circular": false,
+          "valid": true
+        }
+      ],
+      "dependents": [
+        {
+          "name": "node_modules/magic-string/dist"
+        }
+      ],
+      "moduleCount": 1,
+      "afferentCouplings": 1,
+      "efferentCouplings": 1,
+      "instability": 0.5
+    },
+    {
+      "name": "node_modules/expect-type",
+      "dependencies": [],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        }
+      ],
+      "moduleCount": 5,
+      "afferentCouplings": 2,
+      "efferentCouplings": 0,
+      "instability": 0
+    },
+    {
+      "name": "node_modules/expect-type/dist",
+      "dependencies": [],
+      "dependents": [
+        {
+          "name": "node_modules/vitest/dist"
+        },
+        {
+          "name": "node_modules/vitest/dist/chunks"
+        }
+      ],
+      "moduleCount": 5,
+      "afferentCouplings": 2,
+      "efferentCouplings": 0,
+      "instability": 0
+    },
+    {
+      "name": "@opentelemetry",
+      "moduleCount": -1,
+      "dependencies": [],
+      "dependents": []
+    },
+    {
+      "name": "child_process",
+      "moduleCount": -1,
+      "dependencies": [],
+      "dependents": []
+    },
+    {
+      "name": "path",
+      "moduleCount": -1,
+      "dependencies": [],
+      "dependents": []
+    },
+    {
+      "name": "url",
+      "moduleCount": -1,
+      "dependencies": [],
+      "dependents": []
+    },
+    {
+      "name": "@vitest/runner",
+      "moduleCount": -1,
+      "dependencies": [],
+      "dependents": []
+    },
+    {
+      "name": "@vitest/utils",
+      "moduleCount": -1,
+      "dependencies": [],
+      "dependents": []
+    },
+    {
+      "name": "tty",
+      "moduleCount": -1,
+      "dependencies": [],
+      "dependents": []
+    },
+    {
+      "name": "util",
+      "moduleCount": -1,
+      "dependencies": [],
+      "dependents": []
+    },
+    {
+      "name": "module",
+      "moduleCount": -1,
+      "dependencies": [],
+      "dependents": []
+    }
+  ],
+  "summary": {
+    "violations": [],
+    "error": 0,
+    "warn": 0,
+    "info": 0,
+    "ignore": 0,
+    "totalCruised": 67,
+    "totalDependenciesCruised": 122,
+    "optionsUsed": {
+      "baseDir": "/home/ubuntu/Code/syntropic137/harness-app-template",
+      "combinedDependencies": false,
+      "detectJSDocImports": false,
+      "detectProcessBuiltinModuleCalls": false,
+      "exoticRequireStrings": [],
+      "externalModuleResolutionStrategy": "node_modules",
+      "metrics": true,
+      "moduleSystems": [
+        "es6",
+        "cjs",
+        "tsd",
+        "amd"
+      ],
+      "outputTo": "-",
+      "outputType": "json",
+      "preserveSymlinks": false,
+      "skipAnalysisNotInRules": false,
+      "tsPreCompilationDeps": true,
+      "args": "ws_apps/example-typescript/src/main.ts ws_apps/example-typescript/src/telemetry.ts ws_apps/example-typescript/tests/main.test.ts ws_apps/example-typescript/tests/integration/cli.integration.test.ts"
+    }
+  }
+}

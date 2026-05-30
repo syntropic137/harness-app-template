@@ -1,0 +1,31 @@
+# Dependency-cruiser 17.4.0 — Martin metrics (workspace scope)
+
+Total readings: folders=4 modules=5 (raw cruise totals: 67 modules, 122 deps)
+
+## Per-folder (Robert C. Martin package metrics)
+
+folder                                           mods   Ca   Ce      I
+----------------------------------------------------------------------
+ws_apps/example-typescript                          5    0    8  1.000
+ws_apps/example-typescript/src                      3    3    3  0.500
+ws_apps/example-typescript/tests                    2    0    7  1.000
+ws_apps/example-typescript/tests/integration        1    0    4  1.000
+
+## Per-module
+
+module                                                         Ca   Ce      I
+--------------------------------------------------------------------------------
+ws_apps/example-typescript/src/main.ts                          1    2  0.667
+ws_apps/example-typescript/src/telemetry.ts                     2    0  0.000
+ws_apps/example-typescript/src/telemetry.ts                     2    2  0.500
+ws_apps/example-typescript/tests/integration/cli.integration.test.ts    0    4  1.000
+ws_apps/example-typescript/tests/main.test.ts                   0    3  1.000
+
+## Distribution
+
+Workspace modules with I defined: 5
+  min/median/max I: 0.000 / 0.667 / 1.000
+  stable (I<=0.2): 1   unstable (I>=0.8): 2
+
+Folders with I defined: 4
+  min/median/max I: 0.500 / 1.000 / 1.000
