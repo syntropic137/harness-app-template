@@ -262,6 +262,69 @@ export function mergeComplexity(report, complexity) {
   };
 }
 
+/**
+ * Merge APSS topology readings into the workspace report.  Per the
+ * preservation rule recorded in ADR-0017 (sentrux + APSS coexist; APSS
+ * is canonical for new gates, but the existing dep-cruiser/ts-morph/
+ * complexity values stay unchanged), APSS readings land under a
+ * dedicated `apss` sub-object on each module rather than overwriting
+ * Ca/Ce/I/A/D/complexity.  Folders get a `apss_modules` count plus
+ * `apss_distance_max` for a worst-case rollup.  Non-mutating.
+ */
+export function mergeApssTopology(report, apss) {
+  if (!apss || apss.available === false) {
+    return {
+      ...report,
+      apssTopologyTool: null,
+      apssAvailable: false,
+      workspace: { ...report.workspace },
+    };
+  }
+  const byModule = new Map();
+  for (const r of apss?.readings ?? []) {
+    if (r && typeof r.source === 'string') {
+      byModule.set(r.source, r);
+    }
+  }
+  const modules = report.workspace.modules.map((m) => {
+    const reading = byModule.get(m.source);
+    if (!reading) {
+      return m;
+    }
+    const { source: _s, functions, ...metrics } = reading;
+    return {
+      ...m,
+      apss: {
+        ...metrics,
+        function_count: functions?.length ?? metrics.function_count ?? null,
+      },
+    };
+  });
+  const folders = report.workspace.folders.map((f) => {
+    const prefix = `${f.name}/`;
+    const inFolder = modules.filter((m) => m.source === f.name || m.source.startsWith(prefix));
+    const withApss = inFolder.filter((m) => m.apss);
+    const dValues = withApss
+      .map((m) => m.apss?.distance_from_main_sequence)
+      .filter((v) => typeof v === 'number');
+    return {
+      ...f,
+      apss_modules: withApss.length,
+      apss_distance_max: dValues.length === 0 ? null : Math.max(...dValues),
+    };
+  });
+  return {
+    ...report,
+    apssTopologyTool: apss?.tool ?? null,
+    apssAvailable: true,
+    workspace: {
+      ...report.workspace,
+      modules,
+      folders,
+    },
+  };
+}
+
 function summarizeComplexity(modules) {
   const cyc = modules.map((m) => m.max_cyclomatic).filter((v) => typeof v === 'number');
   const cog = modules.map((m) => m.max_cognitive).filter((v) => typeof v === 'number');
@@ -318,10 +381,12 @@ function fmtInt(n) {
 export function renderMarkdown(report) {
   const hasA = report.abstractnessTool !== null && report.abstractnessTool !== undefined;
   const hasC = report.complexityTool !== null && report.complexityTool !== undefined;
+  const hasApss = report.apssAvailable === true;
   const lines = [];
   const tools = ['dependency-cruiser'];
   if (hasA) tools.push('ts-morph A');
   if (hasC) tools.push('ts-morph complexity');
+  if (hasApss) tools.push('APSS topology');
   const title = `# Workspace architecture metrics (${tools.join(' + ')})`;
   lines.push(`${title}\n`);
   const r = report.raw;
@@ -430,6 +495,15 @@ function parseComplexityFlag(argv) {
   return null;
 }
 
+function parseApssFlag(argv) {
+  for (const a of argv) {
+    if (a.startsWith('--apss=')) {
+      return a.slice('--apss='.length);
+    }
+  }
+  return null;
+}
+
 /** CLI entry: read cruiser JSON from stdin, print JSON or Markdown to stdout. */
 export async function main(
   argv = process.argv.slice(2),
@@ -480,6 +554,17 @@ export async function main(
       return 2;
     }
     report = mergeComplexity(report, complexity);
+  }
+  const apssPath = parseApssFlag(argv);
+  if (apssPath) {
+    let apss;
+    try {
+      apss = JSON.parse(io.readFile(apssPath));
+    } catch (err) {
+      process.stderr.write(`aggregate: failed to read --apss=${apssPath} (${err.message})\n`);
+      return 2;
+    }
+    report = mergeApssTopology(report, apss);
   }
   io.write(format === 'md' ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
   return 0;

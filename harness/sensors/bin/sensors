@@ -63,10 +63,15 @@ build_report() {
   # create-harness-app-n48.5).
   node "$HERE/abstractness.mjs" < "$cruiser_tmp" > "$abs_tmp"
   node "$HERE/complexity.mjs" < "$cruiser_tmp" > "$cplx_tmp"
+  # APSS topology adapter (bead n48.3 / ADR-0017): reads .topology/metrics/
+  # if present. No-op when the APSS `aps` binary hasn't been run — emits
+  # `{available: false, readings: []}` which aggregate.mjs treats as absent.
+  apss_tmp="$(mktemp -t harness-sensors-apss-XXXXXX.json)"
+  node "$HERE/apss_topology.mjs" --root="$REPO_ROOT" > "$apss_tmp"
   if [ "$out_path" = "-" ]; then
-    node "$HERE/aggregate.mjs" "--format=$out_format" "--abstractness=$abs_tmp" "--complexity=$cplx_tmp" < "$cruiser_tmp"
+    node "$HERE/aggregate.mjs" "--format=$out_format" "--abstractness=$abs_tmp" "--complexity=$cplx_tmp" "--apss=$apss_tmp" < "$cruiser_tmp"
   else
-    node "$HERE/aggregate.mjs" "--format=$out_format" "--abstractness=$abs_tmp" "--complexity=$cplx_tmp" < "$cruiser_tmp" > "$out_path"
+    node "$HERE/aggregate.mjs" "--format=$out_format" "--abstractness=$abs_tmp" "--complexity=$cplx_tmp" "--apss=$apss_tmp" < "$cruiser_tmp" > "$out_path"
   fi
 }
 
@@ -104,7 +109,8 @@ case "${1:-}" in
     cruiser_tmp=""
     abs_tmp=""
     cplx_tmp=""
-    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp"' EXIT
+    apss_tmp=""
+    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp"' EXIT
     build_report "$fmt" "-"
     ;;
   gate)
@@ -133,8 +139,9 @@ case "${1:-}" in
     cruiser_tmp=""
     abs_tmp=""
     cplx_tmp=""
+    apss_tmp=""
     report_tmp="$(mktemp -t harness-sensors-report-XXXXXX.json)"
-    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$report_tmp"' EXIT
+    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$report_tmp"' EXIT
     build_report "json" "$report_tmp"
     node "$HERE/gate.mjs" "${gate_args[@]+"${gate_args[@]}"}" < "$report_tmp"
     ;;
