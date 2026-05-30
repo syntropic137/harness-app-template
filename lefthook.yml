@@ -34,7 +34,7 @@ pre-commit:
     doc-validator:
       glob: "*.{md,json}"
       # See pre-push doc-validator for the --exclude rationale.
-      run: harness/doc-validator/bin/doc-validator --exclude docs/harness-engineering/references/ .
+      run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ .
 
     ubs-staged:
       run: mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
@@ -83,14 +83,19 @@ pre-push:
         '
 
     doc-validator:
-      # Excludes:
+      # Excludes (re-listing the validator defaults explicitly because
+      # passing --exclude REPLACES the default list rather than adding
+      # to it):
+      #   - /.git/ /.beads/ /.ntm/ /node_modules/ /target/
+      #     harness/doc-validator/target ws_apps/docs/out: vendor + state
+      #     paths the validator's own default-list skips.
       #   - docs/harness-engineering/references/: vendored extractive
       #     summaries from neural-hermes-data carry footnote-style
       #     anchors (#footnote-N, #footnote-ref-N-N) the validator does
       #     not yet understand. Preservation-first: the content is
       #     intentionally verbatim, so scope the gate around it rather
       #     than rewriting the vendored material.
-      run: harness/doc-validator/bin/doc-validator --exclude docs/harness-engineering/references/ .
+      run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ .
 
     ubs-diff:
       run: |
