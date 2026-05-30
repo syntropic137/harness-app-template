@@ -1,0 +1,31 @@
+# Self-contained workspace block so the stub builds standalone today.
+# Once f-skeleton (bead agentic-harness-lab-impl-f-skeleton-qo1) glob-includes
+# `harness/<slot>` in the root workspace `members`, REMOVE this `[workspace]`
+# table and the stub becomes a regular workspace member.
+[workspace]
+
+[package]
+name = "harness-stack"
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+description = "Stub for the stack-manager slot. Prints a hint until a real implementation is wired."
+publish = false
+
+[lib]
+name = "harness_stack"
+path = "src/lib.rs"
+
+[[bin]]
+name = "harness-stack"
+path = "src/main.rs"
+
+# ── HARNESS-ENGINEERING PROTECTED LINTS ─────────────────────────────────────
+# This is a stub crate. Same lint bar as a real slot plugin — adopting weaker
+# lints here would mask issues when a real implementation lands.
+[lints.rust]
+unsafe_code = "forbid"
+unused = { level = "deny", priority = -1 }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

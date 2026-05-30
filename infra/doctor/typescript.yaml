@@ -1,0 +1,27 @@
+name: typescript
+description: TypeScript / Node toolchain for the harness lab
+
+checks:
+  - id: node-20
+    description: Node 20+ on PATH
+    command: ["node", "--version"]
+    expect_stdout_match: "^v(20|21|22|23|24|25)\\."
+    remediation: |
+      Install via `brew install node@22` (or use nvm/fnm/volta).
+
+  - id: pnpm
+    description: pnpm package manager
+    command: ["pnpm", "--version"]
+    expect_exit: 0
+    remediation: |
+      corepack enable pnpm   # bundled with Node
+      OR: brew install pnpm
+
+  - id: bun
+    description: Bun runtime (optional — only needed to compile the harness binary per EXP-20)
+    command: ["bun", "--version"]
+    expect_exit: 0
+    remediation: |
+      curl -fsSL https://bun.sh/install | bash
+      OR: brew install oven-sh/bun/bun
+      (Optional: only needed for `bun build --compile` static binary builds.)

@@ -1,0 +1,69 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins: ["*"]
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+  # Language-neutral allow-list: keep only the resource attributes our
+  # observability queries actually use. Replaces the Node-specific
+  # resource/strip-noisy from v0.2.0 which had to enumerate every noisy
+  # key per language. See:
+  #   docs/retrospectives/001-logsql-token-efficiency.md (origin)
+  #   docs/retrospectives/010-rust-harness-cross-language.md (validation)
+  #   docs/evolution/v0.3.0-evolution.md (allow-list rationale)
+  #
+  # Kept prefixes:
+  #   service.*           — service.name / service.version / service.namespace / service.instance.id
+  #   deployment.*        — deployment.environment
+  #   harness.*           — harness.branch / harness.iso_key / harness.git_sha / harness.language
+  #   telemetry.sdk.*     — telemetry.sdk.language / .name / .version (debugging the SDK itself)
+  #   host.name           — useful for log correlation across replicas
+  #
+  # Everything else (process.*, process.runtime.*, host.arch, etc.) is dropped.
+  transform/keep-essential:
+    log_statements:
+      - context: resource
+        statements:
+          - keep_matching_keys(attributes, "^(service\\.|deployment\\.|harness\\.|telemetry\\.sdk\\.|host\\.name$)")
+    metric_statements:
+      - context: resource
+        statements:
+          - keep_matching_keys(attributes, "^(service\\.|deployment\\.|harness\\.|telemetry\\.sdk\\.|host\\.name$)")
+    trace_statements:
+      - context: resource
+        statements:
+          - keep_matching_keys(attributes, "^(service\\.|deployment\\.|harness\\.|telemetry\\.sdk\\.|host\\.name$)")
+
+exporters:
+  otlphttp/victoriametrics:
+    metrics_endpoint: http://victoriametrics:8428/opentelemetry/v1/metrics
+    tls: { insecure: true }
+  otlphttp/victorialogs:
+    logs_endpoint: http://victorialogs:9428/insert/opentelemetry/v1/logs
+    tls: { insecure: true }
+  otlphttp/victoriatraces:
+    traces_endpoint: http://victoriatraces:10428/insert/opentelemetry/v1/traces
+    tls: { insecure: true }
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [transform/keep-essential, batch]
+      exporters: [otlphttp/victoriametrics]
+    logs:
+      receivers: [otlp]
+      processors: [transform/keep-essential, batch]
+      exporters: [otlphttp/victorialogs]
+    traces:
+      receivers: [otlp]
+      processors: [transform/keep-essential, batch]
+      exporters: [otlphttp/victoriatraces]

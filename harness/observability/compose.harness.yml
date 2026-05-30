@@ -1,0 +1,38 @@
+services:
+  otel-collector:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.133.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "${OTEL_OTLP_PORT}:4318"
+    depends_on: [victorialogs, victoriametrics, victoriatraces]
+
+  victorialogs:
+    image: victoriametrics/victoria-logs:v1.36.1
+    command: ["-storageDataPath=/data", "-httpListenAddr=:9428"]
+    volumes: [victorialogs_data:/data]
+    ports:
+      - "${VL_PORT}:9428"
+
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.128.0
+    command:
+      - "-storageDataPath=/data"
+      - "-httpListenAddr=:8428"
+      - "-search.maxQueryDuration=120s"
+    volumes: [victoriametrics_data:/data]
+    ports:
+      - "${VM_PORT}:8428"
+
+  victoriatraces:
+    image: victoriametrics/victoria-traces:v0.4.0
+    command: ["-storageDataPath=/data", "-httpListenAddr=:10428"]
+    volumes: [victoriatraces_data:/data]
+    ports:
+      - "${VT_PORT}:10428"
+
+volumes:
+  victorialogs_data:
+  victoriametrics_data:
+  victoriatraces_data:

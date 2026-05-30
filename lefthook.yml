@@ -1,0 +1,58 @@
+# Fast, diff-scoped hooks only. Do not replace these with full-repo sweeps.
+# `scripts/init.ts` installs lefthook into .git/hooks and chains any global
+# attribution prepare-commit-msg hook configured through core.hooksPath.
+
+skip_output:
+  - meta
+  - skips
+
+pre-commit:
+  parallel: true
+  commands:
+    biome-format-lint:
+      glob: "*.{js,jsx,ts,tsx,mjs,cjs,json,jsonc,css,scss,md,yml,yaml}"
+      run: pnpm exec biome check --write --files-ignore-unknown=true --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+
+    secret-scan:
+      run: gitleaks protect --staged --redact --no-banner
+
+    ubs-staged:
+      run: mkdir -p .beads && ubs --staged --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl
+
+pre-push:
+  parallel: true
+  commands:
+    typecheck-affected:
+      run: |
+        sh -eu -c '
+          base_ref="$(git config harness.hookBaseRef || git config harness.upstreamRef || printf main)"
+          base_remote="$(git config harness.hookBaseRemote || printf upstream)"
+          base="$base_remote/$base_ref"
+          git rev-parse --verify "$base" >/dev/null 2>&1 || base="origin/$base_ref"
+          git rev-parse --verify "$base" >/dev/null 2>&1 || base="origin/main"
+          pnpm turbo run typecheck --filter="...[$base]"
+        '
+
+    test-affected:
+      run: |
+        sh -eu -c '
+          base_ref="$(git config harness.hookBaseRef || git config harness.upstreamRef || printf main)"
+          base_remote="$(git config harness.hookBaseRemote || printf upstream)"
+          base="$base_remote/$base_ref"
+          git rev-parse --verify "$base" >/dev/null 2>&1 || base="origin/$base_ref"
+          git rev-parse --verify "$base" >/dev/null 2>&1 || base="origin/main"
+          pnpm turbo run test --filter="...[$base]"
+        '
+
+    ubs-diff:
+      run: |
+        sh -eu -c '
+          base_ref="$(git config harness.hookBaseRef || git config harness.upstreamRef || printf main)"
+          base_remote="$(git config harness.hookBaseRemote || printf upstream)"
+          base="$base_remote/$base_ref"
+          git rev-parse --verify "$base" >/dev/null 2>&1 || base="origin/$base_ref"
+          git rev-parse --verify "$base" >/dev/null 2>&1 || base="origin/main"
+          mkdir -p .beads
+          ubs --diff "$base" --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
+        '

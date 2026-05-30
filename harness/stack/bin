@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# harness/stack/bin/stack.sh — stub for the stack-manager slot.
+#
+# The lab justfile's `just stack {{args}}` recipe delegates here:
+#     stack *args:
+#         @harness/stack/bin {{args}}
+#
+# Under S1 r3.3 C20, the stub prints a one-line hint and exits 0 so the
+# canonical-template's dogfoodability promise (C13) holds before the real
+# `rust-bollard-portpicker` plugin is installed.
+#
+# When a real plugin lands, this script is replaced with the plugin's own
+# bin/<slot> entrypoint (or a symlink to it).
+set -euo pipefail
+echo "[stub] harness-stack: install a real stack-manager plugin to enable."
+echo "       (Invoked as: $0 $*)"
+echo "       See harness.manifest.json#slots.stack-manager for the contract."
+exit 0

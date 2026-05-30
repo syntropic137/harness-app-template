@@ -1,0 +1,10 @@
+{
+  "name": "@harness/stack",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "cargo build --release",
+    "test": "cargo test",
+    "lint": "cargo clippy --all-targets -- -D warnings"
+  }
+}

@@ -1,0 +1,26 @@
+name: docker
+description: Docker Engine + Compose plugin for the harness stack
+
+checks:
+  - id: docker-cli
+    description: docker CLI on PATH
+    command: ["docker", "--version"]
+    expect_stdout_contains: Docker version
+    remediation: |
+      Install Docker Desktop from https://www.docker.com/products/docker-desktop/
+      (Mac/Win) or your distro's docker package (Linux).
+
+  - id: docker-daemon
+    description: Docker daemon reachable
+    command: ["docker", "info"]
+    expect_exit: 0
+    remediation: |
+      Start Docker Desktop (Mac/Win) or `sudo systemctl start docker` (Linux).
+
+  - id: compose-plugin
+    description: docker compose v2 plugin available
+    command: ["docker", "compose", "version"]
+    expect_stdout_contains: Docker Compose version
+    remediation: |
+      Docker Desktop bundles compose v2.
+      On Linux without Desktop: install the docker-compose-plugin package.

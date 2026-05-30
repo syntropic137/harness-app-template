@@ -1,0 +1,81 @@
+// ── HARNESS-ENGINEERING PROTECTED CONFIG ──────────────────────────────────
+// DO NOT relax suspicious.noExplicitAny below "error". `any` defeats strict
+// typing; if you need an escape hatch, use `unknown` + a narrowing guard.
+// Per strict-typing audit (docs/standard/decisions/strict-typing.md).
+//
+// Biome 2.4.15 does not yet ship a "noTsIgnore" rule (audit item #6 — the
+// rule name needs WebSearch confirmation against biome release notes before
+// locking in). Until that lands, reviewers MUST flag any
+// @ts-ignore / @ts-expect-error / @ts-nocheck without an attached
+// reason-code in code review.
+//
+// Filename is biome.jsonc (not .json) so comments parse — biome supports both.
+// ──────────────────────────────────────────────────────────────────────────
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": false
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": {
+        "noNonNullAssertion": "error"
+      },
+      "complexity": {
+        "useLiteralKeys": "off"
+      },
+      "suspicious": {
+        "noExplicitAny": "error"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "always",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
+    }
+  },
+  "json": {
+    "formatter": {
+      "indentStyle": "space",
+      "indentWidth": 2
+    }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "**/.harness/**",
+        "**/dist/**",
+        "**/node_modules/**",
+        "**/runs/**",
+        "**/target/**",
+        "**/coverage/**"
+      ],
+      "linter": { "enabled": false },
+      "formatter": { "enabled": false }
+    }
+  ],
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
+}

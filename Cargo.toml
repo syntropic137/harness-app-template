@@ -1,0 +1,13 @@
+[workspace]
+resolver = "3"
+members = [
+  "ws_apps/example-rust",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }

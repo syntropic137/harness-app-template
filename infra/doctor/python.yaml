@@ -1,0 +1,26 @@
+name: python
+description: Python toolchain for apps/api-py (FastAPI + mypy --strict)
+
+checks:
+  - id: python-3-12
+    description: Python 3.12+ available (uv will manage the actual interpreter)
+    command: ["python3", "--version"]
+    expect_stdout_match: "Python 3\\.(1[2-9]|[2-9][0-9])"
+    remediation: |
+      brew install python@3.12
+      OR: uv will install its own Python — but a system one helps discovery.
+
+  - id: uv
+    description: uv package + venv manager
+    command: ["uv", "--version"]
+    expect_stdout_contains: uv
+    remediation: |
+      curl -LsSf https://astral.sh/uv/install.sh | sh
+      OR: brew install uv
+
+  - id: ruff
+    description: ruff (lint + format) — installed in apps/api-py via uv
+    command: ["uv", "run", "--project", "apps/api-py", "ruff", "--version"]
+    expect_stdout_contains: ruff
+    remediation: |
+      Run `uv sync` inside apps/api-py to install ruff into its venv.

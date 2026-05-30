@@ -1,0 +1,54 @@
+[package]
+name = "example-rust"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal Rust example wired to the telemetry-sdk slot (OTEL). Proves the harness's hello-world for Rust apps in the polyglot-monorepo template."
+
+[[bin]]
+name = "example-rust"
+path = "src/main.rs"
+
+[dependencies]
+# Per docs/standard/decisions/telemetry-sdk.md: opentelemetry 0.31.x; traces still
+# Beta but logs/metrics are stable. Pin minor to avoid breaking changes across
+# patch lines that this ecosystem still ships frequently.
+opentelemetry = { version = "0.31", features = ["trace", "logs", "metrics"] }
+opentelemetry-otlp = { version = "0.31", features = ["http-proto", "reqwest-blocking-client"] }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "trace"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[dev-dependencies]
+# (tests in src/main.rs use the std test harness)
+
+# ── HARNESS-ENGINEERING PROTECTED LINTS ─────────────────────────────────────
+# DO NOT RELAX. Binds the metadata declarations below (`strict_clippy`,
+# `no_unsafe`) to actual enforcement via the Rust 1.74+ [lints] table.
+# Per strict-typing audit (docs/standard/decisions/strict-typing.md).
+# ───────────────────────────────────────────────────────────────────────────
+[lints.rust]
+unsafe_code = "forbid"
+unused = { level = "deny", priority = -1 }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+# pedantic deliberately omitted — see apps/api-rust/Cargo.toml for rationale.
+
+# ── HARNESS-ENGINEERING PROTECTED COVERAGE TARGETS ──────────────────────────
+# DO NOT ADJUST THESE THRESHOLDS. They are enforced by harness engineering
+# via `cargo llvm-cov --fail-under-lines 90` in CI and encode the testing-
+# pyramid contract from `docs/standard/v0.1.md` for the telemetry-sdk slot's
+# reference example.
+#
+# If a line is hard to cover, refactor the production code (extract a pure
+# helper, push i/o behind a trait, return a Result tuple instead of std::process::exit),
+# do not lower the threshold. The `cargo-llvm-cov vs tarpaulin` research probe
+# (CLAUDE.md rule #0) backs llvm-cov as the canonical coverage tool.
+# ───────────────────────────────────────────────────────────────────────────
+[package.metadata.harness-engineering]
+unit_coverage_lines_min = 100       # PROTECTED — 100, not lower. Per user directive.
+unit_coverage_functions_min = 100   # PROTECTED — 100, not lower.
+unit_coverage_regions_min = 100     # PROTECTED — `cargo llvm-cov --fail-under-regions 100`
+strict_clippy = true                # PROTECTED — `cargo clippy -- -D warnings` MUST pass
+no_unsafe = true                    # PROTECTED — `#![forbid(unsafe_code)]` at crate root

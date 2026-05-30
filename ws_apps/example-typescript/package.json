@@ -1,0 +1,32 @@
+{
+  "name": "@example/typescript",
+  "version": "0.1.0",
+  "description": "Minimal TypeScript example wired to the telemetry-sdk slot (OTEL). Proves the harness's hello-world: scaffold -> bootstrap -> boot stack -> emit -> query. Mirrors lab TS conventions (vitest + biome + strict tsc).",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node --import tsx --import ./src/telemetry.ts src/main.ts",
+    "emit": "node --import tsx --import ./src/telemetry.ts src/main.ts",
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run tests/integration",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.66.0",
+    "@opentelemetry/sdk-node": "^0.218.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

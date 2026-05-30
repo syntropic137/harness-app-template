@@ -1,0 +1,31 @@
+name: rust
+description: Rust toolchain for apps/api-rust + cross-language harness work
+
+checks:
+  - id: rustc
+    description: rustc compiler on PATH
+    command: ["rustc", "--version"]
+    expect_stdout_contains: rustc
+    remediation: |
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+  - id: cargo
+    description: cargo on PATH
+    command: ["cargo", "--version"]
+    expect_stdout_contains: cargo
+    remediation: |
+      Install rustup (see rustc check) — cargo ships with it.
+
+  - id: rustfmt
+    description: rustfmt installed (pre-commit gate)
+    command: ["rustfmt", "--version"]
+    expect_exit: 0
+    remediation: |
+      rustup component add rustfmt
+
+  - id: clippy
+    description: clippy installed (pre-commit gate runs with -D warnings)
+    command: ["cargo", "clippy", "--version"]
+    expect_exit: 0
+    remediation: |
+      rustup component add clippy

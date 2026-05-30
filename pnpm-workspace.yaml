@@ -1,0 +1,4 @@
+packages:
+  - ws_apps/*
+  - ws_packages/*
+  - harness/*
