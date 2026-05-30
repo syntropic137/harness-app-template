@@ -70,7 +70,7 @@ When proposing new work, the proposal should open by anchoring to:
 | Which tool fills slot X today, and why? | The numbered [ADR index](../adrs/) |
 | What have we measured? | [`docs/executive-summary.md`](../executive-summary.md) — the single-page rollup. Per-experiment depth lives in `experiments/<date>--<slug>/`. |
 | Per-experiment hypotheses + verdicts | `experiments/<date>--<slug>/` |
-| Per-experiment lessons | `docs/retrospectives/` (deferred port — distilled retros from the lab will land here as a curated subset, not the full 24-doc history) |
+| Per-experiment lessons | [`docs/retrospectives/`](../retrospectives/) — distilled seed (2 retros: depcruiser-arch-quality + ts-morph-adapter-chain). The full 24-doc lab history is intentionally NOT ported — the seed shape is the load-bearing piece. |
 | How this fork stays in sync with upstream | [`upstream-update-flow.md`](./upstream-update-flow.md) |
 | How an agent orients itself in this repo | [`../../CLAUDE.md`](../../CLAUDE.md) |
 | How a downstream consumer adopts the harness | [`../../README.md`](../../README.md) |
