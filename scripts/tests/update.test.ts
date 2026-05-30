@@ -303,7 +303,7 @@ describe('updateProject', () => {
         JSON.stringify(
           {
             schemaVersion: '1.0',
-            canonical_repo: 'https://github.com/syntropic137/create-harness-app',
+            canonical_repo: 'https://github.com/syntropic137/harness-app-template',
             canonical_commit: canonicalHead,
             forked_at: '2026-05-29T22:00:00.000Z',
           },

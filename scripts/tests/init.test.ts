@@ -83,7 +83,7 @@ describe('initProject', () => {
       // Seed a git repo so initProject can resolve `origin` + HEAD for
       // the new git-native provenance.
       initRepo(root);
-      git(root, ['remote', 'add', 'origin', 'https://github.com/syntropic137/create-harness-app']);
+      git(root, ['remote', 'add', 'origin', 'https://github.com/syntropic137/harness-app-template']);
       const headSha = commitAll(root, 'seed');
 
       initProject('acme', {
@@ -116,7 +116,7 @@ describe('initProject', () => {
         template: 'polyglot-monorepo',
         templateVersion: '0.4.0',
         standardVersion: '0.2',
-        canonical_repo: 'https://github.com/syntropic137/create-harness-app',
+        canonical_repo: 'https://github.com/syntropic137/harness-app-template',
         canonical_commit: headSha,
         forked_at: '2026-05-30T00:00:00.000Z',
       });
@@ -153,7 +153,7 @@ describe('initProject', () => {
       });
 
       const provenance = JSON.parse(readFileSync(join(root, '.harness-provenance.json'), 'utf8'));
-      expect(provenance.canonical_repo).toBe('https://github.com/syntropic137/create-harness-app');
+      expect(provenance.canonical_repo).toBe('https://github.com/syntropic137/harness-app-template');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

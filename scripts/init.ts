@@ -26,7 +26,7 @@ interface HarnessProvenance {
   forked_at: string;
 }
 
-const DEFAULT_CANONICAL_REPO = 'https://github.com/syntropic137/create-harness-app';
+const DEFAULT_CANONICAL_REPO = 'https://github.com/syntropic137/harness-app-template';
 
 export interface InitOptions {
   cwd?: string;
@@ -111,7 +111,7 @@ fi
  *   2. `git remote get-url origin` (the URL the consumer cloned/forked
  *      from — typically this IS the canonical repo for "Use this
  *      template" flows).
- *   3. Hard-coded fallback to `syntropic137/create-harness-app`.
+ *   3. Hard-coded fallback to `syntropic137/harness-app-template`.
  *
  * Returns the URL as-is; consumers can edit `.harness-provenance.json`
  * once if they need a different value (the file is immutable after init

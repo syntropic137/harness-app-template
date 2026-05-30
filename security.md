@@ -290,7 +290,7 @@ canonical-template repo intended to ship.
 ### Verify the fork's origin
 
 The canonical template is a **standalone** repo
-(`syntropic137/create-harness-app`) — there is no live lab upstream
+(`syntropic137/harness-app-template`) — there is no live lab upstream
 that flows changes in. Provenance is git-native and lives in
 `.harness-provenance.json`, written once by `scripts/init.ts` at
 `just init` time. See `docs/standard/decisions/cha-sync-source-of-truth.md`.
@@ -309,7 +309,7 @@ that flows changes in. Provenance is git-native and lives in
 
 2. **Verify CODEOWNERS-gated merges.** Changes to the canonical repo
    land via PR, gated by `.github/CODEOWNERS`. The merge commit on
-   `syntropic137/create-harness-app` should be signed by a CODEOWNERS-
+   `syntropic137/harness-app-template` should be signed by a CODEOWNERS-
    listed identity. GitHub's UI shows "Verified" for signed commits.
 
 ### Verify a release (future, when binaries ship)

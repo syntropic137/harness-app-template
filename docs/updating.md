@@ -6,7 +6,7 @@ How to keep your fork's harness in sync with upstream improvements, without your
 
 ```sh
 # one-time, after `git clone <your-fork>`:
-git remote add upstream https://github.com/syntropic137/create-harness-app
+git remote add upstream https://github.com/syntropic137/harness-app-template
 
 # whenever you want to pull harness improvements:
 just update                    # preview (in non-TTY) or apply (in TTY)
@@ -116,7 +116,7 @@ The `local harness edits:` line is informational — it shows which harness-owne
 ```jsonc
 {
   "schemaVersion": "1.0",
-  "canonical_repo": "https://github.com/syntropic137/create-harness-app",
+  "canonical_repo": "https://github.com/syntropic137/harness-app-template",
   "canonical_commit": "<sha>",                  // upstream commit you forked from
   "forked_at": "2026-05-12T08:21:00.000Z"        // UTC, ISO 8601
 }
@@ -140,7 +140,7 @@ git config harness.upstreamRef next
 
 | Error | What it means | Fix |
 |---|---|---|
-| `no `upstream` remote configured` | You didn't run `git remote add upstream …` in Get Started step 3 | Run `git remote add upstream https://github.com/syntropic137/create-harness-app` |
+| `no `upstream` remote configured` | You didn't run `git remote add upstream …` in Get Started step 3 | Run `git remote add upstream https://github.com/syntropic137/harness-app-template` |
 | `.harness-provenance.json is immutable after init; revert it before updating` | You edited the provenance file | `git checkout HEAD -- .harness-provenance.json` |
 | `dirty harness-owned paths would be overwritten: …` | You have uncommitted edits to harness-owned files | Commit them, stash them, or rerun with `--force` (stashes + pops automatically) |
 | `no harness-owned paths found upstream; nothing to update` | The upstream `<ref>` doesn't carry any files matching the harness path list (extremely rare; usually means `upstream` is pointed at the wrong repo) | Verify `git remote -v` shows the canonical CHA repo |
@@ -153,7 +153,7 @@ The script exits 0 with `already up to date with upstream <sha>` when your templ
 - **No `infra/` changes.** `infra/` is reserved for *your* deploy infra (compose files for your app's databases, k8s manifests, etc.). The harness's observability compose lives at `harness/observability/compose.harness.yml`.
 - **No rebase semantics.** Path-scoped checkout + commit produces a fast-forward-shaped history, but the underlying mechanic is `git checkout` + `git commit`, not `git rebase`. If you want a linear history relative to upstream, run `just update` regularly so the per-update commits stay small.
 - **No automatic conflict resolution.** If `--force` stashes dirty harness-owned edits and the upstream changes conflict, you'll see the conflict in `git stash pop` and resolve normally. The script doesn't try to be smart about it.
-- **No lab upstream.** The R&D lab ([`agentic-harness-lab`](https://github.com/NeuralEmpowerment/agentic-harness-lab)) is research, NOT a live upstream. `upstream` always points at the canonical template repo ([`syntropic137/create-harness-app`](https://github.com/syntropic137/create-harness-app)). See [`docs/decisions/cha-sync-source-of-truth.md`](./decisions/cha-sync-source-of-truth.md) for the standalone framing.
+- **No lab upstream.** The R&D lab ([`agentic-harness-lab`](https://github.com/NeuralEmpowerment/agentic-harness-lab)) is research, NOT a live upstream. `upstream` always points at the canonical template repo ([`syntropic137/harness-app-template`](https://github.com/syntropic137/harness-app-template)). See [`docs/decisions/cha-sync-source-of-truth.md`](./decisions/cha-sync-source-of-truth.md) for the standalone framing.
 
 ## Pushing improvements back upstream
 

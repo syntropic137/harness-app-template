@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="create-harness-app" width="760">
+  <img src="assets/banner.svg" alt="harness-app-template" width="760">
 </p>
 
 <p align="center">
@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/harness-diff--scoped%20gates-1f8a4c" alt="Harness gates">
 </p>
 
-# create-harness-app
+# harness-app-template
 
 > **A canonical, forkable agentic-engineering harness monorepo.** The repo IS the artifact. You start by clicking GitHub's **"Use this template"** button (or `git clone` + fork) and running a one-shot `just init <your-project-name>`.
 
@@ -32,7 +32,7 @@ This template is **standalone**: extracted once from the upstream R&D repo ([`ag
 3. **Add the `upstream` remote** so future `just update` knows where to fetch from. GitHub "Use this template" doesn't set this for you — every consumer needs the one-time:
 
    ```sh
-   git remote add upstream https://github.com/syntropic137/create-harness-app
+   git remote add upstream https://github.com/syntropic137/harness-app-template
    ```
 
 4. **Run `just init <your-project-name>`** at the repo root. The script (`scripts/init.ts`, TypeScript via Bun, ≤150 lines) does a bounded set of renames — seed names `@example/typescript`, `@example/rust`, `@example/python`, `example-rust`, `example-python` → your project's equivalents; sets `pyproject.toml#project.name`; renames the compose project namespace at `harness/observability/compose.harness.yml`; writes `.harness-provenance.json` (git-native — `canonical_repo`, `canonical_commit`, `forked_at`); removes `TEMPLATE.md` and this `<!-- TEMPLATE-DOC-START/END -->` block. Fails fast if `bun`, `pnpm`, `cargo`, or `uv` aren't on `PATH`.
@@ -137,7 +137,7 @@ Five on-demand skills under [`.claude/skills/`](./.claude/skills/) — the agent
 
 ## Updating your fork
 
-This template tracks an upstream canonical repo (`syntropic137/create-harness-app`). To pull harness improvements into your fork:
+This template tracks an upstream canonical repo (`syntropic137/harness-app-template`). To pull harness improvements into your fork:
 
 ```sh
 git fetch upstream             # the remote you set up in Get started step 3

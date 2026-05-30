@@ -4,7 +4,7 @@ import { git, shortSha } from './lib/git';
 
 /**
  * Consumer self-update: pulls harness-owned surfaces from the
- * standalone canonical-template repo (`syntropic137/create-harness-app`),
+ * standalone canonical-template repo (`syntropic137/harness-app-template`),
  * leaving consumer code (`ws_apps/`, `ws_packages/`) byte-for-byte untouched.
  *
  * **There is no lab upstream.** The lab is R&D only; the canonical
@@ -134,7 +134,7 @@ export function updateProject(options: UpdateOptions = {}): string {
 
   if (!git(['remote', 'get-url', 'upstream'], { cwd, allowFailure: true })) {
     throw new Error(
-      'no `upstream` remote configured.\nTo configure (one-time):\n  git remote add upstream https://github.com/syntropic137/create-harness-app',
+      'no `upstream` remote configured.\nTo configure (one-time):\n  git remote add upstream https://github.com/syntropic137/harness-app-template',
     );
   }
   if (provenanceDirty(cwd)) {

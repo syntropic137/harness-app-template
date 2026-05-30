@@ -9,7 +9,7 @@ Release as a discovery hook).
 **Revision pass 3 (standalone re-scope):** 2026-05-29 — operator
 decision `docs/specs/_option2-standalone-no-lab-upstream.md`. The lab
 (`agentic-harness-lab`) is **R&D only**, NOT a live upstream. The
-canonical-template repo (`syntropic137/create-harness-app`) is
+canonical-template repo (`syntropic137/harness-app-template`) is
 **standalone** — extracted ONCE from the lab and then evolves on its
 own. All lab-as-upstream machinery (`sync-from-lab.ts`, `.lab-sha`,
 `lab-source.toml`, `.template-changes-since.json`, downstream-crawler
@@ -19,7 +19,7 @@ canonical → forked consumer, path-scoped to harness surfaces).
 
 ## Current pick
 
-The canonical-template repo (`syntropic137/create-harness-app`) is a
+The canonical-template repo (`syntropic137/harness-app-template`) is a
 **standalone** monorepo. It was extracted ONCE from the lab's
 `templates/polyglot-monorepo/files/` subtree and then evolves
 independently:
@@ -80,7 +80,7 @@ nothing more.
 
 ## Cross-platform / blast radius
 
-- **Forked consumers** inherit `syntropic137/create-harness-app@<ref>`
+- **Forked consumers** inherit `syntropic137/harness-app-template@<ref>`
   at fork time. Updates flow via `git remote add upstream` +
   `just update`. See `docs/specs/20260529_cha-sync-anti-rot.md` (S3)
   § Tier-C — the *only* tier that remains under this decision.
@@ -148,7 +148,7 @@ labor-intensive to maintain.
 - **Forked consumer adoption** of `just update` is observable via:
   - `.harness-provenance.json#canonical_commit` ages (consumers pinned
     > 6 months stale should be nudged).
-  - GitHub fork count + traffic insights on `syntropic137/create-harness-app`.
+  - GitHub fork count + traffic insights on `syntropic137/harness-app-template`.
 
 Re-evaluate the choice if any of:
 
