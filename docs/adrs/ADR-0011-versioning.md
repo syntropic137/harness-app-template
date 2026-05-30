@@ -35,7 +35,7 @@ The template gets a single Rust binary for commit validation and release flow. D
 
 ## Justification
 
-- **Single-binary Rust** — matches harness-doc-validator + harness-sensors distribution shape (per `docs/adr/ADR-0012-binary-distribution.md`)
+- **Single-binary Rust** — matches harness-doc-validator + harness-sensors distribution shape (per `docs/adrs/ADR-0012-binary-distribution.md`)
 - **All-in-one** — `cog commit` (conventional-commits-validated commit creation), `cog bump` (semver bump + tag + changelog append), `cog changelog` (generate from history). One tool replaces what would otherwise be 2-3 tools chained.
 - **Conventional-commits-native** — the lab already uses conventional commits by convention. cocogitto enforces it mechanically.
 - **Pre-commit hook ready** — `cog verify` validates a single commit message; ms-class. Wires into lefthook trivially.

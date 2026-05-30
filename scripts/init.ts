@@ -13,7 +13,7 @@ interface HarnessManifest {
  * Git-native provenance written at `just init` time. Captures the
  * canonical-template repo + commit the consumer forked at, with NO
  * lab-side state — the lab is R&D only and not a live upstream. See
- * `docs/adr/ADR-0015-cha-sync-source-of-truth.md`.
+ * `docs/adrs/ADR-0015-cha-sync-source-of-truth.md`.
  */
 interface HarnessProvenance {
   schemaVersion: '1.0';

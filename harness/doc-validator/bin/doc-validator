@@ -1,17 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-case "${1:---help}" in
-  --help|-h|help)
-    cat <<'EOF'
-harness doc-validator
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+crate_dir="$(cd -- "$script_dir/.." && pwd)"
 
-The doc-validator slot is present as a stub in this template. Replace
-harness/doc-validator with the real validator before enforcing doc validation.
-EOF
-    ;;
-  *)
-    echo "[stub] harness-doc-validator: no validator implementation is installed in this template." >&2
-    exit 0
-    ;;
-esac
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "error: cargo not found; cannot run harness-doc-validator" >&2
+  exit 127
+fi
+
+exec cargo run --quiet --manifest-path "$crate_dir/Cargo.toml" -- "$@"

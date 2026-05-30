@@ -19,11 +19,11 @@ This block is the template's "first read" introduction. **`scripts/init.ts` remo
 
 ## What this is
 
-A polyglot monorepo wired with an **eleven-slot agentic-engineering harness**: stack manager, inspector, hooks, telemetry SDK, observability stack, sensors, agent plugins, task runner, secret scanner, doc validator, versioning. Each slot has a research-backed plugin pick and a written rationale you can read at [`docs/adr/`](./docs/adr/).
+A polyglot monorepo wired with an **eleven-slot agentic-engineering harness**: stack manager, inspector, hooks, telemetry SDK, observability stack, sensors, agent plugins, task runner, secret scanner, doc validator, versioning. Each slot has a research-backed plugin pick and a written rationale you can read at [`docs/adrs/`](./docs/adrs/).
 
 The harness gives an AI coding agent (Claude / Codex / Gemini) the *environment* it needs to be effective: instrumented apps, queryable observability, evidence-capture skills, fast-fail gates on every commit. Your job is to build the application; the harness is what's already wrapped around it.
 
-This template is **standalone**: extracted once from the upstream R&D repo ([`agentic-harness-lab`](https://github.com/NeuralEmpowerment/agentic-harness-lab)) and now evolves independently. The lab is research, not a live upstream — see [`docs/adr/ADR-0015-cha-sync-source-of-truth.md`](./docs/adr/ADR-0015-cha-sync-source-of-truth.md).
+This template is **standalone**: extracted once from the upstream R&D repo ([`agentic-harness-lab`](https://github.com/NeuralEmpowerment/agentic-harness-lab)) and now evolves independently. The lab is research, not a live upstream — see [`docs/adrs/ADR-0015-cha-sync-source-of-truth.md`](./docs/adrs/ADR-0015-cha-sync-source-of-truth.md).
 
 ## Get started — fork-first
 
@@ -55,7 +55,7 @@ A specific assembly of plugin picks (one per slot) plus the workspace convention
 
 ### 3. Slot
 
-A named, labeled hole on the tool belt that defines a contract — what kind of plugin can fill it, what interface that plugin must expose. The eleven slots — `stack-manager`, `inspector`, `hooks`, `telemetry-sdk`, `observability-stack`, `sensors`, `agent-plugins`, `task-runner`, `secret-scanner`, `doc-validator`, `versioning` — are fixed shapes; plugins are swappable inside each shape. See the numbered [ADR index](./docs/adr/) for the rationale behind each pick.
+A named, labeled hole on the tool belt that defines a contract — what kind of plugin can fill it, what interface that plugin must expose. The eleven slots — `stack-manager`, `inspector`, `hooks`, `telemetry-sdk`, `observability-stack`, `sensors`, `agent-plugins`, `task-runner`, `secret-scanner`, `doc-validator`, `versioning` — are fixed shapes; plugins are swappable inside each shape. See the numbered [ADR index](./docs/adrs/) for the rationale behind each pick.
 
 ### 4. Plugin
 
@@ -85,11 +85,11 @@ The discipline was named by [Mitchell Hashimoto](https://mitchellh.com/writing/m
 
 ### 1. Measured, not assumed.
 
-Every gate, every plugin, every threshold in the harness has a written rationale you can read at [`docs/adr/`](./docs/adr/). Change a gate in your fork → file your own hypothesis-first experiment using the bundled [`running-experiments`](./.claude/skills/running-experiments/SKILL.md) skill. The harness teaches the discipline; it does not just enforce it. Decision docs live in your fork's tree from day 1; use them as seeds for your own future ADRs alongside the inherited ones.
+Every gate, every plugin, every threshold in the harness has a written rationale you can read at [`docs/adrs/`](./docs/adrs/). Change a gate in your fork → file your own hypothesis-first experiment using the bundled [`running-experiments`](./.claude/skills/running-experiments/SKILL.md) skill. The harness teaches the discipline; it does not just enforce it. Decision docs live in your fork's tree from day 1; use them as seeds for your own future ADRs alongside the inherited ones.
 
 ### 2. Token-aware by default.
 
-The shipped LogsQL queries default to `| fields` projection (~12× smaller responses on the highest-volume call). Evidence bundles size per bug class (image-free for non-visual bugs). Skills load on demand and budget for context. Verbose output is opt-in, never default. See [`docs/adr/ADR-0005-observability-stack.md`](./docs/adr/ADR-0005-observability-stack.md) and [`.claude/skills/observability-queries/SKILL.md`](./.claude/skills/observability-queries/SKILL.md).
+The shipped LogsQL queries default to `| fields` projection (~12× smaller responses on the highest-volume call). Evidence bundles size per bug class (image-free for non-visual bugs). Skills load on demand and budget for context. Verbose output is opt-in, never default. See [`docs/adrs/ADR-0005-observability-stack.md`](./docs/adrs/ADR-0005-observability-stack.md) and [`.claude/skills/observability-queries/SKILL.md`](./.claude/skills/observability-queries/SKILL.md).
 
 ### 3. Polyglot-first.
 
@@ -109,38 +109,38 @@ Eleven slots, eleven plugin picks. Standard pinned at **v0.2** (additive-only si
 
 | Slot | Plugin | Decision doc |
 |---|---|---|
-| `stack-manager`       | Stubbed `harness/stack` slot; replace with the Rust binary (bollard + portpicker) when needed                                                  | [`docs/adr/ADR-0001-stack-manager.md`](./docs/adr/ADR-0001-stack-manager.md) |
-| `inspector`           | Playwright + ffmpeg                                                                 | [`docs/adr/ADR-0002-inspector.md`](./docs/adr/ADR-0002-inspector.md) |
-| `hooks`               | lefthook                                                                            | [`docs/adr/ADR-0003-hooks.md`](./docs/adr/ADR-0003-hooks.md) |
-| `telemetry-sdk`       | `@opentelemetry/sdk-node` (TS) / `opentelemetry-otlp` (Rust) / `opentelemetry-sdk+distro` (Py) | [`docs/adr/ADR-0004-telemetry-sdk.md`](./docs/adr/ADR-0004-telemetry-sdk.md) |
-| `observability-stack` | OTEL Collector → VictoriaLogs / VictoriaMetrics / VictoriaTraces                   | [`docs/adr/ADR-0005-observability-stack.md`](./docs/adr/ADR-0005-observability-stack.md) |
-| `sensors` (opt-in)    | Stubbed `harness/sensors` slot; replace with Rust aggregator when needed             | [`docs/adr/ADR-0006-sensors.md`](./docs/adr/ADR-0006-sensors.md) |
-| `agent-plugins`       | `.claude/` canonical + vendor symlinks                                              | [`docs/adr/ADR-0007-agent-plugins.md`](./docs/adr/ADR-0007-agent-plugins.md) |
-| `task-runner`         | `just`                                                                              | [`docs/adr/ADR-0008-task-runner.md`](./docs/adr/ADR-0008-task-runner.md) |
-| `secret-scanner`      | Gitleaks                                                                            | [`docs/adr/ADR-0009-secret-scanner.md`](./docs/adr/ADR-0009-secret-scanner.md) |
-| `doc-validator`       | Stubbed `harness/doc-validator` slot; replace with Rust validator when needed        | [`docs/adr/ADR-0010-doc-validator.md`](./docs/adr/ADR-0010-doc-validator.md) |
-| `versioning`          | cocogitto                                                                           | [`docs/adr/ADR-0011-versioning.md`](./docs/adr/ADR-0011-versioning.md) |
+| `stack-manager`       | Stubbed `harness/stack` slot; replace with the Rust binary (bollard + portpicker) when needed                                                  | [`docs/adrs/ADR-0001-stack-manager.md`](./docs/adrs/ADR-0001-stack-manager.md) |
+| `inspector`           | Playwright + ffmpeg                                                                 | [`docs/adrs/ADR-0002-inspector.md`](./docs/adrs/ADR-0002-inspector.md) |
+| `hooks`               | lefthook                                                                            | [`docs/adrs/ADR-0003-hooks.md`](./docs/adrs/ADR-0003-hooks.md) |
+| `telemetry-sdk`       | `@opentelemetry/sdk-node` (TS) / `opentelemetry-otlp` (Rust) / `opentelemetry-sdk+distro` (Py) | [`docs/adrs/ADR-0004-telemetry-sdk.md`](./docs/adrs/ADR-0004-telemetry-sdk.md) |
+| `observability-stack` | OTEL Collector → VictoriaLogs / VictoriaMetrics / VictoriaTraces                   | [`docs/adrs/ADR-0005-observability-stack.md`](./docs/adrs/ADR-0005-observability-stack.md) |
+| `sensors` (opt-in)    | Stubbed `harness/sensors` slot; replace with Rust aggregator when needed             | [`docs/adrs/ADR-0006-sensors.md`](./docs/adrs/ADR-0006-sensors.md) |
+| `agent-plugins`       | `.claude/` canonical + vendor symlinks                                              | [`docs/adrs/ADR-0007-agent-plugins.md`](./docs/adrs/ADR-0007-agent-plugins.md) |
+| `task-runner`         | `just`                                                                              | [`docs/adrs/ADR-0008-task-runner.md`](./docs/adrs/ADR-0008-task-runner.md) |
+| `secret-scanner`      | Gitleaks                                                                            | [`docs/adrs/ADR-0009-secret-scanner.md`](./docs/adrs/ADR-0009-secret-scanner.md) |
+| `doc-validator`       | Stubbed `harness/doc-validator` slot; replace with Rust validator when needed        | [`docs/adrs/ADR-0010-doc-validator.md`](./docs/adrs/ADR-0010-doc-validator.md) |
+| `versioning`          | cocogitto                                                                           | [`docs/adrs/ADR-0011-versioning.md`](./docs/adrs/ADR-0011-versioning.md) |
 
 ### ADR Index
 
 | Document | Description |
 |----------|-------------|
-| [Stack Manager](./docs/adr/ADR-0001-stack-manager.md) | Rust binary stack manager using bollard, portpicker, and docker compose |
-| [Inspector](./docs/adr/ADR-0002-inspector.md) | Playwright inspector with spawned ffmpeg for evidence capture |
-| [Hooks](./docs/adr/ADR-0003-hooks.md) | Use lefthook for fast polyglot Git hooks |
-| [Telemetry SDK](./docs/adr/ADR-0004-telemetry-sdk.md) | Use official OpenTelemetry SDKs per language |
-| [Observability Stack](./docs/adr/ADR-0005-observability-stack.md) | Use OTEL Collector with VictoriaLogs, VictoriaMetrics, and VictoriaTraces |
-| [Sensors](./docs/adr/ADR-0006-sensors.md) | Use an opt-in Rust aggregator with language adapters for architectural fitness signals |
-| [Agent Plugins](./docs/adr/ADR-0007-agent-plugins.md) | Use .claude as canonical agent context with vendor symlinks |
-| [Task Runner](./docs/adr/ADR-0008-task-runner.md) | Use just as the human-facing polyglot task runner |
-| [Secret Scanner](./docs/adr/ADR-0009-secret-scanner.md) | Use Gitleaks for secret scanning |
-| [Doc Validator](./docs/adr/ADR-0010-doc-validator.md) | Use a custom Rust crate for internal Markdown cross-reference validation |
-| [Versioning](./docs/adr/ADR-0011-versioning.md) | Use cocogitto for conventional commits, version bumps, changelog generation, and tags |
-| [Binary Distribution](./docs/adr/ADR-0012-binary-distribution.md) | Use cargo-dist and cargo-binstall for Rust harness binary distribution |
-| [Coverage Enforcement](./docs/adr/ADR-0013-coverage-enforcement.md) | Use high-threshold coverage gates with explicit opt-outs |
-| [Strict Typing](./docs/adr/ADR-0014-strict-typing.md) | Track strict typing posture and proposed tightenings as an audit record |
-| [CHA Sync Source of Truth](./docs/adr/ADR-0015-cha-sync-source-of-truth.md) | Treat the template as standalone canonical repo, not live-synced from the lab |
-| [Create Harness App Wrapper](./docs/adr/ADR-0016-createapp-wrapper-design.md) | Design a future npx create-harness-app wrapper as an additive scaffolding path |
+| [Stack Manager](./docs/adrs/ADR-0001-stack-manager.md) | Rust binary stack manager using bollard, portpicker, and docker compose |
+| [Inspector](./docs/adrs/ADR-0002-inspector.md) | Playwright inspector with spawned ffmpeg for evidence capture |
+| [Hooks](./docs/adrs/ADR-0003-hooks.md) | Use lefthook for fast polyglot Git hooks |
+| [Telemetry SDK](./docs/adrs/ADR-0004-telemetry-sdk.md) | Use official OpenTelemetry SDKs per language |
+| [Observability Stack](./docs/adrs/ADR-0005-observability-stack.md) | Use OTEL Collector with VictoriaLogs, VictoriaMetrics, and VictoriaTraces |
+| [Sensors](./docs/adrs/ADR-0006-sensors.md) | Use an opt-in Rust aggregator with language adapters for architectural fitness signals |
+| [Agent Plugins](./docs/adrs/ADR-0007-agent-plugins.md) | Use .claude as canonical agent context with vendor symlinks |
+| [Task Runner](./docs/adrs/ADR-0008-task-runner.md) | Use just as the human-facing polyglot task runner |
+| [Secret Scanner](./docs/adrs/ADR-0009-secret-scanner.md) | Use Gitleaks for secret scanning |
+| [Doc Validator](./docs/adrs/ADR-0010-doc-validator.md) | Use a custom Rust crate for internal Markdown cross-reference validation |
+| [Versioning](./docs/adrs/ADR-0011-versioning.md) | Use cocogitto for conventional commits, version bumps, changelog generation, and tags |
+| [Binary Distribution](./docs/adrs/ADR-0012-binary-distribution.md) | Use cargo-dist and cargo-binstall for Rust harness binary distribution |
+| [Coverage Enforcement](./docs/adrs/ADR-0013-coverage-enforcement.md) | Use high-threshold coverage gates with explicit opt-outs |
+| [Strict Typing](./docs/adrs/ADR-0014-strict-typing.md) | Track strict typing posture and proposed tightenings as an audit record |
+| [CHA Sync Source of Truth](./docs/adrs/ADR-0015-cha-sync-source-of-truth.md) | Treat the template as standalone canonical repo, not live-synced from the lab |
+| [Create Harness App Wrapper](./docs/adrs/ADR-0016-createapp-wrapper-design.md) | Design a future npx create-harness-app wrapper as an additive scaffolding path |
 
 All workspace members under `ws_apps/` and `ws_packages/` participate in the same Turborepo task graph regardless of primary language, via the [language-wrapper](#6-language-wrapper) pattern.
 
@@ -167,7 +167,7 @@ just update                    # path-scoped — see docs/updating.md
 
 The update is **path-scoped by construction**: only harness-owned surfaces (`harness/`, `.claude/`, `scripts/`, `docs/standard/`, root tooling configs, `security.md`, `harness.manifest.json`, etc.) get fast-forwarded. Your `ws_apps/`, `ws_packages/`, and `infra/` stay byte-for-byte untouched — `update.ts` does a `git checkout upstream/<ref> -- <harness-paths>`, never a whole-repo merge.
 
-**The lab is NOT a live upstream.** The R&D lab ([`agentic-harness-lab`](https://github.com/NeuralEmpowerment/agentic-harness-lab)) is research; this template was extracted from it once and now evolves on its own. See [`docs/adr/ADR-0015-cha-sync-source-of-truth.md`](./docs/adr/ADR-0015-cha-sync-source-of-truth.md).
+**The lab is NOT a live upstream.** The R&D lab ([`agentic-harness-lab`](https://github.com/NeuralEmpowerment/agentic-harness-lab)) is research; this template was extracted from it once and now evolves on its own. See [`docs/adrs/ADR-0015-cha-sync-source-of-truth.md`](./docs/adrs/ADR-0015-cha-sync-source-of-truth.md).
 
 Deeper details — preview mode, the `just update --force` semantics for uncommitted-change handling, the harness-owned path list, the `.harness-provenance.json` schema — live at [`docs/updating.md`](./docs/updating.md).
 
@@ -181,7 +181,7 @@ The harness-engineering discipline was named and developed by these field-defini
 
 - **Mitchell Hashimoto — "My AI Adoption Journey" § Step 5: Engineer the Harness** ([mitchellh.com](https://mitchellh.com/writing/my-ai-adoption-journey), Feb 2026). Hashimoto's framing — *"anytime you find an agent makes a mistake, take the time to engineer a solution such that the agent never makes that mistake again"* — is the seed of the discipline. The bundled `running-experiments` skill operationalizes Hashimoto's frame.
 - **OpenAI — "Harness engineering: leveraging Codex in an agent-first world"** ([openai.com](https://openai.com/index/harness-engineering/), Feb 2026). Ryan Lopopolo's follow-up to Hashimoto: *"the environment was underspecified — agents lacked tools, abstractions, internal structure required to make progress."*
-- **Martin Fowler — "Harness engineering for coding agent users"** ([martinfowler.com](https://martinfowler.com/articles/harness-engineering.html), Apr 2026). The three interlocking systems — context engineering, architectural constraints, entropy management. This template's `docs/adr/` + `harness-doc-validator` + fitness sensors map onto Fowler's taxonomy.
+- **Martin Fowler — "Harness engineering for coding agent users"** ([martinfowler.com](https://martinfowler.com/articles/harness-engineering.html), Apr 2026). The three interlocking systems — context engineering, architectural constraints, entropy management. This template's `docs/adrs/` + `harness-doc-validator` + fitness sensors map onto Fowler's taxonomy.
 - **Stripe — "Minions, Part 2 (Toolshed)"** ([stripe.dev](https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents-part-2)). The 400-tool MCP server pattern; industrial-scale evidence that the harness, not the model, is the hard part.
 - **arXiv — "Agentic Harness Engineering: Observability-Driven Automatic Evolution of Coding-Agent Harnesses"** ([arxiv.org/abs/2604.25850](https://arxiv.org/abs/2604.25850), v1 Apr 2026, v4 May 2026). The observability-driven auto-evolution thread.
 
@@ -212,7 +212,7 @@ Tactical agent guidance (`No Chrome container`, no `|~` regex pipe in LogsQL, et
 
 ## Status, versioning, license
 
-- **Version:** v0.4.0 — first standalone release. Versioned via cocogitto per [`docs/adr/ADR-0011-versioning.md`](./docs/adr/ADR-0011-versioning.md).
+- **Version:** v0.4.0 — first standalone release. Versioned via cocogitto per [`docs/adrs/ADR-0011-versioning.md`](./docs/adrs/ADR-0011-versioning.md).
 - **Standard:** pins Tool-Belt Harness Standard v0.2 (additive-only since v0.1; the lab marks it `Status: draft`).
 - **License:** MIT — see [`LICENSE`](./LICENSE).
 - **Future scaffolder:** a CLI wrapper (`npx create-harness-app`) is planned in a separate future repo. This template repo remains the canonical artifact; the CLI will be additive, not a replacement.

@@ -34,7 +34,7 @@ Three tests:
 
 ## Why HTTP/protobuf not gRPC?
 
-Per `docs/adr/ADR-0004-telemetry-sdk.md`: the Rust SDK historically defaults to gRPC/4317, but the polyglot-monorepo template pins HTTP/protobuf (4318) across all language SDKs so a single OTLP endpoint config in `OTEL_EXPORTER_OTLP_ENDPOINT` works identically for Node, Rust, and Python apps.
+Per `docs/adrs/ADR-0004-telemetry-sdk.md`: the Rust SDK historically defaults to gRPC/4317, but the polyglot-monorepo template pins HTTP/protobuf (4318) across all language SDKs so a single OTLP endpoint config in `OTEL_EXPORTER_OTLP_ENDPOINT` works identically for Node, Rust, and Python apps.
 
 ## Status of opentelemetry-rust as of 2026-05-14
 

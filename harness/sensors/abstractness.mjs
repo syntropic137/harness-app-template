@@ -15,7 +15,7 @@
 // Why this isn't bundled with aggregate.mjs:  ts-morph spins up a
 // TypeScript Program, which is a heavyweight side-effect we don't want in
 // the de-dup / scope-filter path.  Keeping the adapter separate also
-// matches the polyglot-adapter shape from docs/adr/ADR-0006-sensors.md —
+// matches the polyglot-adapter shape from docs/adrs/ADR-0006-sensors.md —
 // future Python/Rust/Go adapters emit the same per-source A reading.
 
 import { realpathSync } from 'node:fs';

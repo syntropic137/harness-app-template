@@ -1,11 +1,11 @@
 {
   "name": "@harness/doc-validator",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "bash -n bin/doc-validator",
-    "typecheck": "bash -n bin/doc-validator",
-    "test": "bin/doc-validator --help >/dev/null",
-    "lint": "bash -n bin/doc-validator"
+    "build": "cargo build --release",
+    "typecheck": "cargo check",
+    "test": "cargo test",
+    "lint": "cargo clippy --all-targets -- -D warnings"
   }
 }

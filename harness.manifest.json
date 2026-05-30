@@ -9,60 +9,60 @@
       "plugin": "rust-bollard-portpicker",
       "version": "0.1.0-stub",
       "implementation": "Stubbed Rust slot wrapper; replace with a port-allocating stack manager when the real plugin lands.",
-      "decisionAt": "docs/adr/ADR-0001-stack-manager.md"
+      "decisionAt": "docs/adrs/ADR-0001-stack-manager.md"
     },
     "inspector": {
       "plugin": "playwright-node",
       "version": "1.60-stub",
       "implementation": "Node evidence-capture scripts with a thin bin dispatcher.",
-      "decisionAt": "docs/adr/ADR-0002-inspector.md"
+      "decisionAt": "docs/adrs/ADR-0002-inspector.md"
     },
     "hooks": {
       "plugin": "lefthook",
       "version": "1.13",
-      "decisionAt": "docs/adr/ADR-0003-hooks.md"
+      "decisionAt": "docs/adrs/ADR-0003-hooks.md"
     },
     "telemetry-sdk": {
       "plugin": "opentelemetry-multi",
       "version": "1.x",
-      "decisionAt": "docs/adr/ADR-0004-telemetry-sdk.md"
+      "decisionAt": "docs/adrs/ADR-0004-telemetry-sdk.md"
     },
     "observability-stack": {
       "plugin": "otel-victoria",
       "version": "1.x",
-      "decisionAt": "docs/adr/ADR-0005-observability-stack.md"
+      "decisionAt": "docs/adrs/ADR-0005-observability-stack.md"
     },
     "sensors": {
       "plugin": "harness-sensors",
       "version": "0.6.2-ts-adapter+abstractness",
       "implementation": "TypeScript adapter pair: dependency-cruiser 17.4.0 (Ca/Ce/I) + ts-morph 23.0.0 (Abstractness A), merged by a Node aggregator that emits per-folder and per-module Martin Ca/Ce/I/A/D where D = |A + I − 1|. Report-only; policy gate deferred until consumer forks have >= 50 workspace modules. Polyglot adapters (grimp/cargo-modules/go-arch-lint, sentrux overlay) land in later increments.",
-      "decisionAt": "docs/adr/ADR-0006-sensors.md"
+      "decisionAt": "docs/adrs/ADR-0006-sensors.md"
     },
     "agent-plugins": {
       "plugin": "claude-canonical",
       "version": "0.1",
-      "decisionAt": "docs/adr/ADR-0007-agent-plugins.md"
+      "decisionAt": "docs/adrs/ADR-0007-agent-plugins.md"
     },
     "task-runner": {
       "plugin": "just",
       "version": "1.x",
-      "decisionAt": "docs/adr/ADR-0008-task-runner.md"
+      "decisionAt": "docs/adrs/ADR-0008-task-runner.md"
     },
     "secret-scanner": {
       "plugin": "gitleaks",
       "version": "8.x",
-      "decisionAt": "docs/adr/ADR-0009-secret-scanner.md"
+      "decisionAt": "docs/adrs/ADR-0009-secret-scanner.md"
     },
     "doc-validator": {
       "plugin": "harness-doc-validator",
       "version": "0.1-stub",
       "implementation": "Stubbed bin entrypoint; replace with the Rust validator when the real plugin lands.",
-      "decisionAt": "docs/adr/ADR-0010-doc-validator.md"
+      "decisionAt": "docs/adrs/ADR-0010-doc-validator.md"
     },
     "versioning": {
       "plugin": "cocogitto",
       "version": "6.x",
-      "decisionAt": "docs/adr/ADR-0011-versioning.md"
+      "decisionAt": "docs/adrs/ADR-0011-versioning.md"
     }
   }
 }

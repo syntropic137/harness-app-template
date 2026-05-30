@@ -60,6 +60,6 @@ enum; `| fields` projection mandatory) and the curl URLs.
 
 ## Why these picks
 
-See `docs/adr/ADR-0005-observability-stack.md` for the
+See `docs/adrs/ADR-0005-observability-stack.md` for the
 research-backed slot decision (Victoria* + OTel Collector contrib vs.
 the LGTM stack vs. SigNoz vs. OpenObserve).

@@ -39,6 +39,9 @@ inspector *args:
 sensors *args:
     bun run scripts/sensors.ts {{args}}
 
+doc-validator *args:
+    harness/doc-validator/bin/doc-validator {{args}}
+
 cargo *args:
     bun run scripts/cargo.ts {{args}}
 

@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-# harness/sensors/bin/sensors — first-increment TypeScript adapter.
+# harness/sensors/bin/sensors — TypeScript adapter pair + baseline gate.
 #
 # Wraps `npx dependency-cruiser` with the workspace-scoped config at the
-# repo root and pipes the JSON through aggregate.mjs (de-dup + scope-filter
-# + per-folder/per-module Martin Ca/Ce/I).  Report-only — no policy gate
-# yet (see experiments/2026-05-30--depcruiser-arch-quality/ for why).
-#
-# When abstractness (ts-morph) and the cross-language Rust aggregator land,
-# this dispatcher gains `gate`/`apss` subcommands; today it only knows
-# `report` and `--help`.
+# repo root, runs the ts-morph Abstractness adapter, and pipes through
+# aggregate.mjs (de-dup + scope-filter + per-folder/per-module Martin
+# Ca/Ce/I/A/D). Adds a `gate` subcommand (bead create-harness-app-n48.4)
+# that enforces a baseline-snapshot fitness floor on every pre-push.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,17 +18,50 @@ harness sensors — workspace architecture-quality metrics
 
 Subcommands:
   report [--format json|md]   Run dependency-cruiser against ws_apps & ws_packages
-                              and print Martin Ca/Ce/I per folder & per module.
+                              and print Martin Ca/Ce/I/A/D per folder & per module.
+  gate [--update-baseline]    Enforce the baseline-snapshot fitness floor at
+                              harness/sensors/baseline.json. Exits non-zero on
+                              any per-folder I or D regression. On first run
+                              (no baseline file) creates the snapshot and exits 0.
+                              Wired into lefthook pre-push.
   --help                      This text.
 
 Notes:
   - Reads .dependency-cruiser.cjs at the repo root for scope (includeOnly +
     excludePattern). De-dup and workspace-scope filtering happen here, not in
     cruiser.
-  - Report-only at v0.4.x. The policy gate is intentionally deferred until
-    a consumer fork has >= 50 workspace modules — see the experiment under
-    experiments/2026-05-30--depcruiser-arch-quality/ for the rationale.
+  - The `gate` subcommand is the governance-every-run unlock (bead
+    create-harness-app-n48.4). The baseline file is committed; the only way
+    to lower the floor is `just sensors gate --update-baseline` in a
+    deliberate change.
 EOF
+}
+
+# Build the merged report JSON to a path the caller chooses.
+# Sets globals: $cruiser_tmp $abs_tmp $report_tmp (caller cleans up via trap).
+build_report() {
+  local out_format="$1"
+  local out_path="$2"
+  if ! command -v npx >/dev/null 2>&1; then
+    echo "error: npx not found — install Node.js to run the TS adapter" >&2
+    return 2
+  fi
+  cd "$REPO_ROOT"
+  cruiser_tmp="$(mktemp -t harness-sensors-cruiser-XXXXXX.json)"
+  abs_tmp="$(mktemp -t harness-sensors-abs-XXXXXX.json)"
+  npx --yes "dependency-cruiser@${DEPCRUISER_VERSION}" \
+    --metrics --output-type json \
+    'ws_apps/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
+    'ws_packages/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
+    > "$cruiser_tmp"
+  # ts-morph Abstractness adapter — extracts workspace .ts/.tsx sources
+  # from the cruiser output and counts abstract vs concrete declarations.
+  node "$HERE/abstractness.mjs" < "$cruiser_tmp" > "$abs_tmp"
+  if [ "$out_path" = "-" ]; then
+    node "$HERE/aggregate.mjs" "--format=$out_format" "--abstractness=$abs_tmp" < "$cruiser_tmp"
+  else
+    node "$HERE/aggregate.mjs" "--format=$out_format" "--abstractness=$abs_tmp" < "$cruiser_tmp" > "$out_path"
+  fi
 }
 
 case "${1:-}" in
@@ -65,30 +95,40 @@ case "${1:-}" in
           ;;
       esac
     done
-    if ! command -v npx >/dev/null 2>&1; then
-      echo "error: npx not found — install Node.js to run the TS adapter" >&2
-      exit 2
-    fi
-    cd "$REPO_ROOT"
-    # Globs (not bare dir args) — cruiser's CLI does not expand directories
-    # into entry points without them; see experiment notes.
-    # Buffer to a tempfile rather than piping: cruiser writes its JSON in
-    # multiple chunks and EPIPEs if the downstream reader closes early
-    # (intermittent — depends on scheduling).
-    cruiser_tmp="$(mktemp -t harness-sensors-cruiser-XXXXXX.json)"
-    abs_tmp="$(mktemp -t harness-sensors-abs-XXXXXX.json)"
+    cruiser_tmp=""
+    abs_tmp=""
     trap 'rm -f "$cruiser_tmp" "$abs_tmp"' EXIT
-    npx --yes "dependency-cruiser@${DEPCRUISER_VERSION}" \
-      --metrics --output-type json \
-      'ws_apps/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
-      'ws_packages/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
-      > "$cruiser_tmp"
-    # ts-morph Abstractness adapter — extracts workspace .ts/.tsx sources
-    # from the cruiser output and counts abstract vs concrete declarations.
-    # The slot's ts-morph dependency lives in harness/sensors/node_modules,
-    # so node resolves it via the abstractness.mjs file's own walk-up.
-    node "$HERE/abstractness.mjs" < "$cruiser_tmp" > "$abs_tmp"
-    node "$HERE/aggregate.mjs" "--format=$fmt" "--abstractness=$abs_tmp" < "$cruiser_tmp"
+    build_report "$fmt" "-"
+    ;;
+  gate)
+    shift
+    gate_args=()
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --update-baseline)
+          gate_args+=("--update-baseline")
+          shift
+          ;;
+        --baseline=*)
+          gate_args+=("$1")
+          shift
+          ;;
+        --first-run-mode=*)
+          gate_args+=("$1")
+          shift
+          ;;
+        *)
+          echo "error: unknown gate flag: $1" >&2
+          exit 2
+          ;;
+      esac
+    done
+    cruiser_tmp=""
+    abs_tmp=""
+    report_tmp="$(mktemp -t harness-sensors-report-XXXXXX.json)"
+    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$report_tmp"' EXIT
+    build_report "json" "$report_tmp"
+    node "$HERE/gate.mjs" "${gate_args[@]+"${gate_args[@]}"}" < "$report_tmp"
     ;;
   *)
     echo "error: unknown sensors subcommand: $1" >&2

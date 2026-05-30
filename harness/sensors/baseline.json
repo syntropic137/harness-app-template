@@ -1,0 +1,40 @@
+{
+  "folders": {
+    "ws_apps/docs": {
+      "I": null,
+      "D": null
+    },
+    "ws_apps/docs/app": {
+      "I": null,
+      "D": null
+    },
+    "ws_apps/docs/app/docs": {
+      "I": null,
+      "D": null
+    },
+    "ws_apps/docs/app/docs/[[...slug]]": {
+      "I": null,
+      "D": null
+    },
+    "ws_apps/docs/lib": {
+      "I": null,
+      "D": null
+    },
+    "ws_apps/example-typescript": {
+      "I": null,
+      "D": null
+    },
+    "ws_apps/example-typescript/src": {
+      "I": 0,
+      "D": 0
+    },
+    "ws_apps/example-typescript/tests": {
+      "I": 1,
+      "D": 1
+    },
+    "ws_apps/example-typescript/tests/integration": {
+      "I": null,
+      "D": null
+    }
+  }
+}

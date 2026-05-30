@@ -1,7 +1,7 @@
 // ── HARNESS-ENGINEERING PROTECTED CONFIG ──────────────────────────────────
 // DO NOT relax suspicious.noExplicitAny below "error". `any` defeats strict
 // typing; if you need an escape hatch, use `unknown` + a narrowing guard.
-// Per strict-typing audit (docs/adr/ADR-0014-strict-typing.md).
+// Per strict-typing audit (docs/adrs/ADR-0014-strict-typing.md).
 //
 // Biome 2.4.15 does not yet ship a "noTsIgnore" rule (audit item #6 — the
 // rule name needs WebSearch confirmation against biome release notes before

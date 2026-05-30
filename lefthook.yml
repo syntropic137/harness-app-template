@@ -31,6 +31,10 @@ pre-commit:
           gitleaks protect --staged --redact --no-banner
         '
 
+    doc-validator:
+      glob: "*.{md,json}"
+      run: harness/doc-validator/bin/doc-validator .
+
     ubs-staged:
       run: mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
 
@@ -76,6 +80,9 @@ pre-push:
           fi
           pnpm exec vitest run scripts/tests --coverage
         '
+
+    doc-validator:
+      run: harness/doc-validator/bin/doc-validator .
 
     ubs-diff:
       run: |

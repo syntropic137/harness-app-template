@@ -35,7 +35,7 @@ Forks inherit these records as a baseline. Keep them, then add new numbered ADRs
 Use the next four-digit number and a kebab-case title:
 
 ```text
-docs/adr/ADR-0017-my-decision.md
+docs/adrs/ADR-0017-my-decision.md
 ```
 
 Each ADR must include APSS ADR01 front matter with `name`, `description`, and `status`, then the standard `## Context`, `## Decision`, and `## Consequences` sections. Use `## Details` for migrated rationale, alternatives, sources, and operational notes.

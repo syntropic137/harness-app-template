@@ -52,7 +52,7 @@ The threats this template defends against, in rough order of likelihood:
 - **Poisoned upstream sync.** A malicious or compromised lab → CHA
   sync PR introduces a backdoor that fan-outs to every consumer fork
   on their next `just update`. **Hardened by:** PR-based commit sync
-  with CODEOWNERS review (ADR `docs/adr/ADR-0015-cha-sync-source-of-truth.md`),
+  with CODEOWNERS review (ADR `docs/adrs/ADR-0015-cha-sync-source-of-truth.md`),
   signed commits on lab maintainers' end (§Controls 6), and signed-tag
   verification on the consumer's side (§Verification).
 - **Malicious AI-generated code.** An agent (Claude / Codex / Gemini)
@@ -157,7 +157,7 @@ path) and on the full tree (nightly):
 - Go — `go vet ./...` baseline; `staticcheck` and `govulncheck` for
   deeper coverage.
 
-The hooks slot (`docs/adr/ADR-0003-hooks.md`) runs the diff-scope
+The hooks slot (`docs/adrs/ADR-0003-hooks.md`) runs the diff-scope
 variant in pre-push; the full tree runs in scheduled CI to avoid
 slowing the commit loop.
 
@@ -180,7 +180,7 @@ runs in three places:
 - **History scan** (`gitleaks detect --log-opts=...`) — on PR base
   comparison, catches secrets introduced in the PR's commit range.
 
-Rationale + tool pick: see `docs/adr/ADR-0009-secret-scanner.md`.
+Rationale + tool pick: see `docs/adrs/ADR-0009-secret-scanner.md`.
 
 **Allow-listing.** The project's `.gitleaksignore` file holds
 documented exceptions (e.g. test fixtures with intentionally-fake
@@ -249,7 +249,7 @@ of the gate triangle (SAST + audit + UBS).
 ### 8. Pre-commit and pre-push hook gates
 
 **State: wired (lefthook chosen as the `hooks` slot plugin per
-`docs/adr/ADR-0003-hooks.md`).**
+`docs/adrs/ADR-0003-hooks.md`).**
 
 Lefthook drives the diff-scoped fast path so the commit loop stays
 sub-second:
@@ -293,7 +293,7 @@ The canonical template is a **standalone** repo
 (`syntropic137/harness-app-template`) — there is no live lab upstream
 that flows changes in. Provenance is git-native and lives in
 `.harness-provenance.json`, written once by `scripts/init.ts` at
-`just init` time. See `docs/adr/ADR-0015-cha-sync-source-of-truth.md`.
+`just init` time. See `docs/adrs/ADR-0015-cha-sync-source-of-truth.md`.
 
 1. **Confirm the canonical commit.** After forking ("Use this template"
    or `git clone`), check:
@@ -427,8 +427,8 @@ actively-exploited issues.
 - [PyPA — pip-audit](https://pypi.org/project/pip-audit/) — Python audit tool.
 - [Go — govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) — Go vulnerability scanner.
 - [Semgrep rules](https://semgrep.dev/explore) — SAST rule packs.
-- [Gitleaks](https://github.com/gitleaks/gitleaks) — secret-scanner pick. See also `docs/adr/ADR-0009-secret-scanner.md`.
-- [Lefthook](https://github.com/evilmartians/lefthook) — hooks slot plugin. See also `docs/adr/ADR-0003-hooks.md`.
+- [Gitleaks](https://github.com/gitleaks/gitleaks) — secret-scanner pick. See also `docs/adrs/ADR-0009-secret-scanner.md`.
+- [Lefthook](https://github.com/evilmartians/lefthook) — hooks slot plugin. See also `docs/adrs/ADR-0003-hooks.md`.
 - [Ultimate Bug Scanner](https://github.com/Dicklesworthstone/ultimate_bug_scanner) — UBS, the AI-coding-bug detector.
 - [SLSA — Supply-chain Levels for Software Artifacts](https://slsa.dev/) — the framework `cosign verify-attestation --type slsa-provenance` checks against.
 - [CERT/CC Guide to Coordinated Vulnerability Disclosure](https://github.com/CERTCC/CERT-Guide-to-CVD) — disclosure norms this doc references.
@@ -447,5 +447,5 @@ when any of these conditions trip:
   threat — add it, with the incident retro linked.
 
 Changes to this file land via the standard sync PR (per ADR
-`docs/adr/ADR-0015-cha-sync-source-of-truth.md`) — never patched
+`docs/adrs/ADR-0015-cha-sync-source-of-truth.md`) — never patched
 into the canonical CHA repo directly. The upstream-adapt rule applies.

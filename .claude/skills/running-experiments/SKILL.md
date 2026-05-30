@@ -283,7 +283,7 @@ For experiments touching new languages / engines / heavy installs (game engines,
 
 1. After all subagents return: `git merge --no-ff feat/exp-N-<slug>` from the arc branch.
 2. **Conflict count is a measurement.** Zero conflicts confirms the disjoint-tree-areas hypothesis. Non-zero conflicts means the experiments overlapped unexpectedly — investigate before merging.
-3. Run the full verification (the monorepo's standard gate: `just build && just test && just lint` — these delegate to Turbo / Cargo / uv / Biome under the hood per `docs/adr/ADR-0008-task-runner.md`) on the integrated branch.
+3. Run the full verification (the monorepo's standard gate: `just build && just test && just lint` — these delegate to Turbo / Cargo / uv / Biome under the hood per `docs/adrs/ADR-0008-task-runner.md`) on the integrated branch.
 4. Score the meta-experiment if there is one — the orchestrator's wall-clock and conflict count are both measurements that belong in the meta-scorecard.
 
 ### What this pattern does NOT cover
