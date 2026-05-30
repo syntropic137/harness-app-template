@@ -57,3 +57,4 @@ uv.lock
 
 # Go
 go.sum
+.claude/settings.local.json
