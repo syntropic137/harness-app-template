@@ -24,6 +24,11 @@ The template gets a single Rust binary for commit validation and release flow. D
 
 ## Details
 
+## 2026-05-30 implementation note
+- The template now ships the ported lab Rust crate at `harness/versioning/`.
+- `harness/versioning/bin/versioning` is the local entrypoint and `just versioning` delegates to it.
+- The crate keeps the cocogitto slot decision intact while adding a template-local whole-repo check and a per-package extension point.
+
 > The slot is `versioning` (Standard §4.11). Today's pick is cocogitto. This doc captures the rationale.
 
 ## Current pick

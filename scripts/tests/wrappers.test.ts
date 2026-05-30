@@ -36,6 +36,7 @@ describe('thin script wrappers', () => {
     ['inspector', ['harness/inspector/bin/inspector', ['--help']]],
     ['sensors', ['harness/sensors/bin/sensors', ['--help']]],
     ['stack', ['harness/stack/bin/stack', ['inspect']]],
+    ['versioning', ['harness/versioning/bin/versioning', ['check']]],
     ['cargo', ['cargo', ['check']]],
     ['uv', ['uv', ['sync']]],
   ])('%s delegates to the expected command', async (moduleName, expected) => {

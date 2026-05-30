@@ -1,0 +1,39 @@
+# Self-contained workspace block so the slot builds standalone inside pnpm/turbo.
+[workspace]
+
+[package]
+name = "harness-versioning"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Versioning slot orchestrator: wraps cocogitto with per-package detection for polyglot monorepos."
+publish = false
+
+[[bin]]
+name = "harness-versioning"
+path = "src/main.rs"
+
+[lib]
+name = "harness_versioning"
+path = "src/lib.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused = { level = "deny", priority = -1 }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
+
+[package.metadata.coverage]
+lines_minimum = 100
+functions_minimum = 100

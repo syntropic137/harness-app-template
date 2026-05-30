@@ -1,0 +1,11 @@
+{
+  "name": "@harness/versioning",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build --release",
+    "typecheck": "cargo check",
+    "test": "cargo test",
+    "lint": "cargo clippy --all-targets -- -D warnings"
+  }
+}

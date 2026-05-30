@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+crate_dir="$(cd -- "$script_dir/.." && pwd)"
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "error: cargo not found; cannot run harness-versioning" >&2
+  exit 127
+fi
+
+exec cargo run --quiet --manifest-path "$crate_dir/Cargo.toml" -- "$@"

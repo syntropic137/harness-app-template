@@ -60,8 +60,9 @@
       "decisionAt": "docs/adrs/ADR-0010-doc-validator.md"
     },
     "versioning": {
-      "plugin": "cocogitto",
-      "version": "6.x",
+      "plugin": "harness-versioning+cocogitto",
+      "version": "0.1.0",
+      "implementation": "Rust harness-versioning crate ported from the lab; wraps the cocogitto versioning slot with whole-repo checks and a per-package extension point.",
       "decisionAt": "docs/adrs/ADR-0011-versioning.md"
     }
   }

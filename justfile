@@ -42,6 +42,9 @@ sensors *args:
 doc-validator *args:
     harness/doc-validator/bin/doc-validator {{args}}
 
+versioning *args:
+    bun run scripts/versioning.ts {{args}}
+
 cargo *args:
     bun run scripts/cargo.ts {{args}}
 
