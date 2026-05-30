@@ -24,6 +24,9 @@ doctor *args:
 harness-engineering-skills *args:
     bun run scripts/harness-engineering-skills.ts {{args}}
 
+review *args:
+    bun run scripts/harness-review.ts {{args}}
+
 boot *args:
     bun run scripts/boot.ts {{args}}
 
