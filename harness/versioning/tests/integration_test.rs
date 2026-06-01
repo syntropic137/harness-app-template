@@ -1,27 +1,24 @@
+use std::ffi::OsStr;
+use std::path::Path;
 use std::process::Command;
 
-fn binary_path() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_BIN_EXE_harness-versioning"))
+const BINARY_PATH: &str = env!("CARGO_BIN_EXE_harness-versioning");
+
+fn harness_command() -> Command {
+    let mut command = Command::new("/usr/bin/env");
+    command.arg(BINARY_PATH);
+    command
 }
 
-#[test]
-fn check_succeeds_on_whole_repo_with_version_in_changelog() {
-    let tmp = tempfile::tempdir().unwrap();
-    std::fs::write(
-        tmp.path().join("Cargo.toml"),
-        "[package]\nname = \"x\"\nversion = \"0.1.0\"\n",
-    )
-    .unwrap();
-    std::fs::write(tmp.path().join("CHANGELOG.md"), "## [0.1.0] - 2026-05-16\n").unwrap();
-    let out = Command::new(binary_path())
-        .args([
-            "check",
-            "--mode",
-            "whole-repo",
-            tmp.path().to_str().unwrap(),
-        ])
+fn git<const N: usize, S>(root: &Path, args: [S; N])
+where
+    S: AsRef<OsStr>,
+{
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(root)
         .output()
-        .expect("spawn");
+        .expect("spawn git");
     assert!(
         out.status.success(),
         "stdout={} stderr={}",
@@ -30,31 +27,132 @@ fn check_succeeds_on_whole_repo_with_version_in_changelog() {
     );
 }
 
-#[test]
-fn check_fails_when_version_missing_from_changelog() {
+fn git_output<const N: usize, S>(root: &Path, args: [S; N]) -> String
+where
+    S: AsRef<OsStr>,
+{
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .expect("spawn git");
+    assert!(
+        out.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
+fn seed_repo(subject: &str) -> tempfile::TempDir {
     let tmp = tempfile::tempdir().unwrap();
+    git(tmp.path(), ["init"]);
+    git(tmp.path(), ["config", "user.email", "test@example.com"]);
+    git(tmp.path(), ["config", "user.name", "Harness Test"]);
     std::fs::write(
-        tmp.path().join("Cargo.toml"),
-        "[package]\nname = \"x\"\nversion = \"0.9.9\"\n",
+        tmp.path().join("CHANGELOG.md"),
+        "# Changelog\n\n## [Unreleased]\n\n- (Add your first changelog entry here.)\n",
     )
     .unwrap();
-    std::fs::write(tmp.path().join("CHANGELOG.md"), "## [0.1.0]\n").unwrap();
-    let out = Command::new(binary_path())
+    git(tmp.path(), ["add", "CHANGELOG.md"]);
+    git(tmp.path(), ["commit", "-m", subject]);
+    tmp
+}
+
+#[test]
+fn check_succeeds_for_conventional_history() {
+    let tmp = seed_repo("feat: seed release discipline");
+    let out = harness_command()
+        .args(["check", tmp.path().to_str().unwrap()])
+        .output()
+        .expect("spawn");
+    assert!(
+        out.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains("conventional commits"));
+}
+
+#[test]
+fn check_fails_for_non_conventional_history() {
+    let tmp = seed_repo("update release discipline");
+    let out = harness_command()
+        .args(["ci-check", tmp.path().to_str().unwrap()])
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("non-conventional commits"));
+}
+
+#[test]
+fn explicit_empty_range_fails() {
+    let tmp = seed_repo("fix: seed release discipline");
+    let head = git_output(tmp.path(), ["rev-parse", "HEAD"]);
+    let out = harness_command()
         .args([
-            "check",
-            "--mode",
-            "whole-repo",
+            "ci-check",
+            "--from",
+            &head,
+            "--to",
+            &head,
             tmp.path().to_str().unwrap(),
         ])
         .output()
         .expect("spawn");
     assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("no changelog eligible commits"));
+}
+
+#[test]
+fn release_dry_run_prints_next_version_without_tagging() {
+    let tmp = seed_repo("fix: repair release discipline");
+    let out = harness_command()
+        .args(["release", tmp.path().to_str().unwrap()])
+        .output()
+        .expect("spawn");
+    assert!(
+        out.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("0.0.0 -> v0.0.1"));
+    assert!(stdout.contains("dry run complete"));
+}
+
+#[test]
+fn release_execute_updates_changelog_commits_and_tags() {
+    let tmp = seed_repo("feat: add releaser");
+    let out = harness_command()
+        .args(["release", "--execute", tmp.path().to_str().unwrap()])
+        .env("HARNESS_RELEASE_DATE", "2026-06-02")
+        .output()
+        .expect("spawn");
+    assert!(
+        out.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let changelog = std::fs::read_to_string(tmp.path().join("CHANGELOG.md")).unwrap();
+    assert!(changelog.contains("## [0.1.0] - 2026-06-02"));
+    assert!(changelog.contains("- add releaser"));
+    let tags = Command::new("git")
+        .args(["tag", "--list", "v0.1.0"])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git tag");
+    assert_eq!(String::from_utf8_lossy(&tags.stdout).trim(), "v0.1.0");
 }
 
 #[test]
 fn check_per_package_mode_warns_but_succeeds() {
     let tmp = tempfile::tempdir().unwrap();
-    let out = Command::new(binary_path())
+    let out = harness_command()
         .args([
             "check",
             "--mode",
@@ -69,5 +167,5 @@ fn check_per_package_mode_warns_but_succeeds() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(String::from_utf8_lossy(&out.stderr).contains("per-package mode not implemented yet"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("per-package mode"));
 }

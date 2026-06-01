@@ -1,4 +1,4 @@
-//! harness-versioning CLI entrypoint — thin shell over `lib::run`.
+//! harness-versioning CLI entrypoint.
 
 #![forbid(unsafe_code)]
 

@@ -1,0 +1,77 @@
+name: versioning
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      level:
+        description: Release level
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+      - name: Install just
+        run: cargo install just --locked
+      - name: Test versioning slot
+        run: cargo test --manifest-path harness/versioning/Cargo.toml
+      - name: Check pull request release discipline
+        if: github.event_name == 'pull_request'
+        run: just release-check "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+      - name: Check main release discipline
+        if: github.event_name == 'push'
+        run: just release-check
+
+  release:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+      - name: Install just
+        run: cargo install just --locked
+      - name: Test versioning slot
+        run: cargo test --manifest-path harness/versioning/Cargo.toml
+      - name: Configure release author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Apply release
+        run: just release-apply "${{ inputs.level }}"
+      - name: Push release commit and tags
+        run: |
+          git push origin HEAD:main
+          git push origin --tags
