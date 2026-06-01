@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs",
-    "typecheck": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs",
-    "test": "bin/sensors --help >/dev/null && node --check aggregate.mjs && node --check abstractness.mjs",
-    "lint": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs"
+    "build": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs",
+    "typecheck": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs",
+    "test": "bin/sensors --help >/dev/null && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs",
+    "lint": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs"
   },
   "dependencies": {
     "ts-morph": "23.0.0"

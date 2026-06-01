@@ -1,4 +1,7 @@
 {
+  "schema_version": "1.0.0",
+  "standard": "APS-V1-0002",
+  "generated_by": "harness/sensors/gate.mjs",
   "folders": {
     "ws_apps/docs": {
       "I": null,
@@ -35,6 +38,180 @@
     "ws_apps/example-typescript/tests/integration": {
       "I": null,
       "D": null
+    }
+  },
+  "dimensions": {
+    "MT01": {
+      "name": "Maintainability",
+      "promotion_status": "active",
+      "enforcement": "enforced",
+      "default": "default-enabled",
+      "metrics": {
+        "max-cognitive": {
+          "name": "Maximum Cognitive Complexity",
+          "objective": "Max function cognitive complexity from APSS functions or the local complexity adapter.",
+          "source": ".topology/metrics/functions.json or harness/sensors/complexity.mjs",
+          "direction": "max",
+          "default_threshold": 15,
+          "baseline": 8,
+          "fail_on_regression": true
+        },
+        "max-cyclomatic": {
+          "name": "Maximum Cyclomatic Complexity",
+          "objective": "Max function cyclomatic complexity from APSS functions or the local complexity adapter.",
+          "source": ".topology/metrics/functions.json or harness/sensors/complexity.mjs",
+          "direction": "max",
+          "default_threshold": 10,
+          "baseline": 6,
+          "fail_on_regression": true
+        },
+        "max-halstead-volume": {
+          "name": "Maximum Halstead Volume",
+          "objective": "Max APSS Halstead volume per function when APSS emits Halstead metrics.",
+          "source": ".topology/metrics/functions.json metrics.halstead.volume",
+          "direction": "max",
+          "default_threshold": 1000,
+          "baseline": null,
+          "fail_on_regression": true
+        }
+      }
+    },
+    "MD01": {
+      "name": "Modularity and Coupling",
+      "promotion_status": "active",
+      "enforcement": "enforced",
+      "default": "default-enabled",
+      "metrics": {
+        "max-fan-out": {
+          "name": "Maximum Efferent Coupling",
+          "objective": "Max module efferent coupling from APSS coupling or the dependency-cruiser fallback.",
+          "source": ".topology/metrics/coupling.json or aggregate workspace modules",
+          "direction": "max",
+          "default_threshold": 20,
+          "baseline": 2,
+          "fail_on_regression": true
+        },
+        "max-main-sequence-distance": {
+          "name": "Maximum Distance from Main Sequence",
+          "objective": "Max module distance from the Martin main sequence.",
+          "source": ".topology/metrics/coupling.json or aggregate workspace modules",
+          "direction": "max",
+          "default_threshold": 0.7,
+          "baseline": 1,
+          "fail_on_regression": true
+        },
+        "instability-out-of-range-count": {
+          "name": "Instability Outside Healthy Range",
+          "objective": "Count modules with instability below 0.1 or above 0.9.",
+          "source": ".topology/metrics/coupling.json or aggregate workspace modules",
+          "direction": "max",
+          "default_threshold": 0,
+          "baseline": 4,
+          "fail_on_regression": true
+        }
+      }
+    },
+    "ST01": {
+      "name": "Structural Integrity",
+      "promotion_status": "incubating",
+      "enforcement": "advisory",
+      "default": "default-enabled",
+      "metrics": {
+        "structural-violation-count": {
+          "name": "Structural Violation Count",
+          "objective": "Count structural integrity violations once a class or layer analyzer is wired.",
+          "source": "incubating adapter slot",
+          "direction": "max",
+          "default_threshold": 0,
+          "baseline": null,
+          "fail_on_regression": true
+        }
+      }
+    },
+    "SC01": {
+      "name": "Security",
+      "promotion_status": "incubating",
+      "enforcement": "advisory",
+      "default": "default-enabled",
+      "metrics": {
+        "critical-vulnerability-count": {
+          "name": "Critical Vulnerability Count",
+          "objective": "Count critical security findings once a scanner adapter is wired.",
+          "source": "incubating adapter slot",
+          "direction": "max",
+          "default_threshold": 0,
+          "baseline": null,
+          "fail_on_regression": true
+        }
+      }
+    },
+    "LG01": {
+      "name": "Legality",
+      "promotion_status": "incubating",
+      "enforcement": "advisory",
+      "default": "default-enabled",
+      "metrics": {
+        "license-violation-count": {
+          "name": "License Violation Count",
+          "objective": "Count denied or unknown license findings once a license adapter is wired.",
+          "source": "incubating adapter slot",
+          "direction": "max",
+          "default_threshold": 0,
+          "baseline": null,
+          "fail_on_regression": true
+        }
+      }
+    },
+    "AC01": {
+      "name": "Accessibility",
+      "promotion_status": "incubating",
+      "enforcement": "advisory",
+      "default": "opt-in",
+      "metrics": {
+        "accessibility-violation-count": {
+          "name": "Accessibility Violation Count",
+          "objective": "Count accessibility violations once a web accessibility adapter is wired.",
+          "source": "incubating adapter slot",
+          "direction": "max",
+          "default_threshold": 0,
+          "baseline": null,
+          "fail_on_regression": true
+        }
+      }
+    },
+    "PF01": {
+      "name": "Performance",
+      "promotion_status": "incubating",
+      "enforcement": "advisory",
+      "default": "opt-in",
+      "metrics": {
+        "performance-regression-value": {
+          "name": "Performance Regression Value",
+          "objective": "Track performance regression measurements once a benchmark adapter is wired.",
+          "source": "incubating adapter slot",
+          "direction": "max",
+          "default_threshold": 0,
+          "baseline": null,
+          "fail_on_regression": true
+        }
+      }
+    },
+    "AV01": {
+      "name": "Availability",
+      "promotion_status": "incubating",
+      "enforcement": "advisory",
+      "default": "opt-in",
+      "metrics": {
+        "availability-failure-count": {
+          "name": "Availability Failure Count",
+          "objective": "Count availability or resilience failures once an adapter is wired.",
+          "source": "incubating adapter slot",
+          "direction": "max",
+          "default_threshold": 0,
+          "baseline": null,
+          "fail_on_regression": true
+        }
+      }
     }
   }
 }

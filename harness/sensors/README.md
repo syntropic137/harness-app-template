@@ -1,49 +1,58 @@
 # harness/sensors
 
-Workspace architecture-quality metrics. Ships **two adapters** today:
+Workspace architecture-quality sensors and the APSS fitness gate.
 
-- `dependency-cruiser` → afferent coupling **Ca**, efferent coupling **Ce**, instability **I**.
-- `ts-morph` → abstractness **A** (`abstract class` + `interface` declarations vs concrete classes).
+The slot currently runs:
 
-The aggregator merges both and computes Robert C. Martin's distance from the main sequence, **D = |A + I − 1|**, per module and per folder.
+- `dependency-cruiser`: afferent coupling `Ca`, efferent coupling `Ce`, instability `I`.
+- `ts-morph` abstractness: abstractness `A` and Martin distance `D`.
+- `ts-morph` complexity: cyclomatic and cognitive complexity.
+- `apss_topology.mjs`: APSS topology artifacts from `.topology/metrics/`.
 
-Report-only. The policy gate is **intentionally deferred** until at least one consumer fork has ≥ 50 workspace modules — see `experiments/2026-05-30--depcruiser-arch-quality/README.md` for the rationale.
+The gate keeps the legacy folder `I` and `D` regression check and adds an APSS
+baseline layer for all eight APS-V1-0002 dimensions.
 
-## Run it
+## Run
 
 ```sh
-just sensors report --format md     # human-readable Markdown
-just sensors report --format json   # machine-readable JSON
-just sensors --help                 # subcommand list
+just sensors report --format md
+just sensors report --format json
+just sensors gate
+just sensors gate --update-baseline
 ```
 
-Requires `npx` on `$PATH` (Node ≥ 18). The cruiser version is pinned at `17.4.0` inside `bin/sensors`.
+Requires Node 20 or newer and `npx` on `PATH`. The cruiser version is pinned at
+`17.4.0` inside `bin/sensors`.
 
-## What this fixes vs. raw `npx dependency-cruiser --metrics`
+## APSS Fitness Model
 
-1. **Scope.** Without `.dependency-cruiser.cjs` (at the repo root) cruiser follows vitest's imports into `node_modules` and the metric set becomes 90%+ vendor noise. The config pins `includeOnly: ^(ws_apps|ws_packages)/` and `exclude.path: node_modules`.
-2. **De-dup.** Cruiser sometimes emits the same `modules[].source` twice with different graph views; the aggregator merges dependents/dependencies into sets and recomputes I from the merged view.
-3. **Distribution.** Workspace-scoped min/median/max I plus stable/unstable counts, so the report tells you something even when each individual reading is unsurprising.
+The committed `baseline.json` includes:
 
-## What this does **not** ship yet
+- `MT01` Maintainability, active and enforced.
+- `MD01` Modularity and Coupling, active and enforced.
+- `ST01`, `SC01`, `LG01`, `AC01`, `PF01`, `AV01`, incubating and advisory.
 
-- A pass/fail policy gate. Even with A and D in hand, the scaffold still has too few workspace modules for a threshold to be anything but noise.
-- Adapters for Python (`grimp`), Rust (`cargo-modules`), Go (`go-arch-lint`), or the `sentrux` overlay. Each is a separate increment per `docs/adrs/ADR-0006-sensors.md`.
+Each dimension records objective metric metadata, a baseline value, and whether
+the metric fails on regression. Enforced regressions exit non-zero. Incubating
+dimensions stay visible in the report but do not fail the gate.
 
-When those land, this directory grows; the `just sensors` recipe stays the same.
+## APSS Topology Inputs
 
-## Reading the output
+The APSS adapter reads these files when present:
 
-`A` and `D` only appear in the report when ts-morph successfully classified at least one source. Modules with no class/interface declarations get `A = null` (and therefore `D = null`); the aggregator never invents a value.
+- `.topology/metrics/modules.json`
+- `.topology/metrics/functions.json`
+- `.topology/metrics/coupling.json`
 
-Folder-level `A` is the simple mean of defined per-module A values inside that folder. Folder-level `D = |A + I − 1|` using that folder mean and the cruiser-supplied folder `I`.
+All APSS values are merged under each module's `.apss` object so the existing
+Node sensors remain available as fallback signals.
 
 ## Layout
 
-- `bin/sensors` — bash dispatcher (`report`, `--help`)
-- `aggregate.mjs` — pure Node ESM aggregator; tested by `scripts/tests/sensors-aggregate.test.ts`
-- `abstractness.mjs` — ts-morph adapter; tested by `scripts/tests/sensors-abstractness.test.ts`
-- `package.json` — minimal package metadata so `pnpm` / `turbo` see the slot
-- `node_modules/ts-morph` — pinned per the slot's `dependencies`; also hoisted to the root so vitest can resolve it from test files
-
-If you want the slot disabled, set `harness.manifest.json#slots.sensors.plugin` to `none` (or just don't call `just sensors`).
+- `bin/sensors`: bash dispatcher for `report` and `gate`.
+- `aggregate.mjs`: merges dependency, abstractness, complexity, and APSS readings.
+- `abstractness.mjs`: ts-morph abstractness adapter.
+- `complexity.mjs`: ts-morph complexity adapter.
+- `apss_topology.mjs`: APSS topology adapter.
+- `gate.mjs`: baseline and APSS fitness gate.
+- `baseline.json`: committed regression floor.

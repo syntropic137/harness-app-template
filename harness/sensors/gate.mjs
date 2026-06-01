@@ -30,6 +30,249 @@ import { fileURLToPath } from 'node:url';
 import { mkdirSync, realpathSync } from 'node:fs';
 
 const EPSILON = 1e-6;
+const FITNESS_SCHEMA_VERSION = '1.0.0';
+
+const DIMENSION_ORDER = ['MT01', 'MD01', 'ST01', 'SC01', 'LG01', 'AC01', 'PF01', 'AV01'];
+
+const DIMENSIONS = {
+  MT01: {
+    name: 'Maintainability',
+    promotion_status: 'active',
+    enforcement: 'enforced',
+    default: 'default-enabled',
+  },
+  MD01: {
+    name: 'Modularity and Coupling',
+    promotion_status: 'active',
+    enforcement: 'enforced',
+    default: 'default-enabled',
+  },
+  ST01: {
+    name: 'Structural Integrity',
+    promotion_status: 'incubating',
+    enforcement: 'advisory',
+    default: 'default-enabled',
+  },
+  SC01: {
+    name: 'Security',
+    promotion_status: 'incubating',
+    enforcement: 'advisory',
+    default: 'default-enabled',
+  },
+  LG01: {
+    name: 'Legality',
+    promotion_status: 'incubating',
+    enforcement: 'advisory',
+    default: 'default-enabled',
+  },
+  AC01: {
+    name: 'Accessibility',
+    promotion_status: 'incubating',
+    enforcement: 'advisory',
+    default: 'opt-in',
+  },
+  PF01: {
+    name: 'Performance',
+    promotion_status: 'incubating',
+    enforcement: 'advisory',
+    default: 'opt-in',
+  },
+  AV01: {
+    name: 'Availability',
+    promotion_status: 'incubating',
+    enforcement: 'advisory',
+    default: 'opt-in',
+  },
+};
+
+const FITNESS_METRICS = {
+  MT01: [
+    {
+      id: 'max-cognitive',
+      name: 'Maximum Cognitive Complexity',
+      objective:
+        'Max function cognitive complexity from APSS functions or the local complexity adapter.',
+      source: '.topology/metrics/functions.json or harness/sensors/complexity.mjs',
+      direction: 'max',
+      default_threshold: 15,
+      fail_on_regression: true,
+      value: (report) => maxNumber([
+        ...apssFunctionValues(report, 'cognitive'),
+        ...moduleValues(report, (m) => m.max_cognitive),
+        ...folderValues(report, (f) => f.max_cognitive ?? f.apss_max_cognitive),
+      ]),
+    },
+    {
+      id: 'max-cyclomatic',
+      name: 'Maximum Cyclomatic Complexity',
+      objective:
+        'Max function cyclomatic complexity from APSS functions or the local complexity adapter.',
+      source: '.topology/metrics/functions.json or harness/sensors/complexity.mjs',
+      direction: 'max',
+      default_threshold: 10,
+      fail_on_regression: true,
+      value: (report) => maxNumber([
+        ...apssFunctionValues(report, 'cyclomatic'),
+        ...moduleValues(report, (m) => m.max_cyclomatic),
+        ...folderValues(report, (f) => f.max_cyclomatic ?? f.apss_max_cyclomatic),
+      ]),
+    },
+    {
+      id: 'max-halstead-volume',
+      name: 'Maximum Halstead Volume',
+      objective: 'Max APSS Halstead volume per function when APSS emits Halstead metrics.',
+      source: '.topology/metrics/functions.json metrics.halstead.volume',
+      direction: 'max',
+      default_threshold: 1000,
+      fail_on_regression: true,
+      value: (report) => maxNumber(apssFunctionValues(report, 'halstead_volume')),
+    },
+  ],
+  MD01: [
+    {
+      id: 'max-fan-out',
+      name: 'Maximum Efferent Coupling',
+      objective:
+        'Max module efferent coupling from APSS coupling or the dependency-cruiser fallback.',
+      source: '.topology/metrics/coupling.json or aggregate workspace modules',
+      direction: 'max',
+      default_threshold: 20,
+      fail_on_regression: true,
+      value: (report) => maxNumber([
+        ...moduleValues(report, (m) => m.apss?.efferent_coupling ?? m.apss?.ce ?? m.Ce),
+        ...folderValues(report, (f) => f.apss_efferent_coupling_max),
+      ]),
+    },
+    {
+      id: 'max-main-sequence-distance',
+      name: 'Maximum Distance from Main Sequence',
+      objective: 'Max module distance from the Martin main sequence.',
+      source: '.topology/metrics/coupling.json or aggregate workspace modules',
+      direction: 'max',
+      default_threshold: 0.7,
+      fail_on_regression: true,
+      value: (report) => maxNumber([
+        ...moduleValues(report, (m) => m.apss?.distance_from_main_sequence ?? m.D),
+        ...folderValues(report, (f) => f.apss_distance_max ?? f.D),
+      ]),
+    },
+    {
+      id: 'instability-out-of-range-count',
+      name: 'Instability Outside Healthy Range',
+      objective: 'Count modules with instability below 0.1 or above 0.9.',
+      source: '.topology/metrics/coupling.json or aggregate workspace modules',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: (report) =>
+        moduleValues(report, (m) => m.apss?.instability ?? m.I).filter(
+          (v) => typeof v === 'number' && (v < 0.1 || v > 0.9),
+        ).length,
+    },
+  ],
+  ST01: [
+    {
+      id: 'structural-violation-count',
+      name: 'Structural Violation Count',
+      objective: 'Count structural integrity violations once a class or layer analyzer is wired.',
+      source: 'incubating adapter slot',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: () => null,
+    },
+  ],
+  SC01: [
+    {
+      id: 'critical-vulnerability-count',
+      name: 'Critical Vulnerability Count',
+      objective: 'Count critical security findings once a scanner adapter is wired.',
+      source: 'incubating adapter slot',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: () => null,
+    },
+  ],
+  LG01: [
+    {
+      id: 'license-violation-count',
+      name: 'License Violation Count',
+      objective: 'Count denied or unknown license findings once a license adapter is wired.',
+      source: 'incubating adapter slot',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: () => null,
+    },
+  ],
+  AC01: [
+    {
+      id: 'accessibility-violation-count',
+      name: 'Accessibility Violation Count',
+      objective: 'Count accessibility violations once a web accessibility adapter is wired.',
+      source: 'incubating adapter slot',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: () => null,
+    },
+  ],
+  PF01: [
+    {
+      id: 'performance-regression-value',
+      name: 'Performance Regression Value',
+      objective: 'Track performance regression measurements once a benchmark adapter is wired.',
+      source: 'incubating adapter slot',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: () => null,
+    },
+  ],
+  AV01: [
+    {
+      id: 'availability-failure-count',
+      name: 'Availability Failure Count',
+      objective: 'Count availability or resilience failures once an adapter is wired.',
+      source: 'incubating adapter slot',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: () => null,
+    },
+  ],
+};
+
+function moduleValues(report, read) {
+  return (report?.workspace?.modules ?? []).map(read).filter((v) => typeof v === 'number');
+}
+
+function folderValues(report, read) {
+  return (report?.workspace?.folders ?? []).map(read).filter((v) => typeof v === 'number');
+}
+
+function apssFunctionValues(report, field) {
+  return (report?.workspace?.modules ?? [])
+    .flatMap((m) => (Array.isArray(m?.apss?.functions) ? m.apss.functions : []))
+    .map((fn) => fn?.[field])
+    .filter((v) => typeof v === 'number');
+}
+
+function maxNumber(values) {
+  const nums = values.filter((v) => typeof v === 'number');
+  return nums.length === 0 ? null : Math.max(...nums);
+}
+
+function worsened(direction, current, baseline) {
+  if (typeof current !== 'number' || typeof baseline !== 'number') {
+    return false;
+  }
+  if (direction === 'min') {
+    return current < baseline - EPSILON;
+  }
+  return current > baseline + EPSILON;
+}
 
 /**
  * Extract a stable baseline shape from an aggregator report.  Per-folder
@@ -51,6 +294,37 @@ export function extractBaselineMetrics(report) {
   return { folders };
 }
 
+export function extractApssFitnessBaseline(report) {
+  const dimensions = {};
+  for (const code of DIMENSION_ORDER) {
+    const dimension = DIMENSIONS[code];
+    const metrics = {};
+    for (const metric of FITNESS_METRICS[code] ?? []) {
+      const baseline = metric.value(report);
+      metrics[metric.id] = {
+        name: metric.name,
+        objective: metric.objective,
+        source: metric.source,
+        direction: metric.direction,
+        default_threshold: metric.default_threshold,
+        baseline,
+        fail_on_regression: metric.fail_on_regression,
+      };
+    }
+    dimensions[code] = {
+      ...dimension,
+      metrics,
+    };
+  }
+  return {
+    schema_version: FITNESS_SCHEMA_VERSION,
+    standard: 'APS-V1-0002',
+    generated_by: 'harness/sensors/gate.mjs',
+    ...extractBaselineMetrics(report),
+    dimensions,
+  };
+}
+
 /**
  * Compare a current report against a baseline shape.  Returns
  * `{ ok, regressions, summary }`.
@@ -63,7 +337,7 @@ export function extractBaselineMetrics(report) {
  * floor yet.  Removed folders (present in baseline, absent in current)
  * are also not regressions; they were refactored away or filtered out.
  */
-export function compareBaseline(baseline, currentReport) {
+function compareLegacyBaseline(baseline, currentReport) {
   const current = extractBaselineMetrics(currentReport);
   const regressions = [];
   const baseFolders = baseline?.folders ?? {};
@@ -118,6 +392,127 @@ export function compareBaseline(baseline, currentReport) {
   };
 }
 
+export function compareFitnessBaseline(baseline, currentReport) {
+  const current = extractApssFitnessBaseline(currentReport);
+  const regressions = [];
+  const advisoryRegressions = [];
+  const missingBaselines = [];
+  const dimensionSummaries = {};
+  let comparedMetrics = 0;
+
+  for (const code of DIMENSION_ORDER) {
+    const dimension = current.dimensions[code];
+    const baselineDimension = baseline?.dimensions?.[code];
+    const metricSummaries = {};
+    let evaluated = 0;
+    let failed = 0;
+    let warned = 0;
+    let missing = 0;
+
+    for (const [metricId, currentMetric] of Object.entries(dimension.metrics ?? {})) {
+      const baselineMetric = baselineDimension?.metrics?.[metricId];
+      const baselineValue = baselineMetric?.baseline;
+      const currentValue = currentMetric.baseline;
+      const hasBaseline = typeof baselineValue === 'number';
+      const hasCurrent = typeof currentValue === 'number';
+      const regression =
+        currentMetric.fail_on_regression &&
+        hasBaseline &&
+        hasCurrent &&
+        worsened(currentMetric.direction, currentValue, baselineValue);
+
+      if (hasBaseline && hasCurrent) {
+        comparedMetrics += 1;
+        evaluated += 1;
+      } else {
+        missing += 1;
+        missingBaselines.push({ dimension: code, metric: metricId, baseline: baselineValue, current: currentValue });
+      }
+
+      const summary = {
+        name: currentMetric.name,
+        baseline: baselineValue ?? null,
+        current: currentValue ?? null,
+        direction: currentMetric.direction,
+        fail_on_regression: currentMetric.fail_on_regression,
+        regression,
+      };
+      metricSummaries[metricId] = summary;
+
+      if (regression) {
+        const delta = currentValue - baselineValue;
+        const record = {
+          dimension: code,
+          metric: metricId,
+          metric_name: currentMetric.name,
+          baseline: baselineValue,
+          current: currentValue,
+          delta,
+          enforcement: dimension.enforcement,
+        };
+        if (dimension.enforcement === 'enforced') {
+          failed += 1;
+          regressions.push(record);
+        } else {
+          warned += 1;
+          advisoryRegressions.push({
+            ...record,
+            diagnostic: 'INCUBATING_DIMENSION_ERROR_DOWNGRADED',
+          });
+        }
+      }
+    }
+
+    dimensionSummaries[code] = {
+      name: dimension.name,
+      runtime_status: evaluated > 0 ? 'evaluated' : 'skipped',
+      promotion_status: dimension.promotion_status,
+      enforcement: dimension.enforcement,
+      rules_evaluated: evaluated,
+      rules_failed: failed,
+      rules_warned: warned,
+      rules_missing_baseline: missing,
+      metrics: metricSummaries,
+    };
+  }
+
+  return {
+    ok: regressions.length === 0,
+    regressions,
+    advisoryRegressions,
+    missingBaselines,
+    comparedMetrics,
+    dimensions: dimensionSummaries,
+  };
+}
+
+/**
+ * Compare a current report against a baseline shape.  Old baselines with
+ * only `folders` keep the n48 I/D behavior. New baselines with
+ * `dimensions` also enforce APSS active MT01/MD01 metric regressions.
+ */
+export function compareBaseline(baseline, currentReport) {
+  const legacy = compareLegacyBaseline(baseline, currentReport);
+  if (!baseline?.dimensions) {
+    return legacy;
+  }
+
+  const fitness = compareFitnessBaseline(baseline, currentReport);
+  const regressions = [...legacy.regressions, ...fitness.regressions];
+  return {
+    ok: legacy.ok && fitness.ok,
+    regressions,
+    legacyRegressions: legacy.regressions,
+    fitness,
+    summary: {
+      ...legacy.summary,
+      fitnessComparedMetrics: fitness.comparedMetrics,
+      advisoryRegressions: fitness.advisoryRegressions.length,
+      missingBaselines: fitness.missingBaselines.length,
+    },
+  };
+}
+
 function fmt(n) {
   return n === null || n === undefined ? '—' : n.toFixed(3);
 }
@@ -141,14 +536,39 @@ export function renderReport(comparison) {
   if (removedFolders.length > 0) {
     lines.push(`  removed (refactored or filtered): ${removedFolders.join(', ')}`);
   }
+  if (comparison.fitness) {
+    const { fitnessComparedMetrics, advisoryRegressions, missingBaselines } = comparison.summary;
+    lines.push('');
+    lines.push(
+      `APSS fitness: ${fitnessComparedMetrics} metric(s) compared; ` +
+        `${advisoryRegressions} advisory regression(s); ${missingBaselines} missing baseline(s).`,
+    );
+    for (const code of DIMENSION_ORDER) {
+      const d = comparison.fitness.dimensions?.[code];
+      if (!d) {
+        continue;
+      }
+      lines.push(
+        `  ${code} ${d.name}: ${d.runtime_status}, ${d.promotion_status}, ` +
+          `${d.enforcement}, evaluated ${d.rules_evaluated}`,
+      );
+    }
+  }
   if (comparison.regressions.length > 0) {
     lines.push('');
     lines.push('regressions:');
     for (const r of comparison.regressions) {
-      lines.push(
-        `  ${r.folder}  ${r.metric}: ${fmt(r.baseline)} → ${fmt(r.current)}  ` +
-          `(+${fmt(r.delta)})`,
-      );
+      if (r.folder) {
+        lines.push(
+          `  ${r.folder}  ${r.metric}: ${fmt(r.baseline)} → ${fmt(r.current)}  ` +
+            `(+${fmt(r.delta)})`,
+        );
+      } else {
+        lines.push(
+          `  ${r.dimension} ${r.metric}: ${fmt(r.baseline)} -> ${fmt(r.current)} ` +
+            `(+${fmt(r.delta)})`,
+        );
+      }
     }
     lines.push('');
     lines.push(
@@ -224,7 +644,7 @@ export async function main(
     return 2;
   }
 
-  const currentBaseline = extractBaselineMetrics(report);
+  const currentBaseline = extractApssFitnessBaseline(report);
 
   if (updateBaseline) {
     io.writeFile(baselinePath, `${JSON.stringify(currentBaseline, null, 2)}\n`);

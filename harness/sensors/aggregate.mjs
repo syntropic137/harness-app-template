@@ -292,11 +292,13 @@ export function mergeApssTopology(report, apss) {
       return m;
     }
     const { source: _s, functions, ...metrics } = reading;
+    const functionList = Array.isArray(functions) ? functions : [];
     return {
       ...m,
       apss: {
         ...metrics,
-        function_count: functions?.length ?? metrics.function_count ?? null,
+        functions: functionList,
+        function_count: functionList.length > 0 ? functionList.length : metrics.function_count ?? null,
       },
     };
   });
@@ -307,10 +309,19 @@ export function mergeApssTopology(report, apss) {
     const dValues = withApss
       .map((m) => m.apss?.distance_from_main_sequence)
       .filter((v) => typeof v === 'number');
+    const ceValues = withApss
+      .map((m) => m.apss?.efferent_coupling ?? m.apss?.ce)
+      .filter((v) => typeof v === 'number');
+    const functionValues = withApss.flatMap((m) => m.apss?.functions ?? []);
+    const cognitiveValues = functionValues.map((fn) => fn.cognitive).filter((v) => typeof v === 'number');
+    const cyclomaticValues = functionValues.map((fn) => fn.cyclomatic).filter((v) => typeof v === 'number');
     return {
       ...f,
       apss_modules: withApss.length,
       apss_distance_max: dValues.length === 0 ? null : Math.max(...dValues),
+      apss_efferent_coupling_max: ceValues.length === 0 ? null : Math.max(...ceValues),
+      apss_max_cognitive: cognitiveValues.length === 0 ? null : Math.max(...cognitiveValues),
+      apss_max_cyclomatic: cyclomaticValues.length === 0 ? null : Math.max(...cyclomaticValues),
     };
   });
   return {

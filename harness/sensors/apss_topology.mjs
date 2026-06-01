@@ -56,6 +56,15 @@ export const APSS_MODULE_METRICS = [
 /** Canonical APSS function-level metric field names (V0.3 schema). */
 export const APSS_FUNCTION_METRICS = ['cognitive', 'cyclomatic', 'loc'];
 
+/** APSS Tier 1 flat coupling fields from `.topology/metrics/coupling.json`. */
+export const APSS_COUPLING_METRICS = [
+  'afferent_coupling',
+  'efferent_coupling',
+  'instability',
+  'abstractness',
+  'distance_from_main_sequence',
+];
+
 /**
  * Normalize an APSS-emitted source path to slash form so cross-language
  * paths (`my.python.module`, `crate::path::mod`) end up in the same
@@ -85,6 +94,21 @@ export function extractMetrics(entity, fieldNames) {
   return out;
 }
 
+function numericOrNull(v) {
+  return typeof v === 'number' ? v : null;
+}
+
+function extractFunctionMetrics(entity) {
+  const metrics = entity?.metrics ?? {};
+  const halstead = metrics?.halstead ?? {};
+  return {
+    cognitive: numericOrNull(entity?.cognitive ?? metrics?.cognitive),
+    cyclomatic: numericOrNull(entity?.cyclomatic ?? metrics?.cyclomatic),
+    loc: numericOrNull(entity?.loc ?? metrics?.loc),
+    halstead_volume: numericOrNull(entity?.halstead_volume ?? halstead?.volume),
+  };
+}
+
 /**
  * Parse an APSS modules.json document into per-source readings.  Tolerant
  * of two on-wire shapes — top-level `{ modules: [...] }` OR a bare array.
@@ -93,11 +117,54 @@ export function parseModulesJson(doc) {
   const modules = Array.isArray(doc) ? doc : Array.isArray(doc?.modules) ? doc.modules : [];
   const out = [];
   for (const m of modules) {
-    const source = normalizePath(m?.source ?? m?.path ?? m?.name);
+    const metrics = m?.metrics ?? {};
+    const martin = metrics?.martin ?? {};
+    const source = normalizePath(m?.source ?? m?.path ?? m?.file ?? m?.name ?? m?.id);
     if (!source) {
       continue;
     }
-    out.push({ source, ...extractMetrics(m, APSS_MODULE_METRICS) });
+    out.push({
+      source,
+      ...extractMetrics(
+        {
+          ...m,
+          ca: m?.ca ?? metrics?.ca ?? martin?.ca ?? m?.afferent_coupling,
+          ce: m?.ce ?? metrics?.ce ?? martin?.ce ?? m?.efferent_coupling,
+          instability: m?.instability ?? metrics?.instability ?? martin?.instability,
+          abstractness: m?.abstractness ?? metrics?.abstractness ?? martin?.abstractness,
+          distance_from_main_sequence:
+            m?.distance_from_main_sequence ??
+            metrics?.distance_from_main_sequence ??
+            martin?.distance_from_main_sequence,
+        },
+        APSS_MODULE_METRICS,
+      ),
+    });
+  }
+  return out;
+}
+
+/**
+ * Parse the APSS Tier 1 flat coupling artifact. It is a denormalized
+ * projection of Martin metrics for fitness consumers.
+ */
+export function parseCouplingJson(doc) {
+  const modules = Array.isArray(doc) ? doc : Array.isArray(doc?.modules) ? doc.modules : [];
+  const out = [];
+  for (const m of modules) {
+    const source = normalizePath(m?.path ?? m?.source ?? m?.file ?? m?.id);
+    if (!source) {
+      continue;
+    }
+    const metrics = extractMetrics(m, APSS_COUPLING_METRICS);
+    out.push({
+      source,
+      id: typeof m?.id === 'string' ? m.id : source,
+      path: typeof m?.path === 'string' ? m.path : source,
+      ...metrics,
+      ca: metrics.afferent_coupling,
+      ce: metrics.efferent_coupling,
+    });
   }
   return out;
 }
@@ -111,12 +178,12 @@ export function parseFunctionsJson(doc) {
   const fns = Array.isArray(doc) ? doc : Array.isArray(doc?.functions) ? doc.functions : [];
   const byModule = new Map();
   for (const f of fns) {
-    const source = normalizePath(f?.module ?? f?.source ?? f?.path);
+    const source = normalizePath(f?.file ?? f?.source ?? f?.path ?? f?.module);
     if (!source) {
       continue;
     }
-    const metrics = extractMetrics(f, APSS_FUNCTION_METRICS);
-    const name = typeof f?.name === 'string' ? f.name : '<anonymous>';
+    const metrics = extractFunctionMetrics(f);
+    const name = typeof f?.name === 'string' ? f.name : typeof f?.id === 'string' ? f.id : '<anonymous>';
     const line = typeof f?.line === 'number' ? f.line : null;
     if (!byModule.has(source)) {
       byModule.set(source, []);
@@ -177,12 +244,14 @@ export function findTopologyFiles(root, opts = {}) {
   const topologyDir = opts.topologyDir ?? join(root, '.topology', 'metrics');
   const modulesPath = join(topologyDir, 'modules.json');
   const functionsPath = join(topologyDir, 'functions.json');
+  const couplingPath = join(topologyDir, 'coupling.json');
   const fs = opts.fs ?? { existsSync, readFileSync };
   return {
     topologyDir,
     modulesPath,
     functionsPath,
-    available: fs.existsSync(modulesPath),
+    couplingPath,
+    available: fs.existsSync(modulesPath) || fs.existsSync(couplingPath) || fs.existsSync(functionsPath),
     fs,
   };
 }
@@ -199,16 +268,35 @@ export function analyzeFromTopology(root = '.', opts = {}) {
   if (!found.available) {
     return { tool: 'apss-topology', available: false, readings: [] };
   }
-  let modulesDoc;
-  try {
-    modulesDoc = JSON.parse(found.fs.readFileSync(found.modulesPath, 'utf8'));
-  } catch (err) {
-    return {
-      tool: 'apss-topology',
-      available: false,
-      readings: [],
-      error: `failed to read ${found.modulesPath}: ${err.message}`,
-    };
+  let modules = [];
+  if (found.fs.existsSync(found.modulesPath)) {
+    try {
+      modules = parseModulesJson(JSON.parse(found.fs.readFileSync(found.modulesPath, 'utf8')));
+    } catch (err) {
+      return {
+        tool: 'apss-topology',
+        available: false,
+        readings: [],
+        error: `failed to read ${found.modulesPath}: ${err.message}`,
+      };
+    }
+  }
+  if (found.fs.existsSync(found.couplingPath)) {
+    try {
+      const coupling = parseCouplingJson(JSON.parse(found.fs.readFileSync(found.couplingPath, 'utf8')));
+      const bySource = new Map(modules.map((m) => [m.source, m]));
+      for (const c of coupling) {
+        bySource.set(c.source, { ...(bySource.get(c.source) ?? {}), ...c });
+      }
+      modules = [...bySource.values()];
+    } catch (err) {
+      return {
+        tool: 'apss-topology',
+        available: false,
+        readings: [],
+        error: `failed to read ${found.couplingPath}: ${err.message}`,
+      };
+    }
   }
   let functionsDoc = null;
   if (found.fs.existsSync(found.functionsPath)) {
@@ -219,9 +307,14 @@ export function analyzeFromTopology(root = '.', opts = {}) {
       functionsDoc = { _error: `failed to read ${found.functionsPath}: ${err.message}` };
     }
   }
-  const modules = parseModulesJson(modulesDoc);
   const functionsByModule =
     functionsDoc && !functionsDoc._error ? parseFunctionsJson(functionsDoc) : new Map();
+  if (modules.length === 0 && functionsByModule.size > 0) {
+    modules = [...functionsByModule.keys()].map((source) => ({
+      source,
+      ...extractMetrics({}, APSS_MODULE_METRICS),
+    }));
+  }
   const readings = joinModulesAndFunctions(modules, functionsByModule);
   const out = { tool: 'apss-topology', available: true, readings };
   if (functionsDoc?._error) {
