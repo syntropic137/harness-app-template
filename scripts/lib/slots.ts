@@ -56,7 +56,12 @@ export function loadHarnessManifest(
   readText: ReadText = (path) => readFileSync(path, 'utf8'),
 ): HarnessManifest {
   const manifestPath = join(cwd, 'harness.manifest.json');
-  return JSON.parse(readText(manifestPath)) as HarnessManifest;
+  try {
+    return JSON.parse(readText(manifestPath)) as HarnessManifest;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${manifestPath} is not valid JSON: ${message}`);
+  }
 }
 
 export function resolveSlotInvocation(

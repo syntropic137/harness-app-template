@@ -76,4 +76,13 @@ describe('slot manifest resolver', () => {
       }),
     ).toThrow('Slot sensors has contract inspector in harness.manifest.json');
   });
+
+  test('reports malformed manifest JSON with the manifest path', () => {
+    expect(() =>
+      resolveSlotInvocation('sensors', ['report'], {
+        cwd: '/repo',
+        readText: () => '{',
+      }),
+    ).toThrow('/repo/harness.manifest.json is not valid JSON:');
+  });
 });
