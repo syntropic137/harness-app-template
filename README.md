@@ -55,7 +55,7 @@ A specific assembly of plugin picks (one per slot) plus the workspace convention
 
 ### 3. Slot
 
-A named, labeled hole on the tool belt that defines a contract — what kind of plugin can fill it, what interface that plugin must expose. The eleven slots — `stack-manager`, `inspector`, `hooks`, `telemetry-sdk`, `observability-stack`, `sensors`, `agent-plugins`, `task-runner`, `secret-scanner`, `doc-validator`, `versioning` — are fixed shapes; plugins are swappable inside each shape. See the numbered [ADR index](./docs/adrs/) for the rationale behind each pick.
+A named, labeled hole on the tool belt that defines a contract: what kind of plugin can fill it, what interface that plugin must expose. The eleven slots, `stack-manager`, `inspector`, `hooks`, `telemetry-sdk`, `observability-stack`, `sensors`, `agent-plugins`, `task-runner`, `secret-scanner`, `doc-validator`, `versioning`, are fixed shapes; plugins are swappable inside each shape. See the numbered [ADR index](./docs/adrs/) for the rationale behind each pick and [`docs/slot-contracts.md`](./docs/slot-contracts.md) for the manifest-level interfaces.
 
 ### 4. Plugin
 
@@ -105,7 +105,7 @@ The pre-commit hooks and test runners are wired to run on this repo's own code. 
 
 ## What ships in this repo
 
-Eleven slots, eleven plugin picks. Standard pinned at **v0.2** (additive-only since v0.1; disclosed as draft in the lab's `docs/standard/v0.2.md`).
+Eleven slots, eleven plugin picks. Standard pinned at **v0.2** (additive-only since v0.1; disclosed as draft in the lab's `docs/standard/v0.2.md`). The active slot contracts are declared in [`harness.manifest.json`](./harness.manifest.json) and summarized in [`docs/slot-contracts.md`](./docs/slot-contracts.md).
 
 | Slot | Plugin | Decision doc |
 |---|---|---|
@@ -114,7 +114,7 @@ Eleven slots, eleven plugin picks. Standard pinned at **v0.2** (additive-only si
 | `hooks`               | lefthook                                                                            | [`docs/adrs/ADR-0003-hooks.md`](./docs/adrs/ADR-0003-hooks.md) |
 | `telemetry-sdk`       | `@opentelemetry/sdk-node` (TS) / `opentelemetry-otlp` (Rust) / `opentelemetry-sdk+distro` (Py) | [`docs/adrs/ADR-0004-telemetry-sdk.md`](./docs/adrs/ADR-0004-telemetry-sdk.md) |
 | `observability-stack` | OTEL Collector → VictoriaLogs / VictoriaMetrics / VictoriaTraces                   | [`docs/adrs/ADR-0005-observability-stack.md`](./docs/adrs/ADR-0005-observability-stack.md) |
-| `sensors` (opt-in)    | Stubbed `harness/sensors` slot; replace with Rust aggregator when needed             | [`docs/adrs/ADR-0006-sensors.md`](./docs/adrs/ADR-0006-sensors.md) |
+| `sensors` (opt-in)    | `harness/sensors` CLI with dep-cruiser, ts-morph, and APSS topology adapters         | [`docs/adrs/ADR-0006-sensors.md`](./docs/adrs/ADR-0006-sensors.md) |
 | `agent-plugins`       | `.claude/` canonical + vendor symlinks                                              | [`docs/adrs/ADR-0007-agent-plugins.md`](./docs/adrs/ADR-0007-agent-plugins.md) |
 | `task-runner`         | `just`                                                                              | [`docs/adrs/ADR-0008-task-runner.md`](./docs/adrs/ADR-0008-task-runner.md) |
 | `secret-scanner`      | Gitleaks                                                                            | [`docs/adrs/ADR-0009-secret-scanner.md`](./docs/adrs/ADR-0009-secret-scanner.md) |

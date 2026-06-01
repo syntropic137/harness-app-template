@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://syntropic137.dev/harness.schema.json",
+  "title": "Harness App Template Manifest",
+  "type": "object",
+  "required": ["name", "version", "standard", "slots"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "standard": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "slots": {
+      "type": "object",
+      "required": [
+        "stack-manager",
+        "inspector",
+        "hooks",
+        "telemetry-sdk",
+        "observability-stack",
+        "sensors",
+        "agent-plugins",
+        "task-runner",
+        "secret-scanner",
+        "doc-validator",
+        "versioning"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/slot"
+      },
+      "properties": {
+        "stack-manager": {
+          "$ref": "#/$defs/slot"
+        },
+        "inspector": {
+          "$ref": "#/$defs/slot"
+        },
+        "hooks": {
+          "$ref": "#/$defs/slot"
+        },
+        "telemetry-sdk": {
+          "$ref": "#/$defs/slot"
+        },
+        "observability-stack": {
+          "$ref": "#/$defs/slot"
+        },
+        "sensors": {
+          "$ref": "#/$defs/slot"
+        },
+        "agent-plugins": {
+          "$ref": "#/$defs/slot"
+        },
+        "task-runner": {
+          "$ref": "#/$defs/slot"
+        },
+        "secret-scanner": {
+          "$ref": "#/$defs/slot"
+        },
+        "doc-validator": {
+          "$ref": "#/$defs/slot"
+        },
+        "versioning": {
+          "$ref": "#/$defs/slot"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "slot": {
+      "type": "object",
+      "required": [
+        "contract",
+        "plugin",
+        "version",
+        "required",
+        "swappable",
+        "interface",
+        "decisionAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "swappable": {
+          "type": "boolean"
+        },
+        "interface": {
+          "$ref": "#/$defs/interface"
+        },
+        "implementation": {
+          "type": "string"
+        },
+        "decisionAt": {
+          "type": "string"
+        }
+      }
+    },
+    "interface": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["cli", "config", "compose", "library", "directory", "external"]
+        },
+        "entrypoint": {
+          "type": "string"
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "config": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
