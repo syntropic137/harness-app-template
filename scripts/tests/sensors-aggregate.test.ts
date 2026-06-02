@@ -6,6 +6,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   aggregate,
+  countCircularEdges,
   dedupeModules,
   distanceFromMainSequence,
   isWorkspaceName,
@@ -13,7 +14,7 @@ import {
   mergeAbstractness,
   renderMarkdown,
   scopeFolders,
-  // @ts-expect-error — plain ESM, no .d.ts ships with the slot.
+  // @ts-expect-error plain ESM, no .d.ts ships with the slot.
 } from '../../harness/sensors/aggregate.mjs';
 
 describe('sensors aggregate — pure functions', () => {
@@ -94,6 +95,43 @@ describe('sensors aggregate — pure functions', () => {
     expect(out[0]?.I).toBeNull();
     // Missing-counts folder defaults to zeros.
     expect(out[2]).toMatchObject({ moduleCount: 0, Ca: 0, Ce: 0, I: null });
+  });
+
+  test('countCircularEdges sums every dependency edge flagged circular by dependency-cruiser, scoped to workspace sources', () => {
+    // Two workspace modules in a cycle, one vendor module that should be ignored.
+    const cycle = countCircularEdges([
+      {
+        source: 'ws_apps/a/x.ts',
+        dependencies: [{ resolved: 'ws_apps/a/y.ts', circular: true }],
+      },
+      {
+        source: 'ws_apps/a/y.ts',
+        dependencies: [{ resolved: 'ws_apps/a/x.ts', circular: true }],
+      },
+      {
+        source: 'node_modules/foo/index.js',
+        dependencies: [{ resolved: 'node_modules/foo/util.js', circular: true }],
+      },
+    ]);
+    expect(cycle).toBe(2);
+  });
+
+  test('countCircularEdges returns 0 when there are no cycles or no modules', () => {
+    expect(countCircularEdges([])).toBe(0);
+    // biome-ignore lint/suspicious/noExplicitAny: testing non-array input
+    expect(countCircularEdges(null as any)).toBe(0);
+    expect(
+      countCircularEdges([
+        {
+          source: 'ws_apps/a/x.ts',
+          dependencies: [{ resolved: 'ws_apps/a/y.ts', circular: false }],
+        },
+      ]),
+    ).toBe(0);
+  });
+
+  test('countCircularEdges tolerates modules with missing dependencies array', () => {
+    expect(countCircularEdges([{ source: 'ws_apps/a/x.ts' }])).toBe(0);
   });
 });
 

@@ -35,6 +35,12 @@ interface Folder {
   apss_distance_max?: number | null;
 }
 
+interface Workspace {
+  folders: Folder[];
+  modules: Module[];
+  circular_edges?: number;
+}
+
 interface Module {
   source: string;
   Ca?: number;
@@ -55,11 +61,13 @@ interface Module {
 function reportFrom(opts: {
   folders?: Folder[];
   modules?: Module[];
-}): { workspace: { folders: Folder[]; modules: Module[] } } {
+  circular_edges?: number;
+}): { workspace: Workspace } {
   return {
     workspace: {
       folders: opts.folders ?? [],
       modules: opts.modules ?? [],
+      ...(opts.circular_edges !== undefined ? { circular_edges: opts.circular_edges } : {}),
     },
   };
 }
@@ -105,12 +113,12 @@ describe('APSS fitness gate (bead 2zz) — coverage discipline', () => {
     }
   });
 
-  test('exactly two dimensions are enforced (MT01, MD01); the other six are advisory', () => {
+  test('three dimensions are enforced (MT01, MD01, ST01); the other five are advisory', () => {
     const baseline = extractApssFitnessBaseline(reportFrom({}));
     const enforced = ALL_CODES.filter((c) => baseline.dimensions[c].enforcement === 'enforced');
     const advisory = ALL_CODES.filter((c) => baseline.dimensions[c].enforcement === 'advisory');
-    expect(enforced).toEqual(['MT01', 'MD01']);
-    expect(advisory).toEqual(['ST01', 'SC01', 'LG01', 'AC01', 'PF01', 'AV01']);
+    expect(enforced).toEqual(['MT01', 'MD01', 'ST01']);
+    expect(advisory).toEqual(['SC01', 'LG01', 'AC01', 'PF01', 'AV01']);
   });
 });
 
@@ -217,6 +225,51 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     expect(result.regressions.some((r) => r.dimension === 'MD01' && r.metric === 'instability-out-of-range-count')).toBe(true);
   });
 
+  test('ST01: a new circular dependency edge (workspace.circular_edges) trips ok=false', () => {
+    const baselineReport = reportFrom({
+      modules: [{ source: 'ws_apps/a/m.ts', max_cognitive: 1, max_cyclomatic: 1 }],
+      circular_edges: 0,
+    });
+    const baseline = extractApssFitnessBaseline(baselineReport);
+    const worse = reportFrom({
+      modules: [{ source: 'ws_apps/a/m.ts', max_cognitive: 1, max_cyclomatic: 1 }],
+      circular_edges: 2,
+    });
+    const result = compareFitnessBaseline(baseline, worse);
+    expect(result.ok).toBe(false);
+    const st = result.regressions.find((r) => r.dimension === 'ST01');
+    expect(st, 'ST01 regression must be reported').toBeTruthy();
+    expect(st?.metric).toBe('circular-dependency-edges');
+    expect(st?.baseline).toBe(0);
+    expect(st?.current).toBe(2);
+    expect(st?.enforcement).toBe('enforced');
+  });
+
+  test('ST01: same circular_edges count keeps ok=true', () => {
+    const baselineReport = reportFrom({ circular_edges: 0 });
+    const baseline = extractApssFitnessBaseline(baselineReport);
+    const same = reportFrom({ circular_edges: 0 });
+    expect(compareFitnessBaseline(baseline, same).ok).toBe(true);
+  });
+
+  test('ST01: a decrease in cycles is an improvement (does NOT fail)', () => {
+    const baselineReport = reportFrom({ circular_edges: 3 });
+    const baseline = extractApssFitnessBaseline(baselineReport);
+    const better = reportFrom({ circular_edges: 1 });
+    expect(compareFitnessBaseline(baseline, better).ok).toBe(true);
+  });
+
+  test('ST01: a missing circular_edges value is treated as no reading (no regression)', () => {
+    const baselineReport = reportFrom({ circular_edges: 0 });
+    const baseline = extractApssFitnessBaseline(baselineReport);
+    // current report omits circular_edges; ST01's value() returns null;
+    // missingBaselines counter increments but ok stays true.
+    const current = reportFrom({});
+    const result = compareFitnessBaseline(baseline, current);
+    expect(result.ok).toBe(true);
+    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'ST01')).toBe(true);
+  });
+
   test('compareBaseline aggregates legacy folder-level I/D regressions AND MT01/MD01 fitness regressions', () => {
     const baselineReport = reportFrom({
       folders: [{ name: 'ws_apps/a', I: 0.5, D: 0.2 }],
@@ -235,10 +288,10 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
 });
 
 describe('APSS fitness gate (bead 2zz) — advisory dimensions never trip ok=false', () => {
-  test('ST01/SC01/LG01/AC01/AV01 have no wired adapter and stay at evaluated=0', () => {
+  test('SC01/LG01/AC01/AV01 have no wired adapter and stay at evaluated=0', () => {
     const baseline = extractApssFitnessBaseline(reportFrom({}));
     const same = compareFitnessBaseline(baseline, reportFrom({}));
-    for (const code of ['ST01', 'SC01', 'LG01', 'AC01', 'AV01'] as const) {
+    for (const code of ['SC01', 'LG01', 'AC01', 'AV01'] as const) {
       const d = same.dimensions?.[code];
       expect(d, `dimension ${code}`).toBeTruthy();
       expect(d.enforcement).toBe('advisory');
@@ -270,17 +323,18 @@ describe('APSS fitness gate (bead 2zz) — advisory dimensions never trip ok=fal
     expect(pf?.metrics['startup-benchmark-mean']?.baseline).toBeCloseTo(0.4);
   });
 
-  test('compareBaseline render reports 2/2 enforced + N/6 advisory in its summary line', () => {
+  test('compareBaseline render reports 3/3 enforced + N/5 advisory in its summary line', () => {
     const baselineReport = reportFrom({
       modules: [{ source: 'ws_apps/a/m.ts', max_cognitive: 5, max_cyclomatic: 3 }],
+      circular_edges: 0,
     });
     const baseline = extractApssFitnessBaseline(baselineReport);
     const result = compareBaseline(baseline, baselineReport);
     const text = renderReport(result);
-    expect(text).toMatch(/2\/2 enforced/);
+    expect(text).toMatch(/3\/3 enforced/);
     expect(text).toMatch(/\[ENFORCED\] MT01/);
     expect(text).toMatch(/\[ENFORCED\] MD01/);
-    expect(text).toMatch(/\[advisory\] ST01/);
+    expect(text).toMatch(/\[ENFORCED\] ST01/);
     expect(text).toMatch(/\[advisory\] AV01/);
     expect(text).toMatch(/no adapter wired/);
   });

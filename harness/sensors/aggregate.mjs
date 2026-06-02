@@ -357,6 +357,32 @@ function summarizeComplexity(modules) {
   };
 }
 
+/**
+ * Count circular dependency edges in the raw cruiser module list, scoped
+ * to workspace sources only. dep-cruiser sets a `circular: true` flag on
+ * every dependency edge that is part of a detected cycle. We sum those
+ * flags across all in-scope modules; each cycle of length N is counted
+ * as N edges (one per participating module).  Source for the APSS ST01
+ * (Structural Integrity) adapter, bead create-harness-app-2zz.1.
+ */
+export function countCircularEdges(rawModules) {
+  if (!Array.isArray(rawModules)) {
+    return 0;
+  }
+  let count = 0;
+  for (const m of rawModules) {
+    if (!isWorkspaceName(m?.source)) {
+      continue;
+    }
+    for (const dep of m?.dependencies ?? []) {
+      if (dep && dep.circular === true) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
 /** Aggregate a cruiser JSON object into a workspace-scoped report. */
 export function aggregate(cruiser) {
   const rawModules = Array.isArray(cruiser?.modules) ? cruiser.modules : [];
@@ -376,6 +402,7 @@ export function aggregate(cruiser) {
       folders: workspaceFolders,
       modules: workspaceModules,
       distribution: summarize(workspaceModules),
+      circular_edges: countCircularEdges(rawModules),
     },
   };
 }

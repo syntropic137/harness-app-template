@@ -49,8 +49,8 @@ const DIMENSIONS = {
   },
   ST01: {
     name: 'Structural Integrity',
-    promotion_status: 'incubating',
-    enforcement: 'advisory',
+    promotion_status: 'active',
+    enforcement: 'enforced',
     default: 'default-enabled',
   },
   SC01: {
@@ -172,14 +172,18 @@ const FITNESS_METRICS = {
   ],
   ST01: [
     {
-      id: 'structural-violation-count',
-      name: 'Structural Violation Count',
-      objective: 'Count structural integrity violations once a class or layer analyzer is wired.',
-      source: 'incubating adapter slot',
+      id: 'circular-dependency-edges',
+      name: 'Circular Dependency Edges',
+      objective:
+        'Count of dependency edges flagged as circular by dependency-cruiser, scoped to workspace sources (ws_apps + ws_packages). Each cycle of length N contributes N edges. Source: workspace.circular_edges in the aggregate report (bead create-harness-app-2zz.1).',
+      source: 'aggregate workspace.circular_edges (dependency-cruiser circular flag)',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
-      value: () => null,
+      value: (report) => {
+        const v = report?.workspace?.circular_edges;
+        return typeof v === 'number' ? v : null;
+      },
     },
   ],
   SC01: [
