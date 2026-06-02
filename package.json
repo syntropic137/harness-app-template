@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.0.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp",
+      "turbo"
+    ]
+  },
   "scripts": {
     "build": "bun run scripts/build.ts",
     "docs:build": "pnpm --filter @harness/docs build",
