@@ -1,12 +1,13 @@
 ---
 name: "Agent Plugins"
-description: "Use .claude as canonical agent context with vendor symlinks"
+description: "Use AGENTS.md as the canonical agent-context file plus the .claude directory, with vendor symlinks pointing at AGENTS.md so every vendor agent reads the same body on a fresh clone"
 status: accepted
 ---
 
 # ADR-0007: Agent Plugins
 
 **Date:** 2026-05-14
+**Last updated:** 2026-06-02 (canonical body flipped from `CLAUDE.md` to `AGENTS.md` per the WS1 fork-readiness spec)
 **Category:** Slot
 **Next review:** 2026-08-14
 
@@ -16,30 +17,30 @@ The template needs one canonical source for agent context, skills, commands, hoo
 
 ## Decision
 
-Use `.claude/` and `CLAUDE.md` as canonical, then expose compatible vendor entrypoints through symlinks such as `AGENTS.md`, `GEMINI.md`, `.codex/`, and `.gemini/`.
+Use `AGENTS.md` as the canonical agent-context text file and `.claude/` as the canonical agent-plugins directory. Ship committed symlinks (`CLAUDE.md`, `GEMINI.md`, `.codex`, `.gemini`) pointing at `AGENTS.md` so every vendor agent reads the same body on a fresh clone with zero setup.
 
 ## Consequences
 
-The template avoids duplicating agent instructions across vendors. Vendor-specific rule formats that require frontmatter or directory schemas remain out of scope until they can be represented without drift.
+The template avoids duplicating agent instructions across vendors. Non-Claude vendors (Codex, Gemini) land with full context on `git clone`. `just bootstrap` verifies the vendor symlinks and repairs any that are missing or stale. Vendor-specific rule formats that require frontmatter or directory schemas remain out of scope until they can be represented without drift.
 
 ## Details
 
-Confirms Standard v0.1 §4.7. `.claude/` is canonical (primary user's vendor); other tools interop via symlinks.
+Confirms Standard v0.1 §4.7 with the v0.2 canonical-body flip. `AGENTS.md` is the AAIF-stewarded open spec that the broadest set of coding agents reads natively (Codex, OpenCode, Aider per roadmap, Amp, Devin, Copilot), so anchoring the canonical body there gives the widest reach without per-vendor maintenance. The `.claude/` directory stays canonical for the Claude-specific tree (skills, commands, hooks, settings).
 
 ## Canonical source
+- `AGENTS.md` (root agent-context body; canonical text file)
 - `.claude/` (dir: `skills/`, `commands/`, `agents/`, `hooks/`, `settings.json`)
-- `CLAUDE.md` (root agent context file)
 
-## Vendor symlinks shipped in v0.1 of polyglot-monorepo template
+## Vendor symlinks shipped in v0.4.x of polyglot-monorepo template
 
 | Symlink | Target | Vendor | Source |
 |---|---|---|---|
-| `AGENTS.md` | `CLAUDE.md` | Codex CLI — concatenated into context at session start; AAIF-stewarded open spec adopted by Codex/Cursor/Gemini CLI/Windsurf/Copilot | [OpenAI Codex docs](https://developers.openai.com/codex/guides/agents-md), [agents.md](https://agents.md/) |
-| `GEMINI.md` | `CLAUDE.md` | Gemini CLI — default project context filename, hierarchically loaded | [Gemini CLI docs](https://geminicli.com/docs/cli/gemini-md/) |
-| `.codex/` | `.claude/` | Codex home/project dir (`~/.codex` global; project-level walked from CWD up) | [OpenAI Codex docs](https://developers.openai.com/codex/guides/agents-md) |
-| `.gemini/` | `.claude/` | Gemini CLI project dir (stores `GEMINI.md`, `extensions/`, config) | [Gemini CLI docs](https://geminicli.com/docs/cli/gemini-md/) |
+| `CLAUDE.md` | `AGENTS.md` | Claude Code root agent-context file | [Anthropic Claude Code docs](https://docs.anthropic.com/claude/docs/claude-code) |
+| `GEMINI.md` | `AGENTS.md` | Gemini CLI default project context filename, hierarchically loaded | [Gemini CLI docs](https://geminicli.com/docs/cli/gemini-md/) |
+| `.codex` | `AGENTS.md` | Codex CLI conventional project root indicator; the symlink resolves to the same body so a Codex agent without an explicit project dir still sees the canonical text | [OpenAI Codex docs](https://developers.openai.com/codex/guides/agents-md) |
+| `.gemini` | `AGENTS.md` | Gemini CLI project-dir indicator; same resolution as `.codex` | [Gemini CLI docs](https://geminicli.com/docs/cli/gemini-md/) |
 
-`AGENTS.md` covers a long tail (OpenCode, Aider via roadmap, Amp, Devin, Copilot) without per-vendor symlinks — they all read the same root file.
+`AGENTS.md` is itself the AAIF-stewarded open spec. The vendor symlinks above guarantee that Claude, Gemini, Codex, OpenCode, Aider (per roadmap), Amp, Devin, and Copilot all read the same body without any per-vendor setup.
 
 ## Other vendors surveyed (not shipped in v0.1)
 

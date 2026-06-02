@@ -1,4 +1,7 @@
-import { describe, expect, test, vi } from 'vitest';
+import { lstatSync, mkdtempSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   type BootstrapDeps,
   detectEsbuildMismatches,
@@ -6,7 +9,72 @@ import {
   main,
   platformArchSlug,
   repairEsbuildMismatch,
+  VENDOR_SYMLINKS,
+  type VendorFs,
+  verifyAndRepairVendorLinks,
 } from '../bootstrap';
+
+type LstatLike = {
+  isSymbolicLink: () => boolean;
+  isFile: () => boolean;
+  isDirectory: () => boolean;
+};
+
+function fileStat(): LstatLike {
+  return {
+    isSymbolicLink: () => false,
+    isFile: () => true,
+    isDirectory: () => false,
+  };
+}
+
+function linkStat(): LstatLike {
+  return {
+    isSymbolicLink: () => true,
+    isFile: () => false,
+    isDirectory: () => false,
+  };
+}
+
+function dirStat(): LstatLike {
+  return {
+    isSymbolicLink: () => false,
+    isFile: () => false,
+    isDirectory: () => true,
+  };
+}
+
+function vendorFsFixture(
+  initial: Map<string, LstatLike | null>,
+  readlinkTargets: Map<string, string> = new Map(),
+): {
+  fs: VendorFs;
+  state: Map<string, LstatLike | null>;
+  symlinks: Map<string, string>;
+} {
+  const state = new Map(initial);
+  const symlinks = new Map(readlinkTargets);
+  const fs: VendorFs = {
+    lstat: (path: string) => state.get(path) ?? null,
+    readlink: (path: string) => {
+      const target = symlinks.get(path);
+      if (target === undefined) {
+        throw new Error(`unexpected readlink ${path}`);
+      }
+      return target;
+    },
+    unlink: (path: string) => {
+      state.delete(path);
+      symlinks.delete(path);
+    },
+    symlink: (target: string, path: string) => {
+      state.set(path, linkStat());
+      symlinks.set(path, target);
+    },
+    exists: (path: string) => state.has(path),
+  };
+  return { fs, state, symlinks };
+}
 
 type SpawnResultLike = { status: number; stdout?: string; stderr?: string };
 
@@ -39,6 +107,16 @@ function captureSinks() {
   };
 }
 
+function defaultVendorFsForTests(): VendorFs {
+  const initial = new Map<string, LstatLike | null>([['/proj/AGENTS.md', fileStat()]]);
+  const readlinks = new Map<string, string>();
+  for (const [name, target] of VENDOR_SYMLINKS) {
+    initial.set(`/proj/${name}`, linkStat());
+    readlinks.set(`/proj/${name}`, target);
+  }
+  return vendorFsFixture(initial, readlinks).fs;
+}
+
 function baseDeps(overrides: Partial<BootstrapDeps>): BootstrapDeps {
   const sinks = captureSinks();
   return {
@@ -53,6 +131,7 @@ function baseDeps(overrides: Partial<BootstrapDeps>): BootstrapDeps {
     readdir: overrides.readdir ?? (() => []),
     copyFile: overrides.copyFile ?? vi.fn(),
     chmod: overrides.chmod ?? vi.fn(),
+    vendorFs: overrides.vendorFs ?? defaultVendorFsForTests(),
   };
 }
 
@@ -202,6 +281,70 @@ describe('repairEsbuildMismatch', () => {
       mismatch.binPath,
     );
     expect(chmod).toHaveBeenCalledWith(mismatch.binPath, 0o755);
+  });
+});
+
+describe('verifyAndRepairVendorLinks', () => {
+  test('errors when AGENTS.md is missing', () => {
+    const { fs } = vendorFsFixture(new Map());
+    const report = verifyAndRepairVendorLinks('/proj', fs);
+    expect(report.errors).toEqual([
+      'AGENTS.md is missing or not a regular file; the canonical agent context must live there',
+    ]);
+    expect(report.repaired).toEqual([]);
+    expect(report.ok).toEqual([]);
+  });
+
+  test('errors when AGENTS.md is a directory (not a file)', () => {
+    const { fs } = vendorFsFixture(new Map([['/proj/AGENTS.md', dirStat()]]));
+    const report = verifyAndRepairVendorLinks('/proj', fs);
+    expect(report.errors[0]).toMatch(/AGENTS\.md is missing or not a regular file/);
+  });
+
+  test('creates symlinks that are absent', () => {
+    const { fs, symlinks } = vendorFsFixture(new Map([['/proj/AGENTS.md', fileStat()]]));
+    const report = verifyAndRepairVendorLinks('/proj', fs);
+    expect(report.repaired.length).toBe(VENDOR_SYMLINKS.length);
+    expect(report.errors).toEqual([]);
+    expect(symlinks.get('/proj/CLAUDE.md')).toBe('AGENTS.md');
+    expect(symlinks.get('/proj/.codex')).toBe('AGENTS.md');
+  });
+
+  test('reports ok when all symlinks already point at AGENTS.md', () => {
+    const initial = new Map<string, LstatLike | null>([['/proj/AGENTS.md', fileStat()]]);
+    const readlinks = new Map<string, string>();
+    for (const [name, target] of VENDOR_SYMLINKS) {
+      initial.set(`/proj/${name}`, linkStat());
+      readlinks.set(`/proj/${name}`, target);
+    }
+    const { fs } = vendorFsFixture(initial, readlinks);
+    const report = verifyAndRepairVendorLinks('/proj', fs);
+    expect(report.ok).toEqual(VENDOR_SYMLINKS.map(([name]) => name));
+    expect(report.repaired).toEqual([]);
+    expect(report.errors).toEqual([]);
+  });
+
+  test('repairs a symlink that points at the wrong target', () => {
+    const initial = new Map<string, LstatLike | null>([
+      ['/proj/AGENTS.md', fileStat()],
+      ['/proj/CLAUDE.md', linkStat()],
+    ]);
+    const readlinks = new Map<string, string>([['/proj/CLAUDE.md', '.claude/CLAUDE.md']]);
+    const { fs, symlinks } = vendorFsFixture(initial, readlinks);
+    const report = verifyAndRepairVendorLinks('/proj', fs);
+    expect(report.repaired.some((entry) => entry.includes('was .claude/CLAUDE.md'))).toBe(true);
+    expect(symlinks.get('/proj/CLAUDE.md')).toBe('AGENTS.md');
+  });
+
+  test('refuses to clobber a real file occupying a link slot', () => {
+    const initial = new Map<string, LstatLike | null>([
+      ['/proj/AGENTS.md', fileStat()],
+      ['/proj/CLAUDE.md', fileStat()],
+    ]);
+    const { fs, state } = vendorFsFixture(initial);
+    const report = verifyAndRepairVendorLinks('/proj', fs);
+    expect(report.errors[0]).toMatch(/CLAUDE\.md exists but is not a symlink/);
+    expect(state.get('/proj/CLAUDE.md')?.isFile()).toBe(true);
   });
 });
 
@@ -495,6 +638,75 @@ describe('main', () => {
     expect(sinks.exit).toHaveBeenCalledWith(1);
   });
 
+  test('exits 1 when vendor verify reports an error (AGENTS.md missing)', () => {
+    const sinks = captureSinks();
+    const spawn = vi.fn((_command: string, args: readonly string[] = []) => {
+      if (args[0] === '--version') return { status: 0 };
+      return { status: 0 };
+    });
+    const { fs } = vendorFsFixture(new Map());
+    expect(() =>
+      main(
+        baseDeps({
+          spawn: spawn as unknown as BootstrapDeps['spawn'],
+          stdout: sinks.stdout,
+          stderr: sinks.stderr,
+          exit: sinks.exit,
+          vendorFs: fs,
+        }),
+      ),
+    ).toThrow('__exit__');
+    expect(sinks.exit).toHaveBeenCalledWith(1);
+    expect(sinks.stderrError).toHaveBeenCalledWith(
+      expect.stringMatching(/AGENTS\.md is missing or not a regular file/),
+    );
+  });
+
+  test('creates missing vendor symlinks then continues', () => {
+    const sinks = captureSinks();
+    const spawn = vi.fn((_command: string, args: readonly string[] = []) => {
+      if (args[0] === '--version') return { status: 0 };
+      return { status: 0 };
+    });
+    const { fs, symlinks } = vendorFsFixture(new Map([['/proj/AGENTS.md', fileStat()]]));
+    main(
+      baseDeps({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks.stdout,
+        stderr: sinks.stderr,
+        exit: sinks.exit,
+        vendorFs: fs,
+      }),
+    );
+    expect(sinks.exit).not.toHaveBeenCalled();
+    expect(symlinks.get('/proj/CLAUDE.md')).toBe('AGENTS.md');
+    expect(symlinks.get('/proj/GEMINI.md')).toBe('AGENTS.md');
+    expect(symlinks.get('/proj/.codex')).toBe('AGENTS.md');
+    expect(symlinks.get('/proj/.gemini')).toBe('AGENTS.md');
+    expect(sinks.stdoutLog).toHaveBeenCalledWith(
+      expect.stringMatching(/vendor symlink CLAUDE\.md -> AGENTS\.md \(created\)/),
+    );
+    expect(sinks.stdoutLog).toHaveBeenCalledWith('bootstrap: complete');
+  });
+
+  test('logs vendor ok lines when nothing needs repair', () => {
+    const sinks = captureSinks();
+    const spawn = vi.fn((_command: string, args: readonly string[] = []) => {
+      if (args[0] === '--version') return { status: 0 };
+      return { status: 0 };
+    });
+    main(
+      baseDeps({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks.stdout,
+        stderr: sinks.stderr,
+        exit: sinks.exit,
+      }),
+    );
+    expect(sinks.exit).not.toHaveBeenCalled();
+    expect(sinks.stdoutLog).toHaveBeenCalledWith('bootstrap: vendor symlink CLAUDE.md ok');
+  });
+
   test('falls back to process defaults when cwd/platform/arch are omitted', () => {
     const sinks = captureSinks();
     const spawn = vi.fn((command: string, args: readonly string[] = []) => {
@@ -512,5 +724,79 @@ describe('main', () => {
     ).toThrow('__exit__');
     expect(sinks.exit).toHaveBeenCalledWith(1);
     expect(sinks.stderrError).toHaveBeenCalledWith('bootstrap: missing required tools: pnpm');
+  });
+
+  test('falls back to real vendorFs when omitted; exits with the canonical AGENTS.md error on a bare cwd', () => {
+    const sinks = captureSinks();
+    const spawn = vi.fn((_command: string, args: readonly string[] = []) => {
+      if (args[0] === '--version') return { status: 0 };
+      return { status: 0 };
+    });
+    expect(() =>
+      main({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks.stdout,
+        stderr: sinks.stderr,
+        exit: sinks.exit,
+        cwd: '/path/does/not/exist/for/bootstrap/test',
+      }),
+    ).toThrow('__exit__');
+    expect(sinks.exit).toHaveBeenCalledWith(1);
+    expect(sinks.stderrError).toHaveBeenCalledWith(
+      expect.stringMatching(/AGENTS\.md is missing or not a regular file/),
+    );
+  });
+
+  describe('real vendor-symlink filesystem exercise', () => {
+    let dir: string;
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'bootstrap-vendor-'));
+      writeFileSync(join(dir, 'AGENTS.md'), '# real canonical body\n');
+    });
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    test('creates, validates, and repairs vendor symlinks via the real default fs', () => {
+      const sinks = captureSinks();
+      const spawn = vi.fn((_command: string, args: readonly string[] = []) => {
+        if (args[0] === '--version') return { status: 0 };
+        // pnpm install / cargo / uv all succeed
+        return { status: 0 };
+      });
+
+      // First run: creates the four missing symlinks.
+      main({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks.stdout,
+        stderr: sinks.stderr,
+        exit: sinks.exit,
+        cwd: dir,
+        platform: 'linux',
+        arch: 'x64',
+      });
+      for (const [name, target] of VENDOR_SYMLINKS) {
+        const linkPath = join(dir, name);
+        expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
+        expect(readlinkSync(linkPath)).toBe(target);
+      }
+
+      // Stale-target case: replace one symlink with a bogus target and re-run.
+      const claudePath = join(dir, 'CLAUDE.md');
+      rmSync(claudePath);
+      symlinkSync('docs/legacy.md', claudePath);
+      const sinks2 = captureSinks();
+      main({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks2.stdout,
+        stderr: sinks2.stderr,
+        exit: sinks2.exit,
+        cwd: dir,
+        platform: 'linux',
+        arch: 'x64',
+      });
+      expect(readlinkSync(claudePath)).toBe('AGENTS.md');
+      expect(sinks2.exit).not.toHaveBeenCalled();
+    });
   });
 });

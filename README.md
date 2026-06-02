@@ -115,7 +115,7 @@ Eleven slots, eleven plugin picks. Standard pinned at **v0.2** (additive-only si
 | `telemetry-sdk`       | `@opentelemetry/sdk-node` (TS) / `opentelemetry-otlp` (Rust) / `opentelemetry-sdk+distro` (Py) | [`docs/adrs/ADR-0004-telemetry-sdk.md`](./docs/adrs/ADR-0004-telemetry-sdk.md) |
 | `observability-stack` | OTEL Collector → VictoriaLogs / VictoriaMetrics / VictoriaTraces                   | [`docs/adrs/ADR-0005-observability-stack.md`](./docs/adrs/ADR-0005-observability-stack.md) |
 | `sensors` (opt-in)    | `harness/sensors` CLI with dep-cruiser, ts-morph, and APSS topology adapters         | [`docs/adrs/ADR-0006-sensors.md`](./docs/adrs/ADR-0006-sensors.md) |
-| `agent-plugins`       | `.claude/` canonical + vendor symlinks                                              | [`docs/adrs/ADR-0007-agent-plugins.md`](./docs/adrs/ADR-0007-agent-plugins.md) |
+| `agent-plugins`       | `AGENTS.md` canonical body + `.claude/` directory; `CLAUDE.md`, `GEMINI.md`, `.codex`, `.gemini` are committed symlinks pointing at `AGENTS.md` | [`docs/adrs/ADR-0007-agent-plugins.md`](./docs/adrs/ADR-0007-agent-plugins.md) |
 | `task-runner`         | `just`                                                                              | [`docs/adrs/ADR-0008-task-runner.md`](./docs/adrs/ADR-0008-task-runner.md) |
 | `secret-scanner`      | Gitleaks                                                                            | [`docs/adrs/ADR-0009-secret-scanner.md`](./docs/adrs/ADR-0009-secret-scanner.md) |
 | `doc-validator`       | Stubbed `harness/doc-validator` slot; replace with Rust validator when needed        | [`docs/adrs/ADR-0010-doc-validator.md`](./docs/adrs/ADR-0010-doc-validator.md) |
@@ -131,7 +131,7 @@ Eleven slots, eleven plugin picks. Standard pinned at **v0.2** (additive-only si
 | [Telemetry SDK](./docs/adrs/ADR-0004-telemetry-sdk.md) | Use official OpenTelemetry SDKs per language |
 | [Observability Stack](./docs/adrs/ADR-0005-observability-stack.md) | Use OTEL Collector with VictoriaLogs, VictoriaMetrics, and VictoriaTraces |
 | [Sensors](./docs/adrs/ADR-0006-sensors.md) | Use an opt-in Rust aggregator with language adapters for architectural fitness signals |
-| [Agent Plugins](./docs/adrs/ADR-0007-agent-plugins.md) | Use .claude as canonical agent context with vendor symlinks |
+| [Agent Plugins](./docs/adrs/ADR-0007-agent-plugins.md) | Use `AGENTS.md` as the canonical agent-context body plus the `.claude/` directory, with vendor symlinks (`CLAUDE.md`, `GEMINI.md`, `.codex`, `.gemini`) pointing at `AGENTS.md` |
 | [Task Runner](./docs/adrs/ADR-0008-task-runner.md) | Use just as the human-facing polyglot task runner |
 | [Secret Scanner](./docs/adrs/ADR-0009-secret-scanner.md) | Use Gitleaks for secret scanning |
 | [Doc Validator](./docs/adrs/ADR-0010-doc-validator.md) | Use a custom Rust crate for internal Markdown cross-reference validation |
@@ -191,7 +191,7 @@ For the field landscape: [`ai-boost/awesome-harness-engineering`](https://github
 
 - **Not a multi-agent framework.** No Planner / Generator / Evaluator split; a single agent operates against the environment.
 - **Not an MCP server marketplace.** Skills, not MCP, are the primary plugin shape — context cost dominates.
-- **Not opinionated about which agent model you run.** `.claude/` is canonical; `AGENTS.md`, `GEMINI.md`, `.codex/`, `.gemini/` are symlinks pointing at it.
+- **Not opinionated about which agent model you run.** `AGENTS.md` is the canonical text-file context and `.claude/` is the canonical agent-plugins directory; `CLAUDE.md`, `GEMINI.md`, `.codex`, and `.gemini` are committed symlinks pointing at `AGENTS.md`, so every vendor agent reads the same body on a fresh clone. `just bootstrap` verifies and repairs those symlinks.
 - **Not a CLI scaffolder.** The repo IS the artifact; you fork or click "Use this template." A wrapping CLI is planned as a separate future repo.
 
 ## Things this is NOT trying to be
@@ -208,7 +208,7 @@ For the field landscape: [`ai-boost/awesome-harness-engineering`](https://github
 - Not a multi-agent orchestrator (see "Where this template differs").
 - Not a monolith — slots can be removed, plugins can be swapped.
 
-Tactical agent guidance (`No Chrome container`, no `|~` regex pipe in LogsQL, etc.) lives in [`CLAUDE.md`](./CLAUDE.md), not here.
+Tactical agent guidance (`No Chrome container`, no `|~` regex pipe in LogsQL, etc.) lives in [`AGENTS.md`](./AGENTS.md), not here.
 
 ## Status, versioning, license
 

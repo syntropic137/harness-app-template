@@ -1,8 +1,41 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, readdirSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readlinkSync,
+  type Stats,
+  symlinkSync,
+  unlinkSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 export type ChmodFn = (path: string, mode: number) => void;
+
+export interface VendorFs {
+  lstat: (path: string) => Pick<Stats, 'isSymbolicLink' | 'isFile' | 'isDirectory'> | null;
+  readlink: (path: string) => string;
+  unlink: (path: string) => void;
+  symlink: (target: string, path: string) => void;
+  exists: (path: string) => boolean;
+}
+
+export interface VendorReport {
+  ok: string[];
+  repaired: string[];
+  errors: string[];
+}
+
+export const VENDOR_SYMLINKS: ReadonlyArray<readonly [string, string]> = [
+  ['CLAUDE.md', 'AGENTS.md'],
+  ['GEMINI.md', 'AGENTS.md'],
+  ['.codex', 'AGENTS.md'],
+  ['.gemini', 'AGENTS.md'],
+];
+
+const CANONICAL_AGENT_FILE = 'AGENTS.md';
 
 const REQUIRED_TOOLS = ['bun', 'pnpm', 'cargo', 'uv'] as const;
 
@@ -25,6 +58,23 @@ export interface BootstrapDeps {
   readdir?: (path: string) => string[];
   copyFile?: (src: string, dst: string) => void;
   chmod?: ChmodFn;
+  vendorFs?: VendorFs;
+}
+
+function defaultVendorFs(): VendorFs {
+  return {
+    lstat: (path) => {
+      try {
+        return lstatSync(path);
+      } catch {
+        return null;
+      }
+    },
+    readlink: readlinkSync,
+    unlink: unlinkSync,
+    symlink: (target, path) => symlinkSync(target, path),
+    exists: existsSync,
+  };
 }
 
 export interface EsbuildMismatch {
@@ -134,6 +184,42 @@ function runInherit(spawn: typeof spawnSync, command: string, args: string[], cw
   return result.status ?? 1;
 }
 
+export function verifyAndRepairVendorLinks(cwd: string, fs: VendorFs): VendorReport {
+  const report: VendorReport = { ok: [], repaired: [], errors: [] };
+  const canonicalPath = join(cwd, CANONICAL_AGENT_FILE);
+  const canonicalStat = fs.lstat(canonicalPath);
+  if (!canonicalStat || !canonicalStat.isFile()) {
+    report.errors.push(
+      `${CANONICAL_AGENT_FILE} is missing or not a regular file; the canonical agent context must live there`,
+    );
+    return report;
+  }
+  for (const [name, target] of VENDOR_SYMLINKS) {
+    const linkPath = join(cwd, name);
+    const stat = fs.lstat(linkPath);
+    if (stat === null) {
+      fs.symlink(target, linkPath);
+      report.repaired.push(`${name} -> ${target} (created)`);
+      continue;
+    }
+    if (!stat.isSymbolicLink()) {
+      report.errors.push(
+        `${name} exists but is not a symlink; refusing to clobber. Remove it manually if you intended to track the canonical layout`,
+      );
+      continue;
+    }
+    const actualTarget = fs.readlink(linkPath);
+    if (actualTarget === target) {
+      report.ok.push(name);
+      continue;
+    }
+    fs.unlink(linkPath);
+    fs.symlink(target, linkPath);
+    report.repaired.push(`${name} -> ${target} (was ${actualTarget})`);
+  }
+  return report;
+}
+
 export function main(deps: BootstrapDeps): void {
   const cwd = deps.cwd ?? process.cwd();
   const platform = deps.platform ?? process.platform;
@@ -142,6 +228,7 @@ export function main(deps: BootstrapDeps): void {
   const readdir = deps.readdir ?? readdirSync;
   const copyFile = deps.copyFile ?? copyFileSync;
   const chmod = deps.chmod ?? chmodSync;
+  const vendorFs = deps.vendorFs ?? defaultVendorFs();
 
   const missing = detectMissingTools(deps.spawn);
   if (missing.length > 0) {
@@ -152,6 +239,21 @@ export function main(deps: BootstrapDeps): void {
         deps.stderr.error(`bootstrap:   ${tool}: ${hint}`);
       }
     }
+    deps.exit(1);
+    return;
+  }
+
+  const vendorReport = verifyAndRepairVendorLinks(cwd, vendorFs);
+  for (const name of vendorReport.ok) {
+    deps.stdout.log(`bootstrap: vendor symlink ${name} ok`);
+  }
+  for (const entry of vendorReport.repaired) {
+    deps.stdout.log(`bootstrap: vendor symlink ${entry}`);
+  }
+  for (const error of vendorReport.errors) {
+    deps.stderr.error(`bootstrap: ${error}`);
+  }
+  if (vendorReport.errors.length > 0) {
     deps.exit(1);
     return;
   }
