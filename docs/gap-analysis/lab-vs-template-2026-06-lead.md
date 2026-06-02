@@ -203,13 +203,22 @@ For completeness, the other 7 slots:
 
 ## Recommended next actions
 
-1. File the four-to-six port beads enumerated below as children of a new tracking issue (or attach to the closed n48 epic via cross-link).
-2. Send Agent Mail to peer reviewers (BlackKite or whichever sibling agent is wired) requesting one independent pass on this doc; gate the bead grooming on at least one external sign-off.
-3. Promote `telemetry-sdk` port and `agent-plugins/orchestrating-a-vps-agent-swarm` port to P1 ahead of the other items, since both unblock operator workflows the rest of the template already advertises.
+This round is analysis only. No implementation work begins until the orchestrator synthesizes all five gap reports and the human operator chooses what to wire. The list below is a SUGGESTED ordering for the orchestrator and decision-maker to weigh, not an action plan.
+
+1. Treat `create-harness-app-port-telemetry-shared-lib-zot` and `create-harness-app-port-vps-swarm-skill-ff1` (both P1) as the highest leverage if the operator wants to close the largest behavior gap with the lab.
+2. Agent-mail wiring (`agent-mail-wiring-example-fzr`) and the vendor-mirror sync recipe (`vendor-mirror-link-recipe-w66`) are coordination plumbing the template already advertises in `CLAUDE.md`; consider grouping with the P1 swarm-skill bead.
+3. Task-runner items (`port-stack-lifecycle-recipes-tds`, `port-qa-recipe-family-my3`, `per-language-coverage-recipes-efv`) are independent and can be sequenced last.
+4. P3 / P4 polish items (`gitleaksignore-example-0ry`, `inspector-real-impl-4o0`, `port-template-hygiene-hook-rh2`, `consolidate-observability-roots-w0b`, `coord-backport-ubs-diff-to-lab-g0y`) can ride as opportunistic grooming.
+
+## Status
+
+LEAD analysis complete. Waiting on the orchestrator. Will not start any bead until the human operator decides scope.
 
 ## Beads filed against this analysis
 
-Six beads filed on 2026-06-02, cross-linked to this doc:
+Twelve beads filed on 2026-06-02, cross-linked to this doc.
+
+### From the four-slot deep dives
 
 | ID | Priority | Slot | Title |
 |---|---|---|---|
@@ -220,5 +229,35 @@ Six beads filed on 2026-06-02, cross-linked to this doc:
 | `create-harness-app-port-stack-lifecycle-recipes-tds` | P2 | task-runner | Add `just stop/destroy/inspect/ports` pass-through recipes from lab |
 | `create-harness-app-port-qa-recipe-family-my3` | P3 | task-runner | Add `test-coverage` / `lint-fix` / `typecheck` / `qa` umbrella recipes |
 | `create-harness-app-per-language-coverage-recipes-efv` | P3 | task-runner | Port `cov-rust` / `cov-py` / `cov-doc-validator` / `cov-versioning` / `cov-sensors` recipes |
+| `create-harness-app-gitleaksignore-example-0ry` | P4 | secret-scanner | Ship `.gitleaksignore.example` so allowlist convention is discoverable |
+| `create-harness-app-coord-backport-ubs-diff-to-lab-g0y` | P4 | agent-plugins (lab-side coord) | Coordinate with lab: backport template's `ubs-diff` PostToolUse hook |
 
-No bead filed for `secret-scanner` (parity confirmed). No bead filed for `unreal-engine-5.7-api` skill (deliberately not ported; domain-niche).
+### From the overall slot map (MINOR / MAJOR rows not yet tracked)
+
+| ID | Priority | Slot | Title |
+|---|---|---|---|
+| `create-harness-app-inspector-real-impl-4o0` | P3 | inspector | Inspector slot: replace stub with a real evidence-capture implementation |
+| `create-harness-app-port-template-hygiene-hook-rh2` | P3 | hooks | Port `template-hygiene-gate` hook from lab `harness/hooks/` |
+| `create-harness-app-consolidate-observability-roots-w0b` | P3 | observability-stack | Consolidate observability-stack config: `infra/` vs `harness/observability/` |
+
+### Coverage audit (every gap I called maps to a bead)
+
+| Gap surfaced in this doc | Severity | Bead ID | Notes |
+|---|---|---|---|
+| telemetry-sdk: missing shared `@harness/telemetry` package, metrics, logs | MAJOR | `port-telemetry-shared-lib-zot` | Single bead covers shared lib + metrics + logs |
+| telemetry-sdk: missing web and C++ inline examples | MINOR | (folded into above) | Scope decision lives in the same bead |
+| agent-plugins: missing `orchestrating-a-vps-agent-swarm` skill | MAJOR | `port-vps-swarm-skill-ff1` | |
+| agent-plugins: missing `unreal-engine-5.7-api` skill | N/A | (deliberate non-port) | Domain-niche; do not port |
+| agent-plugins: missing agent-mail MCP wiring | MAJOR | `agent-mail-wiring-example-fzr` | |
+| agent-plugins: missing `just agents link` recipe | MAJOR | `vendor-mirror-link-recipe-w66` | |
+| agent-plugins: ubs-diff hook absent in lab | (lab-side) | `coord-backport-ubs-diff-to-lab-g0y` | Cannot be implemented here |
+| task-runner: missing `stop/destroy/inspect/ports` recipes | MINOR | `port-stack-lifecycle-recipes-tds` | |
+| task-runner: missing `test-coverage`/`lint-fix`/`typecheck`/`qa` | MINOR | `port-qa-recipe-family-my3` | |
+| task-runner: missing per-language coverage recipes | MINOR | `per-language-coverage-recipes-efv` | |
+| task-runner: missing `doctor-explain` and `doctor-json` variants | MINOR | (folded into stack-lifecycle bead) | Same scripts/doctor.ts surface |
+| task-runner: Unreal install + sentrux recipes | N/A | (deliberate non-port) | Environment-specific |
+| secret-scanner: no committed `.gitleaks.toml` / `.gitleaksignore` | NONE | `gitleaksignore-example-0ry` | Polish, not a port; both repos absent |
+| inspector slot stub | MAJOR | `inspector-real-impl-4o0` | |
+| hooks: missing `template-hygiene-gate` | MINOR | `port-template-hygiene-hook-rh2` | |
+| observability-stack: split between `infra/` and `harness/observability/` | MINOR | `consolidate-observability-roots-w0b` | |
+| stack-manager / sensors / doc-validator / versioning | NONE | (prior n48 work) | Already at parity |
