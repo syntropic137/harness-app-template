@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# harness/sensors/bin/sensors — TypeScript adapter pair + baseline gate.
+# harness/sensors/bin/sensors - TypeScript adapter pair + baseline gate.
 #
 # Wraps `npx dependency-cruiser` with the workspace-scoped config at the
 # repo root, runs the ts-morph Abstractness adapter, and pipes through
@@ -14,7 +14,7 @@ DEPCRUISER_VERSION="17.4.0"
 
 usage() {
   cat <<'EOF'
-harness sensors — workspace architecture-quality metrics
+harness sensors - workspace architecture-quality metrics
 
 Subcommands:
   report [--format json|md]   Run dependency-cruiser against ws_apps & ws_packages
@@ -44,7 +44,7 @@ build_report() {
   local out_format="$1"
   local out_path="$2"
   if ! command -v npx >/dev/null 2>&1; then
-    echo "error: npx not found — install Node.js to run the TS adapter" >&2
+    echo "error: npx not found - install Node.js to run the TS adapter" >&2
     return 2
   fi
   cd "$REPO_ROOT"
@@ -56,7 +56,7 @@ build_report() {
     'ws_apps/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
     'ws_packages/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
     > "$cruiser_tmp"
-  # ts-morph adapters — both take raw cruiser JSON, extract workspace
+  # ts-morph adapters - both take raw cruiser JSON, extract workspace
   # .ts/.tsx sources, and emit per-source readings. Abstractness counts
   # abstract vs concrete declarations; complexity walks function-shaped
   # AST nodes for per-function cyclomatic + cognitive metrics (bead
@@ -64,7 +64,7 @@ build_report() {
   node "$HERE/abstractness.mjs" < "$cruiser_tmp" > "$abs_tmp"
   node "$HERE/complexity.mjs" < "$cruiser_tmp" > "$cplx_tmp"
   # APSS topology adapter (bead n48.3 / ADR-0017): reads .topology/metrics/
-  # if present. No-op when the APSS `aps` binary hasn't been run — emits
+  # if present. No-op when the APSS `aps` binary has not been run - emits
   # `{available: false, readings: []}` which aggregate.mjs treats as absent.
   apss_tmp="$(mktemp -t harness-sensors-apss-XXXXXX.json)"
   node "$HERE/apss_topology.mjs" --root="$REPO_ROOT" > "$apss_tmp"
@@ -153,7 +153,7 @@ case "${1:-}" in
       sec_tmp="$(mktemp -t harness-sensors-security-XXXXXX.json)"
       ubs --quiet --report-json="$sec_tmp" \
         --files="scripts/lib/git.ts,scripts/lib/fs.ts,scripts/lib/slots.ts,harness/sensors/aggregate.mjs,harness/sensors/gate.mjs,harness/sensors/abstractness.mjs,harness/sensors/complexity.mjs,harness/sensors/apss_topology.mjs,harness/sensors/license_scan.mjs,harness/perf/gate.mjs,harness/perf/bench.sh,harness/sensors/bin/sensors" \
-        2>/dev/null || true
+        >/dev/null 2>/dev/null || true
       if [ -s "$sec_tmp" ]; then
         gate_args+=("--security=$sec_tmp")
       fi

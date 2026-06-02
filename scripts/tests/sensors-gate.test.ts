@@ -1,4 +1,4 @@
-// Unit tests for harness/sensors/gate.mjs — the baseline-snapshot fitness
+// Unit tests for harness/sensors/gate.mjs - the baseline-snapshot fitness
 // gate (bead create-harness-app-n48.4).  Covers pure functions and the CLI
 // main() via in-process IO stubs (no child_process spawns, no disk writes
 // outside the captured-IO mocks).
@@ -8,12 +8,12 @@ import {
   extractBaselineMetrics,
   main,
   renderReport,
-  // @ts-expect-error — plain ESM, no .d.ts ships with the slot.
+  // @ts-expect-error - plain ESM, no .d.ts ships with the slot.
 } from '../../harness/sensors/gate.mjs';
 
-function reportWith(
-  folders: Array<{ name: string; I?: number | null; D?: number | null }>,
-): { workspace: { folders: Array<{ name: string; I: number | null; D: number | null }> } } {
+function reportWith(folders: Array<{ name: string; I?: number | null; D?: number | null }>): {
+  workspace: { folders: Array<{ name: string; I: number | null; D: number | null }> };
+} {
   return {
     workspace: {
       folders: folders.map((f) => ({
@@ -25,7 +25,7 @@ function reportWith(
   };
 }
 
-describe('sensors gate — pure functions', () => {
+describe('sensors gate - pure functions', () => {
   test('extractBaselineMetrics keeps only per-folder I/D and tolerates missing/non-numeric values', () => {
     const out = extractBaselineMetrics(
       reportWith([
@@ -130,9 +130,11 @@ describe('sensors gate — pure functions', () => {
       regressions: [],
       summary: { comparedFolders: 3, newFolders: ['ws_apps/new'], removedFolders: ['ws_apps/old'] },
     });
-    expect(pass).toContain('PASS');
+    expect(pass.startsWith('VERDICT: PASS sensors gate\n')).toBe(true);
     expect(pass).toContain('compared 3 folder(s); 1 new, 1 removed');
     expect(pass).toContain('new (no baseline floor yet): ws_apps/new');
+    expect(pass).toContain('new-module flow:');
+    expect(pass).toContain('just sensors gate --update-baseline');
     expect(pass).toContain('removed (refactored or filtered): ws_apps/old');
     expect(pass).not.toContain('regressions:');
 
@@ -141,22 +143,24 @@ describe('sensors gate — pure functions', () => {
       regressions: [{ folder: 'ws_apps/a', metric: 'D', baseline: 0.2, current: 0.5, delta: 0.3 }],
       summary: { comparedFolders: 1, newFolders: [], removedFolders: [] },
     });
-    expect(fail).toContain('FAIL');
-    expect(fail).toContain('ws_apps/a  D: 0.200 → 0.500');
+    expect(fail.startsWith('VERDICT: FAIL sensors gate\n')).toBe(true);
+    expect(fail).toContain('ws_apps/a  D: 0.200 -> 0.500');
     expect(fail).toContain('--update-baseline');
   });
 
   test('renderReport formats null baseline/current as em-dashes', () => {
     const text = renderReport({
       ok: false,
-      regressions: [{ folder: 'ws_apps/a', metric: 'I', baseline: null, current: null, delta: null }],
+      regressions: [
+        { folder: 'ws_apps/a', metric: 'I', baseline: null, current: null, delta: null },
+      ],
       summary: { comparedFolders: 1, newFolders: [], removedFolders: [] },
     });
-    expect(text).toContain('— → —');
+    expect(text).toContain('n/a -> n/a');
   });
 });
 
-describe('sensors gate — CLI main', () => {
+describe('sensors gate - CLI main', () => {
   // Helper: build an in-memory io stub that captures stdout/stderr writes
   // and exposes a fake filesystem for the baseline file.
   function makeIo(opts: {
@@ -228,7 +232,7 @@ describe('sensors gate — CLI main', () => {
     });
     const code = await main([], io);
     expect(code).toBe(0);
-    expect(stdout.join('')).toContain('PASS');
+    expect(stdout.join('')).toContain('VERDICT: PASS sensors gate');
   });
 
   test('subsequent run with a regression exits 1 (FAIL) and prints the diff', async () => {
@@ -241,8 +245,8 @@ describe('sensors gate — CLI main', () => {
     const code = await main([], io);
     expect(code).toBe(1);
     const out = stdout.join('');
-    expect(out).toContain('FAIL');
-    expect(out).toContain('ws_apps/a  I: 0.200 → 0.800');
+    expect(out).toContain('VERDICT: FAIL sensors gate');
+    expect(out).toContain('ws_apps/a  I: 0.200 -> 0.800');
   });
 
   test('--update-baseline writes the current report as the new baseline and exits 0', async () => {

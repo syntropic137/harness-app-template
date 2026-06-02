@@ -1,16 +1,16 @@
-// gate.mjs — baseline-snapshot fitness gate for the sensors slot.
+// gate.mjs - baseline-snapshot fitness gate for the sensors slot.
 //
 // Reads a workspace report (the output of aggregate.mjs) and compares each
 // folder's Martin metrics against a persisted baseline. Fails on any
 // worsening of `I` (instability) or `D` (distance from the main sequence).
 //
 // Closes bead create-harness-app-n48.4 (P0).  Implements ADR-0017's
-// Decision (2) consequence — the gate consumes whatever the aggregator
+// Decision (2) consequence - the gate consumes whatever the aggregator
 // emits (Node aggregator today, APSS topology later) without depending on
 // APSS being ported first.
 //
 // Discipline (operator framing, governance-every-run):
-//   - First run: no baseline exists → write current report as the baseline
+//   - First run: no baseline exists -> write current report as the baseline
 //     and exit 0 with a "baseline created" message. The baseline becomes a
 //     committed floor.
 //   - Subsequent runs: compare each folder. A regression is any folder
@@ -24,10 +24,9 @@
 // Preservation-first: aggregate.mjs and abstractness.mjs are untouched.
 // The gate consumes their JSON output without altering it.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync, realpathSync } from 'node:fs';
 
 const EPSILON = 1e-6;
 const FITNESS_SCHEMA_VERSION = '1.0.0';
@@ -96,11 +95,12 @@ const FITNESS_METRICS = {
       direction: 'max',
       default_threshold: 15,
       fail_on_regression: true,
-      value: (report) => maxNumber([
-        ...apssFunctionValues(report, 'cognitive'),
-        ...moduleValues(report, (m) => m.max_cognitive),
-        ...folderValues(report, (f) => f.max_cognitive ?? f.apss_max_cognitive),
-      ]),
+      value: (report) =>
+        maxNumber([
+          ...apssFunctionValues(report, 'cognitive'),
+          ...moduleValues(report, (m) => m.max_cognitive),
+          ...folderValues(report, (f) => f.max_cognitive ?? f.apss_max_cognitive),
+        ]),
     },
     {
       id: 'max-cyclomatic',
@@ -111,11 +111,12 @@ const FITNESS_METRICS = {
       direction: 'max',
       default_threshold: 10,
       fail_on_regression: true,
-      value: (report) => maxNumber([
-        ...apssFunctionValues(report, 'cyclomatic'),
-        ...moduleValues(report, (m) => m.max_cyclomatic),
-        ...folderValues(report, (f) => f.max_cyclomatic ?? f.apss_max_cyclomatic),
-      ]),
+      value: (report) =>
+        maxNumber([
+          ...apssFunctionValues(report, 'cyclomatic'),
+          ...moduleValues(report, (m) => m.max_cyclomatic),
+          ...folderValues(report, (f) => f.max_cyclomatic ?? f.apss_max_cyclomatic),
+        ]),
     },
     {
       id: 'max-halstead-volume',
@@ -138,10 +139,11 @@ const FITNESS_METRICS = {
       direction: 'max',
       default_threshold: 20,
       fail_on_regression: true,
-      value: (report) => maxNumber([
-        ...moduleValues(report, (m) => m.apss?.efferent_coupling ?? m.apss?.ce ?? m.Ce),
-        ...folderValues(report, (f) => f.apss_efferent_coupling_max),
-      ]),
+      value: (report) =>
+        maxNumber([
+          ...moduleValues(report, (m) => m.apss?.efferent_coupling ?? m.apss?.ce ?? m.Ce),
+          ...folderValues(report, (f) => f.apss_efferent_coupling_max),
+        ]),
     },
     {
       id: 'max-main-sequence-distance',
@@ -151,10 +153,11 @@ const FITNESS_METRICS = {
       direction: 'max',
       default_threshold: 0.7,
       fail_on_regression: true,
-      value: (report) => maxNumber([
-        ...moduleValues(report, (m) => m.apss?.distance_from_main_sequence ?? m.D),
-        ...folderValues(report, (f) => f.apss_distance_max ?? f.D),
-      ]),
+      value: (report) =>
+        maxNumber([
+          ...moduleValues(report, (m) => m.apss?.distance_from_main_sequence ?? m.D),
+          ...folderValues(report, (f) => f.apss_distance_max ?? f.D),
+        ]),
     },
     {
       id: 'instability-out-of-range-count',
@@ -217,7 +220,7 @@ const FITNESS_METRICS = {
       id: 'accessibility-violation-count',
       name: 'Accessibility Violation Count',
       objective:
-        'Advisory-by-design: a static template repository ships no rendered frontend to scan with axe-core or pa11y. AC01 stays advisory + opt-in; a consumer fork that ships an actual web frontend writes its own adapter (axe-core / pa11y over the rendered output, scoped to the fork\'s ws_apps/<frontend> path). Bead create-harness-app-2zz.4 closed with reason advisory-by-design.',
+        "Advisory-by-design: a static template repository ships no rendered frontend to scan with axe-core or pa11y. AC01 stays advisory + opt-in; a consumer fork that ships an actual web frontend writes its own adapter (axe-core / pa11y over the rendered output, scoped to the fork's ws_apps/<frontend> path). Bead create-harness-app-2zz.4 closed with reason advisory-by-design.",
       source: 'advisory-by-design (no rendered frontend in a static template)',
       direction: 'max',
       default_threshold: 0,
@@ -314,10 +317,7 @@ function ubsCriticalCount(options) {
   if (scanners.length === 0) {
     return null;
   }
-  return scanners.reduce(
-    (acc, s) => acc + (typeof s?.critical === 'number' ? s.critical : 0),
-    0,
-  );
+  return scanners.reduce((acc, s) => acc + (typeof s?.critical === 'number' ? s.critical : 0), 0);
 }
 
 /**
@@ -386,7 +386,7 @@ function worsened(direction, current, baseline) {
 
 /**
  * Extract a stable baseline shape from an aggregator report.  Per-folder
- * `I` and `D` only — modules are too granular (renames invalidate the
+ * `I` and `D` only - modules are too granular (renames invalidate the
  * baseline immediately) and `Ca`/`Ce` count are directionally ambiguous
  * (growth raises them legitimately).
  */
@@ -443,7 +443,7 @@ export function extractApssFitnessBaseline(report, options = {}) {
  * (numerically greater) in the current report, beyond `EPSILON`.
  *
  * New folders in the current report (absent from baseline) are NOT
- * regressions — they're new code that hasn't been measured against a
+ * regressions - they are new code that has not been measured against a
  * floor yet.  Removed folders (present in baseline, absent in current)
  * are also not regressions; they were refactored away or filtered out.
  */
@@ -460,11 +460,7 @@ function compareLegacyBaseline(baseline, currentReport) {
       continue;
     }
     comparedFolders += 1;
-    if (
-      typeof base.I === 'number' &&
-      typeof cur.I === 'number' &&
-      cur.I > base.I + EPSILON
-    ) {
+    if (typeof base.I === 'number' && typeof cur.I === 'number' && cur.I > base.I + EPSILON) {
       regressions.push({
         folder: name,
         metric: 'I',
@@ -473,11 +469,7 @@ function compareLegacyBaseline(baseline, currentReport) {
         delta: cur.I - base.I,
       });
     }
-    if (
-      typeof base.D === 'number' &&
-      typeof cur.D === 'number' &&
-      cur.D > base.D + EPSILON
-    ) {
+    if (typeof base.D === 'number' && typeof cur.D === 'number' && cur.D > base.D + EPSILON) {
       regressions.push({
         folder: name,
         metric: 'D',
@@ -536,7 +528,12 @@ export function compareFitnessBaseline(baseline, currentReport, options = {}) {
         evaluated += 1;
       } else {
         missing += 1;
-        missingBaselines.push({ dimension: code, metric: metricId, baseline: baselineValue, current: currentValue });
+        missingBaselines.push({
+          dimension: code,
+          metric: metricId,
+          baseline: baselineValue,
+          current: currentValue,
+        });
       }
 
       const summary = {
@@ -624,16 +621,16 @@ export function compareBaseline(baseline, currentReport, options = {}) {
 }
 
 function fmt(n) {
-  return n === null || n === undefined ? '—' : n.toFixed(3);
+  return n === null || n === undefined ? 'n/a' : n.toFixed(3);
 }
 
 /** Render a human-readable diff. */
 export function renderReport(comparison) {
   const lines = [];
   if (comparison.ok) {
-    lines.push('sensors gate: PASS');
+    lines.push('VERDICT: PASS sensors gate');
   } else {
-    lines.push('sensors gate: FAIL');
+    lines.push('VERDICT: FAIL sensors gate');
   }
   const { comparedFolders, newFolders, removedFolders } = comparison.summary;
   lines.push(
@@ -642,13 +639,20 @@ export function renderReport(comparison) {
   );
   if (newFolders.length > 0) {
     lines.push(`  new (no baseline floor yet): ${newFolders.join(', ')}`);
+    lines.push(
+      '  new-module flow: if this module is intentional, run ' +
+        '`just sensors gate --update-baseline`, review harness/sensors/baseline.json, ' +
+        'and commit the baseline with the module.',
+    );
   }
   if (removedFolders.length > 0) {
     lines.push(`  removed (refactored or filtered): ${removedFolders.join(', ')}`);
   }
   if (comparison.fitness) {
     const { fitnessComparedMetrics, advisoryRegressions, missingBaselines } = comparison.summary;
-    const dimEntries = DIMENSION_ORDER.map((code) => comparison.fitness.dimensions?.[code]).filter(Boolean);
+    const dimEntries = DIMENSION_ORDER.map((code) => comparison.fitness.dimensions?.[code]).filter(
+      Boolean,
+    );
     const enforced = dimEntries.filter((d) => d.enforcement === 'enforced');
     const advisory = dimEntries.filter((d) => d.enforcement === 'advisory');
     const enforcedEvaluated = enforced.filter((d) => d.rules_evaluated > 0).length;
@@ -679,7 +683,7 @@ export function renderReport(comparison) {
     for (const r of comparison.regressions) {
       if (r.folder) {
         lines.push(
-          `  ${r.folder}  ${r.metric}: ${fmt(r.baseline)} → ${fmt(r.current)}  ` +
+          `  ${r.folder}  ${r.metric}: ${fmt(r.baseline)} -> ${fmt(r.current)}  ` +
             `(+${fmt(r.delta)})`,
         );
       } else {
@@ -763,7 +767,7 @@ export async function main(
     return 2;
   }
   if (raw.trim().length === 0) {
-    io.writeErr('gate: empty stdin — pipe aggregator JSON in\n');
+    io.writeErr('gate: empty stdin - pipe aggregator JSON in\n');
     return 2;
   }
   let report;
