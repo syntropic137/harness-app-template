@@ -26,24 +26,43 @@ describe('telemetry.ts', () => {
   });
 
   it('buildSdk accepts a custom sdkFactory + instrumentations', () => {
-    const fakeInstr = () => ['fake-instr'];
-    const FakeSdk = vi.fn().mockImplementation((opts) => ({ opts }));
+    const fakeInstr = () => [];
+    class FakeSdk {
+      readonly opts: unknown;
+      constructor(opts: unknown) {
+        this.opts = opts;
+      }
+      start(): void {}
+      shutdown(): Promise<void> {
+        return Promise.resolve();
+      }
+    }
     const sdk = buildSdk({
       service: 'svc-x',
-      // biome-ignore lint/suspicious/noExplicitAny: test fake matches structural shape but not full NodeSDK signature
-      sdkFactory: FakeSdk as any,
+      sdkFactory: FakeSdk,
       instrumentationsFactory: fakeInstr,
     });
-    expect(FakeSdk).toHaveBeenCalledOnce();
-    expect((sdk as unknown as { opts: Record<string, unknown> }).opts).toMatchObject({
-      serviceName: 'svc-x',
-      instrumentations: [['fake-instr']],
-    });
+    const config = (sdk as FakeSdk).opts as {
+      resource?: { attributes?: Record<string, unknown> };
+      traceExporter?: unknown;
+      metricReaders?: unknown[];
+      logRecordProcessors?: unknown[];
+      instrumentations?: unknown[];
+    };
+    expect(config.resource?.attributes?.['service.name']).toBe('svc-x');
+    expect(config.traceExporter).toBeDefined();
+    expect(config.metricReaders).toHaveLength(1);
+    expect(config.logRecordProcessors).toHaveLength(1);
+    expect(config.instrumentations).toEqual([]);
   });
 
   it('setupTelemetry returns no-op shutdown when HARNESS_TELEMETRY_DISABLED=1', async () => {
     const sdk = { start: vi.fn(), shutdown: vi.fn().mockResolvedValue(undefined) };
-    const h = setupTelemetry({ env: { HARNESS_TELEMETRY_DISABLED: '1' }, sdk });
+    const h = setupTelemetry({
+      env: { HARNESS_TELEMETRY_DISABLED: '1' },
+      sdk,
+      shutdownSignals: [],
+    });
     expect(h.started).toBe(false);
     expect(sdk.start).not.toHaveBeenCalled();
     await h.shutdown(); // does nothing; doesn't throw
@@ -52,7 +71,7 @@ describe('telemetry.ts', () => {
 
   it('setupTelemetry starts SDK when enabled and shutdown awaits sdk.shutdown', async () => {
     const sdk = { start: vi.fn(), shutdown: vi.fn().mockResolvedValue(undefined) };
-    const h = setupTelemetry({ env: {}, sdk });
+    const h = setupTelemetry({ env: {}, sdk, shutdownSignals: [] });
     expect(h.started).toBe(true);
     expect(sdk.start).toHaveBeenCalledOnce();
     await h.shutdown();
@@ -61,7 +80,7 @@ describe('telemetry.ts', () => {
 
   it('setupTelemetry shutdown swallows SDK rejection (best-effort)', async () => {
     const sdk = { start: vi.fn(), shutdown: vi.fn().mockRejectedValue(new Error('boom')) };
-    const h = setupTelemetry({ env: {}, sdk });
+    const h = setupTelemetry({ env: {}, sdk, shutdownSignals: [] });
     await expect(h.shutdown()).resolves.toBeUndefined();
   });
 
@@ -83,7 +102,7 @@ describe('telemetry.ts', () => {
   it('setupTelemetry signal handler delegates to safeShutdown', () => {
     // The handler is attached via process.on; we verify by intercepting the listener.
     const sdk = { start: vi.fn(), shutdown: vi.fn().mockResolvedValue(undefined) };
-    const h = setupTelemetry({ env: {}, sdk });
+    const h = setupTelemetry({ env: {}, sdk, addSignalHandler: process.on.bind(process) });
     expect(h.started).toBe(true);
     // Find the most-recently-attached SIGTERM listener and invoke it.
     const listeners = process.listeners('SIGTERM');
@@ -92,9 +111,6 @@ describe('telemetry.ts', () => {
     expect(sdk.shutdown).toHaveBeenCalled();
     // Clean up to avoid polluting other tests.
     if (onSig) process.removeListener('SIGTERM', onSig);
-    const beforeExitListeners = process.listeners('beforeExit');
-    const lastBeforeExit = beforeExitListeners[beforeExitListeners.length - 1];
-    if (lastBeforeExit) process.removeListener('beforeExit', lastBeforeExit);
   });
 });
 
