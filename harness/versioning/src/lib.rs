@@ -230,8 +230,9 @@ fn release(
     let updated = render_changelog_release(&current, &plan, &release_date(&root)?)?;
     std::fs::write(&changelog_path, updated)
         .with_context(|| format!("write {}", changelog_path.display()))?;
+    update_manifest_version(&root, &plan.next_version)?;
 
-    git(&root, ["add", "CHANGELOG.md"])?;
+    git(&root, ["add", "CHANGELOG.md", "harness.manifest.json"])?;
     git(
         &root,
         [
@@ -434,6 +435,62 @@ fn ensure_changelog_shape(root: &Path) -> Result<()> {
         bail!("CHANGELOG.md must contain a ## [Unreleased] section");
     }
     Ok(())
+}
+
+fn update_manifest_version(root: &Path, version: &Version) -> Result<()> {
+    let manifest = root.join("harness.manifest.json");
+    let content = std::fs::read_to_string(&manifest)
+        .with_context(|| format!("read {}", manifest.display()))?;
+    let updated = replace_manifest_version_text(&content, version)
+        .with_context(|| format!("update {}", manifest.display()))?;
+    std::fs::write(&manifest, updated).with_context(|| format!("write {}", manifest.display()))?;
+    Ok(())
+}
+
+fn replace_manifest_version_text(content: &str, version: &Version) -> Result<String> {
+    let parsed: serde_json::Value =
+        serde_json::from_str(content).context("harness.manifest.json is not valid JSON")?;
+    parsed
+        .as_object()
+        .and_then(|object| object.get("version"))
+        .and_then(serde_json::Value::as_str)
+        .context("harness.manifest.json must contain a top-level string version field")?;
+
+    let next = version.to_string();
+    let mut updated = String::with_capacity(content.len() + next.len());
+    let mut replaced = false;
+
+    for segment in content.split_inclusive('\n') {
+        let (line, newline) = match segment.strip_suffix('\n') {
+            Some(line) => (line, "\n"),
+            None => (segment, ""),
+        };
+        let trimmed_start = line.trim_start();
+        let indent_len = line.len() - trimmed_start.len();
+        let is_top_level_version = indent_len == 2
+            && trimmed_start
+                .strip_prefix("\"version\"")
+                .is_some_and(|rest| rest.trim_start().starts_with(':'));
+
+        if !replaced && is_top_level_version {
+            let trimmed_end = line.trim_end();
+            let trailing_ws = &line[trimmed_end.len()..];
+            let comma = if trimmed_end.ends_with(',') { "," } else { "" };
+            updated.push_str(&line[..indent_len]);
+            updated.push_str(&format!("\"version\": \"{next}\"{comma}"));
+            updated.push_str(trailing_ws);
+            updated.push_str(newline);
+            replaced = true;
+        } else {
+            updated.push_str(segment);
+        }
+    }
+
+    if !replaced {
+        bail!("could not find the top-level version field line in harness.manifest.json");
+    }
+
+    Ok(updated)
 }
 
 fn render_changelog_release(content: &str, plan: &ReleasePlan, date: &str) -> Result<String> {
@@ -791,5 +848,18 @@ mod tests {
     #[test]
     fn changelog_text_uses_ascii_hyphens() {
         assert_eq!(changelog_text("a\u{2013}b and c\u{2014}d"), "a-b and c-d");
+    }
+
+    #[test]
+    fn manifest_version_update_preserves_slot_versions() {
+        let manifest = "{\n  \"name\": \"x\",\n  \"version\": \"0.4.0\",\n  \"slots\": {\n    \"versioning\": {\n      \"version\": \"0.1.0\"\n    }\n  }\n}\n";
+        let version = Version {
+            major: 1,
+            minor: 2,
+            patch: 3,
+        };
+        let updated = replace_manifest_version_text(manifest, &version).unwrap();
+        assert!(updated.contains("  \"version\": \"1.2.3\","));
+        assert!(updated.contains("      \"version\": \"0.1.0\""));
     }
 }

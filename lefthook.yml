@@ -130,6 +130,41 @@ pre-push:
           harness/sensors/bin/sensors gate
         '
 
+    versioning-release-check:
+      # Mirrors the GitHub Actions versioning workflow. Uses the same
+      # just release-check recipe, scoped to commits ahead of the
+      # configured base ref, and soft-skips when the local versioning
+      # toolchain is not present.
+      run: |
+        sh -eu -c '
+          if ! command -v cargo >/dev/null 2>&1; then
+            printf "%s\n" "warning: cargo not found; skipping versioning release check" >&2
+            exit 0
+          fi
+          if ! command -v bun >/dev/null 2>&1; then
+            printf "%s\n" "warning: bun not found; skipping versioning release check" >&2
+            exit 0
+          fi
+          if ! command -v just >/dev/null 2>&1; then
+            printf "%s\n" "warning: just not found; skipping versioning release check" >&2
+            exit 0
+          fi
+          base_ref="$(git config harness.hookBaseRef || git config harness.upstreamRef || printf main)"
+          base_remote="$(git config harness.hookBaseRemote || printf origin)"
+          base="$base_remote/$base_ref"
+          git rev-parse --verify "$base" >/dev/null 2>&1 || base="origin/$base_ref"
+          git rev-parse --verify "$base" >/dev/null 2>&1 || base=""
+          if [ -n "$base" ]; then
+            if [ "$(git rev-list --count "$base..HEAD")" -eq 0 ]; then
+              printf "%s\n" "versioning release check: no commits ahead of $base"
+              exit 0
+            fi
+            just release-check "$base" HEAD
+          else
+            just release-check
+          fi
+        '
+
     ubs-diff:
       run: |
         sh -eu -c '

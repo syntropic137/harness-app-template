@@ -55,7 +55,12 @@ fn seed_repo(subject: &str) -> tempfile::TempDir {
         "# Changelog\n\n## [Unreleased]\n\n- (Add your first changelog entry here.)\n",
     )
     .unwrap();
-    git(tmp.path(), ["add", "CHANGELOG.md"]);
+    std::fs::write(
+        tmp.path().join("harness.manifest.json"),
+        "{\n  \"name\": \"test-harness\",\n  \"version\": \"0.0.0\",\n  \"slots\": {}\n}\n",
+    )
+    .unwrap();
+    git(tmp.path(), ["add", "CHANGELOG.md", "harness.manifest.json"]);
     git(tmp.path(), ["commit", "-m", subject]);
     tmp
 }
@@ -141,6 +146,8 @@ fn release_execute_updates_changelog_commits_and_tags() {
     let changelog = std::fs::read_to_string(tmp.path().join("CHANGELOG.md")).unwrap();
     assert!(changelog.contains("## [0.1.0] - 2026-06-02"));
     assert!(changelog.contains("- add releaser"));
+    let manifest = std::fs::read_to_string(tmp.path().join("harness.manifest.json")).unwrap();
+    assert!(manifest.contains("\"version\": \"0.1.0\""));
     let tags = Command::new("git")
         .args(["tag", "--list", "v0.1.0"])
         .current_dir(tmp.path())
