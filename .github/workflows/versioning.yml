@@ -29,11 +29,6 @@ jobs:
         with:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9.0.0
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
       - name: Install just
         run: cargo install just --locked
       - name: Test versioning slot
@@ -56,11 +51,6 @@ jobs:
           fetch-depth: 0
           ref: main
       - uses: oven-sh/setup-bun@v2
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9.0.0
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
       - name: Install just
         run: cargo install just --locked
       - name: Test versioning slot

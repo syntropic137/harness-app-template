@@ -6,7 +6,7 @@ name = "harness-versioning"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "Versioning slot orchestrator: wraps cocogitto with per-package detection for polyglot monorepos."
+description = "Versioning slot orchestrator for conventional commits, changelog generation, release commits, and semver tags."
 publish = false
 
 [[bin]]
