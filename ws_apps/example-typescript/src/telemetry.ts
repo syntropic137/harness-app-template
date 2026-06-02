@@ -27,10 +27,8 @@ export interface TelemetrySdk {
 
 export interface BuildSdkDeps {
   service?: string;
-  sdkFactory?: new (
-    opts: Record<string, unknown>,
-    // biome-ignore lint/suspicious/noExplicitAny: NodeSDK constructor signature varies by version; the DI hook accepts arbitrary fake SDK factories in tests
-  ) => any;
+  // biome-ignore lint/suspicious/noExplicitAny: NodeSDK constructor signature varies by version; the DI hook accepts arbitrary fake SDK factories in tests
+  sdkFactory?: new (opts: Record<string, unknown>) => any;
   instrumentationsFactory?: () => unknown[];
 }
 

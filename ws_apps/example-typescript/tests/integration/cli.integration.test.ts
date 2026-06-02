@@ -35,15 +35,19 @@ interface CliResult {
 function runCli(env: Record<string, string> = {}): Promise<CliResult> {
   return new Promise((resolveRun, rejectRun) => {
     const started = Date.now();
-    const proc = spawn(process.execPath, ['--import', 'tsx', '--import', TELEMETRY, MAIN], {
-      cwd: APP_ROOT,
-      env: {
-        ...process.env,
-        HARNESS_TELEMETRY_DISABLED: '1',
-        ...env,
+    const proc = spawn(
+      process.execPath,
+      ['--import', 'tsx', '--import', TELEMETRY, MAIN],
+      {
+        cwd: APP_ROOT,
+        env: {
+          ...process.env,
+          HARNESS_TELEMETRY_DISABLED: '1',
+          ...env,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    );
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     proc.stdout.on('data', (c: Buffer) => stdoutChunks.push(c));

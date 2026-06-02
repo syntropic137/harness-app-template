@@ -260,36 +260,38 @@ export function main(deps: BootstrapDeps): void {
 
   const installStatus = runInherit(deps.spawn, 'pnpm', ['install'], cwd);
   if (installStatus !== 0) {
-    deps.stderr.error('bootstrap: pnpm install failed; see output above');
-    deps.exit(installStatus);
-    return;
-  }
-
-  // esbuild's postinstall is in pnpm.neverBuiltDependencies (see root
-  // package.json) so the install completes cleanly and pnpm finishes
-  // linking node_modules/.bin. The postinstall is what normally validates
-  // and replaces the platform-binary placeholder, so we do that step
-  // ourselves: detect any node_modules/.pnpm/esbuild@X.Y.Z whose
-  // bin/esbuild reports a different --version and copy the matching
-  // platform binary from the sibling @esbuild+<platform-arch>@X.Y.Z tree.
-  const mismatches = detectEsbuildMismatches(cwd, deps.spawn, exists, readdir);
-  if (mismatches.length > 0) {
+    const mismatches = detectEsbuildMismatches(cwd, deps.spawn, exists, readdir);
+    if (mismatches.length === 0) {
+      deps.stderr.error('bootstrap: pnpm install failed and no known auto-repair applies');
+      deps.exit(installStatus);
+      return;
+    }
     const slug = platformArchSlug(platform, arch);
     deps.stdout.log(
       `bootstrap: detected ${mismatches.length} esbuild binary mismatch(es); repairing for ${slug}`,
     );
+    let repaired = 0;
     for (const mismatch of mismatches) {
       if (repairEsbuildMismatch(cwd, mismatch, slug, exists, copyFile, chmod)) {
         deps.stdout.log(
           `bootstrap: repaired esbuild@${mismatch.version} binary (was ${mismatch.actual})`,
         );
+        repaired += 1;
       } else {
         deps.stderr.error(
           `bootstrap: no platform binary available for esbuild@${mismatch.version} at ${slug}`,
         );
-        deps.exit(1);
-        return;
       }
+    }
+    if (repaired === 0) {
+      deps.exit(installStatus);
+      return;
+    }
+    const rebuildStatus = runInherit(deps.spawn, 'pnpm', ['rebuild', 'esbuild'], cwd);
+    if (rebuildStatus !== 0) {
+      deps.stderr.error('bootstrap: pnpm rebuild esbuild failed after binary repair');
+      deps.exit(rebuildStatus);
+      return;
     }
   }
 
