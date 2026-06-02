@@ -170,8 +170,8 @@
       "metrics": {
         "accessibility-violation-count": {
           "name": "Accessibility Violation Count",
-          "objective": "Count accessibility violations once a web accessibility adapter is wired.",
-          "source": "incubating adapter slot",
+          "objective": "Advisory-by-design: a static template repository ships no rendered frontend to scan with axe-core or pa11y. AC01 stays advisory + opt-in; a consumer fork that ships an actual web frontend writes its own adapter (axe-core / pa11y over the rendered output, scoped to the fork's ws_apps/<frontend> path). Bead create-harness-app-2zz.4 closed with reason advisory-by-design.",
+          "source": "advisory-by-design (no rendered frontend in a static template)",
           "direction": "max",
           "default_threshold": 0,
           "baseline": null,
@@ -181,27 +181,27 @@
     },
     "PF01": {
       "name": "Performance",
-      "promotion_status": "incubating",
-      "enforcement": "advisory",
-      "default": "opt-in",
+      "promotion_status": "active",
+      "enforcement": "enforced",
+      "default": "default-enabled",
       "metrics": {
         "startup-benchmark-mean": {
           "name": "Maximum Startup Benchmark Mean",
-          "objective": "Maximum hyperfine benchmark mean wall-clock from harness/perf/baseline.json. Reports the committed perf floor; the separate harness/perf gate enforces regression at pre-push with its own per-benchmark tolerance.",
+          "objective": "Maximum hyperfine benchmark mean wall-clock from harness/perf/baseline.json. PF01 enforces; a current mean above baseline (beyond EPSILON) trips the gate. In environments without hyperfine the metric reports as no-reading and the dedicated harness/perf gate is the primary enforcer (it owns the tolerance window).",
           "source": "harness/perf/baseline.json benchmarks.[*].mean",
           "direction": "max",
           "default_threshold": 5,
           "baseline": null,
-          "fail_on_regression": false
+          "fail_on_regression": true
         },
         "startup-benchmark-count": {
           "name": "Startup Benchmark Count",
-          "objective": "Number of benchmarks committed in harness/perf/baseline.json. Floor of zero is acceptable until hyperfine has produced a real measurement.",
+          "objective": "Number of benchmarks committed in harness/perf/baseline.json. Floor is the snapshotted count; the gate fails if the count drops (a removed bench is a coverage regression). Floor of zero is acceptable until hyperfine has produced a real measurement.",
           "source": "harness/perf/baseline.json benchmarks",
           "direction": "min",
           "default_threshold": 0,
           "baseline": 0,
-          "fail_on_regression": false
+          "fail_on_regression": true
         }
       }
     },
@@ -213,8 +213,8 @@
       "metrics": {
         "availability-failure-count": {
           "name": "Availability Failure Count",
-          "objective": "Count availability or resilience failures once an adapter is wired.",
-          "source": "incubating adapter slot",
+          "objective": "Advisory-by-design: a static template repository ships no running service to measure availability against. AV01 stays advisory + opt-in; a consumer fork that ships an actual service writes its own adapter (chaos-engineering hook, SLO breach counter, paired with the observability slot). Bead create-harness-app-2zz.5 closed with reason advisory-by-design.",
+          "source": "advisory-by-design (no running service in a static template)",
           "direction": "max",
           "default_threshold": 0,
           "baseline": null,
