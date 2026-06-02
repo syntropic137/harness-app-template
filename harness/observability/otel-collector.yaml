@@ -1,4 +1,21 @@
 receivers:
+  filelog/harness:
+    include:
+      - /var/log/harness/*.jsonl
+      - /var/log/harness/*.log
+    include_file_name: true
+    include_file_path: true
+    start_at: beginning
+    operators:
+      - type: json_parser
+        parse_from: body
+        parse_to: attributes
+        timestamp:
+          parse_from: attributes.time
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.999999999Z07:00"
+        severity:
+          parse_from: attributes.severity
   otlp:
     protocols:
       http:
@@ -41,6 +58,14 @@ processors:
       - context: resource
         statements:
           - keep_matching_keys(attributes, "^(service\\.|deployment\\.|harness\\.|telemetry\\.sdk\\.|host\\.name$)")
+  transform/harness-filelog:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(resource.attributes["service.name"], attributes["service"]) where attributes["service"] != nil
+          - set(severity_text, attributes["severity"]) where attributes["severity"] != nil
+          - set(body, attributes["msg"]) where attributes["msg"] != nil
 
 exporters:
   otlphttp/victoriametrics:
@@ -60,8 +85,8 @@ service:
       processors: [transform/keep-essential, batch]
       exporters: [otlphttp/victoriametrics]
     logs:
-      receivers: [otlp]
-      processors: [transform/keep-essential, batch]
+      receivers: [otlp, filelog/harness]
+      processors: [transform/harness-filelog, transform/keep-essential, batch]
       exporters: [otlphttp/victorialogs]
     traces:
       receivers: [otlp]

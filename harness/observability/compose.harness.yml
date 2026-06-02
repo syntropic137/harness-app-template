@@ -6,6 +6,7 @@ services:
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - ../../.harness/logs:/var/log/harness:ro
     ports:
       - "${OTEL_OTLP_PORT:-4318}:4318"
     depends_on: [victorialogs, victoriametrics, victoriatraces]
