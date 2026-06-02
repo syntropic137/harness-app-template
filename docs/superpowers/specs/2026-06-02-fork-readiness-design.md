@@ -47,7 +47,7 @@ Cross-cutting decisions (apply to all workstreams):
   Bootstrap verifies and repairs the symlinks; it does not create them from
   scratch.
 - The fork-readiness bar is the full local loop: `just bootstrap && just test &&
-  just qa` plus the sensors gate, all green on a fresh clone.
+  just lint` plus the sensors gate, all green on a fresh clone.
 
 ---
 
@@ -60,7 +60,7 @@ A fresh `git clone` of the template, on the VPS agent environment, passes:
 ```
 just bootstrap   # exit 0, or fails with an actionable missing-tool message
 just test        # exit 0, all workspace members
-just qa          # exit 0 (typecheck)
+just lint          # exit 0 (typecheck)
 sensors gate     # green
 ```
 
@@ -119,7 +119,7 @@ Each unit is independently implementable and verifiable.
   banner and unrelated info findings. Surface the gate verdict line clearly, and
   document the new-module baseline-update flow so adding an app does not
   mystery-fail.
-- Acceptance: `just qa` and the sensors gate are green on a fresh clone, with the
+- Acceptance: `just lint` and the sensors gate are green on a fresh clone, with the
   documented new-module flow.
 
 #### Unit E: polish (F-011, F-002, F-003)
