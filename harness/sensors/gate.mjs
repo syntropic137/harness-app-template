@@ -55,8 +55,8 @@ const DIMENSIONS = {
   },
   SC01: {
     name: 'Security',
-    promotion_status: 'incubating',
-    enforcement: 'advisory',
+    promotion_status: 'active',
+    enforcement: 'enforced',
     default: 'default-enabled',
   },
   LG01: {
@@ -188,14 +188,15 @@ const FITNESS_METRICS = {
   ],
   SC01: [
     {
-      id: 'critical-vulnerability-count',
-      name: 'Critical Vulnerability Count',
-      objective: 'Count critical security findings once a scanner adapter is wired.',
-      source: 'incubating adapter slot',
+      id: 'critical-finding-count',
+      name: 'Critical Security Finding Count',
+      objective:
+        'Count of critical-severity findings emitted by the Ultimate Bug Scanner (UBS) over template-owned source paths. The bin/sensors wrapper runs ubs --report-json scoped to a stable file list and writes the JSON to a tempfile; the gate reads totals.critical via --security=<path>. Soft-skip yields a null reading; an active scan with zero findings yields baseline 0 and the gate fails on any new critical pattern (bead create-harness-app-2zz.2).',
+      source: 'ubs --report-json totals.critical (template-owned source paths)',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
-      value: () => null,
+      value: (_report, options) => ubsCriticalCount(options),
     },
   ],
   LG01: [
@@ -278,6 +279,42 @@ function apssFunctionValues(report, field) {
 function maxNumber(values) {
   const nums = values.filter((v) => typeof v === 'number');
   return nums.length === 0 ? null : Math.max(...nums);
+}
+
+/**
+ * Read the UBS report the SC01 dimension watches. Accepts either a
+ * pre-parsed object on options.security or a filesystem reader pair
+ * on options.io pointing at options.securityPath. Returns the
+ * critical-finding count (null when no report is available, so the
+ * gate degrades to "no reading" rather than a false zero).
+ */
+function ubsCriticalCount(options) {
+  let report = options?.security;
+  if (!report && options?.io && options?.securityPath) {
+    if (options.io.fileExists?.(options.securityPath)) {
+      try {
+        report = JSON.parse(options.io.readFile(options.securityPath));
+      } catch {
+        report = null;
+      }
+    }
+  }
+  if (!report) {
+    return null;
+  }
+  const total = report?.totals?.critical;
+  if (typeof total === 'number') {
+    return total;
+  }
+  // Some UBS modes omit totals; sum per-scanner critical fields.
+  const scanners = Array.isArray(report?.scanners) ? report.scanners : [];
+  if (scanners.length === 0) {
+    return null;
+  }
+  return scanners.reduce(
+    (acc, s) => acc + (typeof s?.critical === 'number' ? s.critical : 0),
+    0,
+  );
 }
 
 /**
@@ -663,6 +700,7 @@ export async function main(
 ) {
   let baselinePath = 'harness/sensors/baseline.json';
   let perfPath = 'harness/perf/baseline.json';
+  let securityPath = null;
   let updateBaseline = false;
   let firstRunMode = 'snapshot';
   for (const a of argv) {
@@ -670,6 +708,8 @@ export async function main(
       baselinePath = a.slice('--baseline='.length);
     } else if (a.startsWith('--perf-baseline=')) {
       perfPath = a.slice('--perf-baseline='.length);
+    } else if (a.startsWith('--security=')) {
+      securityPath = a.slice('--security='.length);
     } else if (a === '--update-baseline') {
       updateBaseline = true;
     } else if (a.startsWith('--first-run-mode=')) {
@@ -677,7 +717,7 @@ export async function main(
     }
   }
 
-  const fitnessOptions = { perfPath, io };
+  const fitnessOptions = { perfPath, securityPath, io };
 
   let raw;
   try {

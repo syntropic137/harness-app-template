@@ -113,12 +113,12 @@ describe('APSS fitness gate (bead 2zz) — coverage discipline', () => {
     }
   });
 
-  test('three dimensions are enforced (MT01, MD01, ST01); the other five are advisory', () => {
+  test('four dimensions are enforced (MT01, MD01, ST01, SC01); the other four are advisory', () => {
     const baseline = extractApssFitnessBaseline(reportFrom({}));
     const enforced = ALL_CODES.filter((c) => baseline.dimensions[c].enforcement === 'enforced');
     const advisory = ALL_CODES.filter((c) => baseline.dimensions[c].enforcement === 'advisory');
-    expect(enforced).toEqual(['MT01', 'MD01', 'ST01']);
-    expect(advisory).toEqual(['SC01', 'LG01', 'AC01', 'PF01', 'AV01']);
+    expect(enforced).toEqual(['MT01', 'MD01', 'ST01', 'SC01']);
+    expect(advisory).toEqual(['LG01', 'AC01', 'PF01', 'AV01']);
   });
 });
 
@@ -270,6 +270,69 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'ST01')).toBe(true);
   });
 
+  test('SC01: a critical UBS finding in the current run trips ok=false', () => {
+    const baselineReport = reportFrom({});
+    const baseline = extractApssFitnessBaseline(baselineReport, {
+      security: { totals: { critical: 0 } },
+    });
+    const result = compareFitnessBaseline(baseline, baselineReport, {
+      security: { totals: { critical: 4 } },
+    });
+    expect(result.ok).toBe(false);
+    const sc = result.regressions.find((r) => r.dimension === 'SC01');
+    expect(sc, 'SC01 regression must be reported').toBeTruthy();
+    expect(sc?.metric).toBe('critical-finding-count');
+    expect(sc?.baseline).toBe(0);
+    expect(sc?.current).toBe(4);
+    expect(sc?.enforcement).toBe('enforced');
+  });
+
+  test('SC01: critical count holding at baseline keeps ok=true', () => {
+    const baselineReport = reportFrom({});
+    const baseline = extractApssFitnessBaseline(baselineReport, {
+      security: { totals: { critical: 0 } },
+    });
+    const result = compareFitnessBaseline(baseline, baselineReport, {
+      security: { totals: { critical: 0 } },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test('SC01: an improvement (lower critical count) does NOT fail', () => {
+    const baselineReport = reportFrom({});
+    const baseline = extractApssFitnessBaseline(baselineReport, {
+      security: { totals: { critical: 5 } },
+    });
+    const result = compareFitnessBaseline(baseline, baselineReport, {
+      security: { totals: { critical: 1 } },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test('SC01: scanner-array fallback also works (no totals.critical, per-scanner critical fields)', () => {
+    const baselineReport = reportFrom({});
+    const baseline = extractApssFitnessBaseline(baselineReport, {
+      security: { scanners: [{ language: 'js', critical: 0 }, { language: 'rust', critical: 0 }] },
+    });
+    const result = compareFitnessBaseline(baseline, baselineReport, {
+      security: { scanners: [{ language: 'js', critical: 2 }, { language: 'rust', critical: 1 }] },
+    });
+    expect(result.ok).toBe(false);
+    const sc = result.regressions.find((r) => r.dimension === 'SC01');
+    expect(sc?.baseline).toBe(0);
+    expect(sc?.current).toBe(3);
+  });
+
+  test('SC01: no security payload yields a no-reading (advisory-style skip), gate stays ok=true', () => {
+    const baselineReport = reportFrom({});
+    const baseline = extractApssFitnessBaseline(baselineReport);
+    const result = compareFitnessBaseline(baseline, baselineReport);
+    expect(result.ok).toBe(true);
+    // missingBaselines counter records SC01 since both baseline and current
+    // resolved to null and the rule can't be evaluated.
+    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'SC01')).toBe(true);
+  });
+
   test('compareBaseline aggregates legacy folder-level I/D regressions AND MT01/MD01 fitness regressions', () => {
     const baselineReport = reportFrom({
       folders: [{ name: 'ws_apps/a', I: 0.5, D: 0.2 }],
@@ -288,10 +351,10 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
 });
 
 describe('APSS fitness gate (bead 2zz) — advisory dimensions never trip ok=false', () => {
-  test('SC01/LG01/AC01/AV01 have no wired adapter and stay at evaluated=0', () => {
+  test('LG01/AC01/AV01 have no wired adapter and stay at evaluated=0', () => {
     const baseline = extractApssFitnessBaseline(reportFrom({}));
     const same = compareFitnessBaseline(baseline, reportFrom({}));
-    for (const code of ['SC01', 'LG01', 'AC01', 'AV01'] as const) {
+    for (const code of ['LG01', 'AC01', 'AV01'] as const) {
       const d = same.dimensions?.[code];
       expect(d, `dimension ${code}`).toBeTruthy();
       expect(d.enforcement).toBe('advisory');
@@ -323,18 +386,23 @@ describe('APSS fitness gate (bead 2zz) — advisory dimensions never trip ok=fal
     expect(pf?.metrics['startup-benchmark-mean']?.baseline).toBeCloseTo(0.4);
   });
 
-  test('compareBaseline render reports 3/3 enforced + N/5 advisory in its summary line', () => {
+  test('compareBaseline render reports 4/4 enforced + N/4 advisory in its summary line', () => {
     const baselineReport = reportFrom({
       modules: [{ source: 'ws_apps/a/m.ts', max_cognitive: 5, max_cyclomatic: 3 }],
       circular_edges: 0,
     });
-    const baseline = extractApssFitnessBaseline(baselineReport);
-    const result = compareBaseline(baseline, baselineReport);
+    const baseline = extractApssFitnessBaseline(baselineReport, {
+      security: { totals: { critical: 0 } },
+    });
+    const result = compareBaseline(baseline, baselineReport, {
+      security: { totals: { critical: 0 } },
+    });
     const text = renderReport(result);
-    expect(text).toMatch(/3\/3 enforced/);
+    expect(text).toMatch(/4\/4 enforced/);
     expect(text).toMatch(/\[ENFORCED\] MT01/);
     expect(text).toMatch(/\[ENFORCED\] MD01/);
     expect(text).toMatch(/\[ENFORCED\] ST01/);
+    expect(text).toMatch(/\[ENFORCED\] SC01/);
     expect(text).toMatch(/\[advisory\] AV01/);
     expect(text).toMatch(/no adapter wired/);
   });

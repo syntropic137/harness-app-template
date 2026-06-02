@@ -130,17 +130,17 @@
     },
     "SC01": {
       "name": "Security",
-      "promotion_status": "incubating",
-      "enforcement": "advisory",
+      "promotion_status": "active",
+      "enforcement": "enforced",
       "default": "default-enabled",
       "metrics": {
-        "critical-vulnerability-count": {
-          "name": "Critical Vulnerability Count",
-          "objective": "Count critical security findings once a scanner adapter is wired.",
-          "source": "incubating adapter slot",
+        "critical-finding-count": {
+          "name": "Critical Security Finding Count",
+          "objective": "Count of critical-severity findings emitted by the Ultimate Bug Scanner (UBS) over template-owned source paths. The bin/sensors wrapper runs ubs --report-json scoped to a stable file list and writes the JSON to a tempfile; the gate reads totals.critical via --security=<path>. Soft-skip yields a null reading; an active scan with zero findings yields baseline 0 and the gate fails on any new critical pattern (bead create-harness-app-2zz.2).",
+          "source": "ubs --report-json totals.critical (template-owned source paths)",
           "direction": "max",
           "default_threshold": 0,
-          "baseline": null,
+          "baseline": 0,
           "fail_on_regression": true
         }
       }
