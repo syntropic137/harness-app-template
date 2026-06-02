@@ -77,6 +77,31 @@ describe('slot manifest resolver', () => {
     ).toThrow('Slot sensors has contract inspector in harness.manifest.json');
   });
 
+  test('resolves the swapped my-custom-sensors plugin entrypoint', () => {
+    const customSensorsSlot: SlotConfig = {
+      contract: 'sensors',
+      plugin: 'my-custom-sensors',
+      required: false,
+      swappable: true,
+      interface: {
+        type: 'cli',
+        entrypoint: 'harness/my-custom-sensors/bin/sensors',
+        commands: ['report', 'gate'],
+      },
+    };
+    
+    const invocation = resolveSlotInvocation('sensors', ['report'], {
+      cwd: '/repo',
+      readText: () => manifest(customSensorsSlot),
+    });
+
+    expect(invocation).toMatchObject({
+      disabled: false,
+      command: 'harness/my-custom-sensors/bin/sensors',
+      args: ['report'],
+    });
+  });
+
   test('reports malformed manifest JSON with the manifest path', () => {
     expect(() =>
       resolveSlotInvocation('sensors', ['report'], {

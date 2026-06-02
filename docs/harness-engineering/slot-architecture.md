@@ -15,36 +15,90 @@ Think of a slot as a "socket" in the template's motherboard. Each socket accepts
 
 All slots are defined in the central `harness.manifest.json`.
 
-## How to Swap a Plugin in a Slot
+## Worked Swap: Sensors
 
-Because plugins are genuinely "rip-out-able," swapping one is straightforward. For example, if you want to replace the `harness-sensors` plugin with a custom `my-custom-sensors` implementation:
+The `sensors` slot is an excellent example of how to swap a plugin. In this worked example, we'll swap the default `harness-sensors` for a custom implementation called `my-custom-sensors` and show how the resolver automatically picks it up.
 
-1. **Implement the Contract Interface**
-   Ensure your custom plugin honors the CLI or library interface expected by the slot. If the slot expects `bin/sensors report` and `bin/sensors gate`, your plugin must provide those entrypoints.
+### 1. The Custom Plugin
+First, we create our custom plugin. For demonstration, this is a simple executable bash script placed at `harness/my-custom-sensors/bin/sensors`:
 
-2. **Update the Workspace**
-   Remove the old plugin directory or dependency, and install or place your new plugin in the corresponding location (e.g., `harness/sensors/`).
+```bash
+#!/bin/bash
+echo "My custom sensors plugin is running! Args: $@"
+exit 0
+```
+*(Ensure this file is executable with `chmod +x harness/my-custom-sensors/bin/sensors`)*
 
-3. **Update the Manifest**
-   Modify `harness.manifest.json` to declare the new plugin, ensuring the harness orchestrator knows what is currently active:
+### 2. The Original Manifest
+The original entry in `harness.manifest.json` looked like this:
 
-   ```json
-   "sensors": {
-     "contract": "sensors",
-     "plugin": "my-custom-sensors",
-     "version": "1.0.0",
-     "required": false,
-     "swappable": true,
-     "interface": {
-       "type": "cli",
-       "entrypoint": "harness/sensors/bin/sensors",
-       "commands": ["report", "gate"]
-     },
-     "decisionAt": "docs/adrs/ADR-0006-sensors.md"
-   }
-   ```
+```json
+"sensors": {
+  "contract": "sensors",
+  "plugin": "harness-sensors",
+  "interface": {
+    "type": "cli",
+    "entrypoint": "harness/sensors/bin/sensors",
+    "commands": ["report", "gate"]
+  }
+}
+```
 
-4. **Update the ADR (Architecture Decision Record)**
-   Record the reason for the swap in the corresponding `docs/adrs/` file (e.g., updating `ADR-0006-sensors.md` to reflect the move to `my-custom-sensors`).
+### 3. The Swapped Manifest
+We swap it to point to our new plugin by editing `harness.manifest.json`:
+
+```json
+"sensors": {
+  "contract": "sensors",
+  "plugin": "my-custom-sensors",
+  "version": "1.0.0",
+  "required": false,
+  "swappable": true,
+  "interface": {
+    "type": "cli",
+    "entrypoint": "harness/my-custom-sensors/bin/sensors",
+    "commands": ["report", "gate"]
+  },
+  "implementation": "A custom runnable plugin example demonstrating the slot architecture swap.",
+  "decisionAt": "docs/adrs/ADR-0006-sensors.md"
+}
+```
+
+### 4. Resolving the Swap
+The `scripts/lib/slots.ts` resolver is responsible for finding the correct entrypoint based on the active manifest. We can run the command normally without knowing which plugin is active under the hood.
+
+When we run the task (e.g., via `bun run scripts/sensors.ts report` or `just sensors report`), the resolver reads the manifest, sees the newly defined `my-custom-sensors` entrypoint, and executes it:
+
+```bash
+$ bun run scripts/sensors.ts report
+My custom sensors plugin is running! Args: report
+```
+
+### 5. Automated Check
+We can verify the resolver's correctness programmatically with a test. Here's how a test in `scripts/tests/slots.test.ts` validates that the new entrypoint is successfully resolved:
+
+```typescript
+test('resolves the swapped my-custom-sensors plugin entrypoint', () => {
+  const customSensorsSlot = {
+    contract: 'sensors',
+    plugin: 'my-custom-sensors',
+    interface: {
+      type: 'cli',
+      entrypoint: 'harness/my-custom-sensors/bin/sensors'
+    }
+  };
+  
+  const invocation = resolveSlotInvocation('sensors', ['report'], {
+    cwd: '/repo',
+    readText: () => JSON.stringify({ slots: { sensors: customSensorsSlot } }),
+  });
+
+  expect(invocation).toMatchObject({
+    disabled: false,
+    command: 'harness/my-custom-sensors/bin/sensors',
+    args: ['report'],
+  });
+});
+```
 
 By maintaining this separation of contract and plugin, you can upgrade or replace the underlying engine of any harness capability without breaking the repository's fundamental workflow.
