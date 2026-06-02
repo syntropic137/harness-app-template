@@ -141,8 +141,9 @@ case "${1:-}" in
     cplx_tmp=""
     apss_tmp=""
     sec_tmp=""
+    lic_tmp=""
     report_tmp="$(mktemp -t harness-sensors-report-XXXXXX.json)"
-    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$report_tmp"' EXIT
+    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$report_tmp"' EXIT
     build_report "json" "$report_tmp"
     # SC01 Security adapter (bead create-harness-app-2zz.2). Runs UBS over a
     # stable, template-owned set of source paths. Soft-skips when ubs is
@@ -151,11 +152,21 @@ case "${1:-}" in
     if command -v ubs >/dev/null 2>&1; then
       sec_tmp="$(mktemp -t harness-sensors-security-XXXXXX.json)"
       ubs --quiet --report-json="$sec_tmp" \
-        --files="scripts/lib/git.ts,scripts/lib/fs.ts,scripts/lib/slots.ts,harness/sensors/aggregate.mjs,harness/sensors/gate.mjs,harness/sensors/abstractness.mjs,harness/sensors/complexity.mjs,harness/sensors/apss_topology.mjs,harness/perf/gate.mjs,harness/perf/bench.sh,harness/sensors/bin/sensors,harness/perf/bench.sh" \
+        --files="scripts/lib/git.ts,scripts/lib/fs.ts,scripts/lib/slots.ts,harness/sensors/aggregate.mjs,harness/sensors/gate.mjs,harness/sensors/abstractness.mjs,harness/sensors/complexity.mjs,harness/sensors/apss_topology.mjs,harness/sensors/license_scan.mjs,harness/perf/gate.mjs,harness/perf/bench.sh,harness/sensors/bin/sensors" \
         2>/dev/null || true
       if [ -s "$sec_tmp" ]; then
         gate_args+=("--security=$sec_tmp")
       fi
+    fi
+    # LG01 Legality adapter (bead create-harness-app-2zz.3). Walks every
+    # node_modules root that exists on disk and counts packages whose
+    # declared license is missing or outside the OSI-permissive allowlist.
+    # Soft-skips cleanly when no node_modules tree is present (license_scan
+    # emits {available: false} and gate.mjs treats LG01 as no-reading).
+    lic_tmp="$(mktemp -t harness-sensors-licenses-XXXXXX.json)"
+    node "$HERE/license_scan.mjs" > "$lic_tmp" 2>/dev/null || true
+    if [ -s "$lic_tmp" ]; then
+      gate_args+=("--licenses=$lic_tmp")
     fi
     node "$HERE/gate.mjs" "${gate_args[@]+"${gate_args[@]}"}" < "$report_tmp"
     ;;

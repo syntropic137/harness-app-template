@@ -113,12 +113,12 @@ describe('APSS fitness gate (bead 2zz) — coverage discipline', () => {
     }
   });
 
-  test('four dimensions are enforced (MT01, MD01, ST01, SC01); the other four are advisory', () => {
+  test('five dimensions are enforced (MT01, MD01, ST01, SC01, LG01); the other three are advisory', () => {
     const baseline = extractApssFitnessBaseline(reportFrom({}));
     const enforced = ALL_CODES.filter((c) => baseline.dimensions[c].enforcement === 'enforced');
     const advisory = ALL_CODES.filter((c) => baseline.dimensions[c].enforcement === 'advisory');
-    expect(enforced).toEqual(['MT01', 'MD01', 'ST01', 'SC01']);
-    expect(advisory).toEqual(['LG01', 'AC01', 'PF01', 'AV01']);
+    expect(enforced).toEqual(['MT01', 'MD01', 'ST01', 'SC01', 'LG01']);
+    expect(advisory).toEqual(['AC01', 'PF01', 'AV01']);
   });
 });
 
@@ -333,6 +333,77 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'SC01')).toBe(true);
   });
 
+  test('LG01: a denied license in the current scan trips ok=false', () => {
+    const baselineReport = reportFrom({});
+    const baseline = extractApssFitnessBaseline(baselineReport, {
+      licenses: { available: true, denied_count: 0, scanned: 100, denied: [] },
+    });
+    const result = compareFitnessBaseline(baseline, baselineReport, {
+      licenses: {
+        available: true,
+        denied_count: 2,
+        scanned: 100,
+        denied: [
+          { path: 'node_modules/a/package.json', package: 'a', license: 'GPL-3.0' },
+          { path: 'node_modules/b/package.json', package: 'b', license: null },
+        ],
+      },
+    });
+    expect(result.ok).toBe(false);
+    const lg = result.regressions.find((r) => r.dimension === 'LG01');
+    expect(lg, 'LG01 regression must be reported').toBeTruthy();
+    expect(lg?.metric).toBe('denied-license-count');
+    expect(lg?.baseline).toBe(0);
+    expect(lg?.current).toBe(2);
+    expect(lg?.enforcement).toBe('enforced');
+  });
+
+  test('LG01: denied_count holding at baseline keeps ok=true', () => {
+    const baselineReport = reportFrom({});
+    const baseline = extractApssFitnessBaseline(baselineReport, {
+      licenses: { available: true, denied_count: 0, scanned: 100, denied: [] },
+    });
+    const result = compareFitnessBaseline(baseline, baselineReport, {
+      licenses: { available: true, denied_count: 0, scanned: 100, denied: [] },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  test('LG01: denied array length fallback works when denied_count is absent', () => {
+    const baselineReport = reportFrom({});
+    const baseline = extractApssFitnessBaseline(baselineReport, {
+      licenses: {
+        available: true,
+        denied: [],
+      },
+    });
+    const result = compareFitnessBaseline(baseline, baselineReport, {
+      licenses: {
+        available: true,
+        denied: [
+          { package: 'a', license: 'GPL-3.0' },
+          { package: 'b', license: 'AGPL-3.0' },
+          { package: 'c', license: null },
+        ],
+      },
+    });
+    expect(result.ok).toBe(false);
+    const lg = result.regressions.find((r) => r.dimension === 'LG01');
+    expect(lg?.current).toBe(3);
+  });
+
+  test('LG01: available=false yields a no-reading, gate stays ok=true', () => {
+    const baselineReport = reportFrom({});
+    const baseline = extractApssFitnessBaseline(baselineReport, {
+      licenses: { available: false, denied_count: 0, scanned: 0, denied: [] },
+    });
+    const result = compareFitnessBaseline(baseline, baselineReport, {
+      licenses: { available: false, denied_count: 0, scanned: 0, denied: [] },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'LG01')).toBe(true);
+  });
+
   test('compareBaseline aggregates legacy folder-level I/D regressions AND MT01/MD01 fitness regressions', () => {
     const baselineReport = reportFrom({
       folders: [{ name: 'ws_apps/a', I: 0.5, D: 0.2 }],
@@ -351,10 +422,10 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
 });
 
 describe('APSS fitness gate (bead 2zz) — advisory dimensions never trip ok=false', () => {
-  test('LG01/AC01/AV01 have no wired adapter and stay at evaluated=0', () => {
+  test('AC01/AV01 have no wired adapter and stay at evaluated=0', () => {
     const baseline = extractApssFitnessBaseline(reportFrom({}));
     const same = compareFitnessBaseline(baseline, reportFrom({}));
-    for (const code of ['LG01', 'AC01', 'AV01'] as const) {
+    for (const code of ['AC01', 'AV01'] as const) {
       const d = same.dimensions?.[code];
       expect(d, `dimension ${code}`).toBeTruthy();
       expect(d.enforcement).toBe('advisory');
@@ -386,23 +457,24 @@ describe('APSS fitness gate (bead 2zz) — advisory dimensions never trip ok=fal
     expect(pf?.metrics['startup-benchmark-mean']?.baseline).toBeCloseTo(0.4);
   });
 
-  test('compareBaseline render reports 4/4 enforced + N/4 advisory in its summary line', () => {
+  test('compareBaseline render reports 5/5 enforced + N/3 advisory in its summary line', () => {
     const baselineReport = reportFrom({
       modules: [{ source: 'ws_apps/a/m.ts', max_cognitive: 5, max_cyclomatic: 3 }],
       circular_edges: 0,
     });
-    const baseline = extractApssFitnessBaseline(baselineReport, {
+    const opts = {
       security: { totals: { critical: 0 } },
-    });
-    const result = compareBaseline(baseline, baselineReport, {
-      security: { totals: { critical: 0 } },
-    });
+      licenses: { available: true, denied_count: 0, scanned: 50, denied: [] },
+    };
+    const baseline = extractApssFitnessBaseline(baselineReport, opts);
+    const result = compareBaseline(baseline, baselineReport, opts);
     const text = renderReport(result);
-    expect(text).toMatch(/4\/4 enforced/);
+    expect(text).toMatch(/5\/5 enforced/);
     expect(text).toMatch(/\[ENFORCED\] MT01/);
     expect(text).toMatch(/\[ENFORCED\] MD01/);
     expect(text).toMatch(/\[ENFORCED\] ST01/);
     expect(text).toMatch(/\[ENFORCED\] SC01/);
+    expect(text).toMatch(/\[ENFORCED\] LG01/);
     expect(text).toMatch(/\[advisory\] AV01/);
     expect(text).toMatch(/no adapter wired/);
   });

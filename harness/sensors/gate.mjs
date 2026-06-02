@@ -61,8 +61,8 @@ const DIMENSIONS = {
   },
   LG01: {
     name: 'Legality',
-    promotion_status: 'incubating',
-    enforcement: 'advisory',
+    promotion_status: 'active',
+    enforcement: 'enforced',
     default: 'default-enabled',
   },
   AC01: {
@@ -201,14 +201,15 @@ const FITNESS_METRICS = {
   ],
   LG01: [
     {
-      id: 'license-violation-count',
-      name: 'License Violation Count',
-      objective: 'Count denied or unknown license findings once a license adapter is wired.',
-      source: 'incubating adapter slot',
+      id: 'denied-license-count',
+      name: 'Denied License Count',
+      objective:
+        'Count of installed packages whose declared license is missing or outside the OSI-permissive allowlist (MIT, ISC, Apache-2.0, BSD-2/3-Clause, MPL-2.0, CC0-1.0, etc.). Source: harness/sensors/license_scan.mjs walks every node_modules root that exists on disk. The bin/sensors wrapper invokes the scanner and passes --licenses=<path> (bead create-harness-app-2zz.3).',
+      source: 'harness/sensors/license_scan.mjs denied_count',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
-      value: () => null,
+      value: (_report, options) => licenseDeniedCount(options),
     },
   ],
   AC01: [
@@ -315,6 +316,36 @@ function ubsCriticalCount(options) {
     (acc, s) => acc + (typeof s?.critical === 'number' ? s.critical : 0),
     0,
   );
+}
+
+/**
+ * Read the license-scan report the LG01 dimension watches. Accepts a
+ * pre-parsed object on options.licenses or a filesystem reader pair on
+ * options.io pointing at options.licensesPath. Returns the denied
+ * package count (null when no scan is available, so a missing
+ * node_modules tree degrades to "no reading" rather than a false zero).
+ */
+function licenseDeniedCount(options) {
+  let report = options?.licenses;
+  if (!report && options?.io && options?.licensesPath) {
+    if (options.io.fileExists?.(options.licensesPath)) {
+      try {
+        report = JSON.parse(options.io.readFile(options.licensesPath));
+      } catch {
+        report = null;
+      }
+    }
+  }
+  if (!report || report.available === false) {
+    return null;
+  }
+  if (typeof report.denied_count === 'number') {
+    return report.denied_count;
+  }
+  if (Array.isArray(report.denied)) {
+    return report.denied.length;
+  }
+  return null;
 }
 
 /**
@@ -701,6 +732,7 @@ export async function main(
   let baselinePath = 'harness/sensors/baseline.json';
   let perfPath = 'harness/perf/baseline.json';
   let securityPath = null;
+  let licensesPath = null;
   let updateBaseline = false;
   let firstRunMode = 'snapshot';
   for (const a of argv) {
@@ -710,6 +742,8 @@ export async function main(
       perfPath = a.slice('--perf-baseline='.length);
     } else if (a.startsWith('--security=')) {
       securityPath = a.slice('--security='.length);
+    } else if (a.startsWith('--licenses=')) {
+      licensesPath = a.slice('--licenses='.length);
     } else if (a === '--update-baseline') {
       updateBaseline = true;
     } else if (a.startsWith('--first-run-mode=')) {
@@ -717,7 +751,7 @@ export async function main(
     }
   }
 
-  const fitnessOptions = { perfPath, securityPath, io };
+  const fitnessOptions = { perfPath, securityPath, licensesPath, io };
 
   let raw;
   try {

@@ -147,17 +147,17 @@
     },
     "LG01": {
       "name": "Legality",
-      "promotion_status": "incubating",
-      "enforcement": "advisory",
+      "promotion_status": "active",
+      "enforcement": "enforced",
       "default": "default-enabled",
       "metrics": {
-        "license-violation-count": {
-          "name": "License Violation Count",
-          "objective": "Count denied or unknown license findings once a license adapter is wired.",
-          "source": "incubating adapter slot",
+        "denied-license-count": {
+          "name": "Denied License Count",
+          "objective": "Count of installed packages whose declared license is missing or outside the OSI-permissive allowlist (MIT, ISC, Apache-2.0, BSD-2/3-Clause, MPL-2.0, CC0-1.0, etc.). Source: harness/sensors/license_scan.mjs walks every node_modules root that exists on disk. The bin/sensors wrapper invokes the scanner and passes --licenses=<path> (bead create-harness-app-2zz.3).",
+          "source": "harness/sensors/license_scan.mjs denied_count",
           "direction": "max",
           "default_threshold": 0,
-          "baseline": null,
+          "baseline": 0,
           "fail_on_regression": true
         }
       }
