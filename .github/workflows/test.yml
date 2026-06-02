@@ -11,8 +11,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
       - uses: pnpm/action-setup@v4
         with:
           version: 9.0.0
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm exec vitest run scripts/tests --coverage
+
+  fitness:
+    # APSS 8-dimension architectural fitness gate (bead
+    # create-harness-app-2zz). Mirrors the lefthook pre-push sensors-gate
+    # so a fork that bypasses local hooks still gets blocked on regression
+    # at PR time.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install sensors slot deps (ts-morph)
+        working-directory: harness/sensors
+        run: npm install --no-package-lock --no-audit --no-fund --silent
+      - name: Run APSS fitness gate
+        run: harness/sensors/bin/sensors gate
+      - name: Run perf fitness gate
+        run: harness/perf/bench.sh | node harness/perf/gate.mjs

@@ -185,14 +185,23 @@
       "enforcement": "advisory",
       "default": "opt-in",
       "metrics": {
-        "performance-regression-value": {
-          "name": "Performance Regression Value",
-          "objective": "Track performance regression measurements once a benchmark adapter is wired.",
-          "source": "incubating adapter slot",
+        "startup-benchmark-mean": {
+          "name": "Maximum Startup Benchmark Mean",
+          "objective": "Maximum hyperfine benchmark mean wall-clock from harness/perf/baseline.json. Reports the committed perf floor; the separate harness/perf gate enforces regression at pre-push with its own per-benchmark tolerance.",
+          "source": "harness/perf/baseline.json benchmarks.[*].mean",
           "direction": "max",
-          "default_threshold": 0,
+          "default_threshold": 5,
           "baseline": null,
-          "fail_on_regression": true
+          "fail_on_regression": false
+        },
+        "startup-benchmark-count": {
+          "name": "Startup Benchmark Count",
+          "objective": "Number of benchmarks committed in harness/perf/baseline.json. Floor of zero is acceptable until hyperfine has produced a real measurement.",
+          "source": "harness/perf/baseline.json benchmarks",
+          "direction": "min",
+          "default_threshold": 0,
+          "baseline": 0,
+          "fail_on_regression": false
         }
       }
     },

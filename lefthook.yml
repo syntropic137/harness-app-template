@@ -105,6 +105,31 @@ pre-push:
       # JSON sentinel that the gate treats as "no benchmarks this run").
       run: harness/perf/bench.sh | node harness/perf/gate.mjs
 
+    sensors-gate:
+      # APSS 8-dimension architectural fitness gate (bead
+      # create-harness-app-2zz). Wraps harness/sensors/bin/sensors gate,
+      # which runs the cruiser + ts-morph + APSS topology pipeline and
+      # checks for regressions against harness/sensors/baseline.json.
+      # Enforced metrics on MT01 + MD01 will fail this hook on any
+      # per-folder I or D regression and on cognitive / cyclomatic /
+      # fan-out / main-sequence-distance / instability-range regressions.
+      # Advisory dimensions (ST01, SC01, LG01, AC01, PF01, AV01) report
+      # but never fail. The hook itself soft-skips when node or npx is
+      # missing so a freshly-cloned environment without those installed
+      # can still commit and push.
+      run: |
+        sh -eu -c '
+          if ! command -v node >/dev/null 2>&1; then
+            printf "%s\n" "warning: node not found; skipping sensors fitness gate" >&2
+            exit 0
+          fi
+          if ! command -v npx >/dev/null 2>&1; then
+            printf "%s\n" "warning: npx not found; skipping sensors fitness gate" >&2
+            exit 0
+          fi
+          harness/sensors/bin/sensors gate
+        '
+
     ubs-diff:
       run: |
         sh -eu -c '

@@ -220,14 +220,26 @@ const FITNESS_METRICS = {
   ],
   PF01: [
     {
-      id: 'performance-regression-value',
-      name: 'Performance Regression Value',
-      objective: 'Track performance regression measurements once a benchmark adapter is wired.',
-      source: 'incubating adapter slot',
+      id: 'startup-benchmark-mean',
+      name: 'Maximum Startup Benchmark Mean',
+      objective:
+        'Maximum hyperfine benchmark mean wall-clock from harness/perf/baseline.json. Reports the committed perf floor; the separate harness/perf gate enforces regression at pre-push with its own per-benchmark tolerance.',
+      source: 'harness/perf/baseline.json benchmarks.[*].mean',
       direction: 'max',
+      default_threshold: 5,
+      fail_on_regression: false,
+      value: (_report, options) => maxNumber(perfBenchmarkMeans(options)),
+    },
+    {
+      id: 'startup-benchmark-count',
+      name: 'Startup Benchmark Count',
+      objective:
+        'Number of benchmarks committed in harness/perf/baseline.json. Floor of zero is acceptable until hyperfine has produced a real measurement.',
+      source: 'harness/perf/baseline.json benchmarks',
+      direction: 'min',
       default_threshold: 0,
-      fail_on_regression: true,
-      value: () => null,
+      fail_on_regression: false,
+      value: (_report, options) => perfBenchmarkMeans(options).length,
     },
   ],
   AV01: [
@@ -264,6 +276,30 @@ function maxNumber(values) {
   return nums.length === 0 ? null : Math.max(...nums);
 }
 
+/**
+ * Read the perf baseline benchmarks the PF01 dimension watches. Accepts
+ * either a pre-parsed object on options.perf or a filesystem reader
+ * pair on options.io that points at a path on options.perfPath. Used
+ * to wire the existing harness/perf adapter into the APSS fitness gate
+ * (bead create-harness-app-2zz).
+ */
+function perfBenchmarkMeans(options) {
+  let perf = options?.perf;
+  if (!perf && options?.io && options?.perfPath) {
+    if (options.io.fileExists?.(options.perfPath)) {
+      try {
+        perf = JSON.parse(options.io.readFile(options.perfPath));
+      } catch {
+        perf = null;
+      }
+    }
+  }
+  const benchmarks = perf?.benchmarks ?? {};
+  return Object.values(benchmarks)
+    .map((b) => (typeof b?.mean === 'number' ? b.mean : null))
+    .filter((v) => typeof v === 'number');
+}
+
 function worsened(direction, current, baseline) {
   if (typeof current !== 'number' || typeof baseline !== 'number') {
     return false;
@@ -294,13 +330,13 @@ export function extractBaselineMetrics(report) {
   return { folders };
 }
 
-export function extractApssFitnessBaseline(report) {
+export function extractApssFitnessBaseline(report, options = {}) {
   const dimensions = {};
   for (const code of DIMENSION_ORDER) {
     const dimension = DIMENSIONS[code];
     const metrics = {};
     for (const metric of FITNESS_METRICS[code] ?? []) {
-      const baseline = metric.value(report);
+      const baseline = metric.value(report, options);
       metrics[metric.id] = {
         name: metric.name,
         objective: metric.objective,
@@ -392,8 +428,8 @@ function compareLegacyBaseline(baseline, currentReport) {
   };
 }
 
-export function compareFitnessBaseline(baseline, currentReport) {
-  const current = extractApssFitnessBaseline(currentReport);
+export function compareFitnessBaseline(baseline, currentReport, options = {}) {
+  const current = extractApssFitnessBaseline(currentReport, options);
   const regressions = [];
   const advisoryRegressions = [];
   const missingBaselines = [];
@@ -491,13 +527,13 @@ export function compareFitnessBaseline(baseline, currentReport) {
  * only `folders` keep the n48 I/D behavior. New baselines with
  * `dimensions` also enforce APSS active MT01/MD01 metric regressions.
  */
-export function compareBaseline(baseline, currentReport) {
+export function compareBaseline(baseline, currentReport, options = {}) {
   const legacy = compareLegacyBaseline(baseline, currentReport);
   if (!baseline?.dimensions) {
     return legacy;
   }
 
-  const fitness = compareFitnessBaseline(baseline, currentReport);
+  const fitness = compareFitnessBaseline(baseline, currentReport, options);
   const regressions = [...legacy.regressions, ...fitness.regressions];
   return {
     ok: legacy.ok && fitness.ok,
@@ -538,9 +574,16 @@ export function renderReport(comparison) {
   }
   if (comparison.fitness) {
     const { fitnessComparedMetrics, advisoryRegressions, missingBaselines } = comparison.summary;
+    const dimEntries = DIMENSION_ORDER.map((code) => comparison.fitness.dimensions?.[code]).filter(Boolean);
+    const enforced = dimEntries.filter((d) => d.enforcement === 'enforced');
+    const advisory = dimEntries.filter((d) => d.enforcement === 'advisory');
+    const enforcedEvaluated = enforced.filter((d) => d.rules_evaluated > 0).length;
+    const advisoryEvaluated = advisory.filter((d) => d.rules_evaluated > 0).length;
     lines.push('');
     lines.push(
-      `APSS fitness: ${fitnessComparedMetrics} metric(s) compared; ` +
+      `APSS fitness: ${enforcedEvaluated}/${enforced.length} enforced ` +
+        `dimensions actively gating; ${advisoryEvaluated}/${advisory.length} ` +
+        `advisory dimensions reporting; ${fitnessComparedMetrics} metric(s) compared; ` +
         `${advisoryRegressions} advisory regression(s); ${missingBaselines} missing baseline(s).`,
     );
     for (const code of DIMENSION_ORDER) {
@@ -548,10 +591,12 @@ export function renderReport(comparison) {
       if (!d) {
         continue;
       }
-      lines.push(
-        `  ${code} ${d.name}: ${d.runtime_status}, ${d.promotion_status}, ` +
-          `${d.enforcement}, evaluated ${d.rules_evaluated}`,
-      );
+      const tag = d.enforcement === 'enforced' ? '[ENFORCED]' : '[advisory]';
+      const lane =
+        d.rules_evaluated > 0
+          ? `evaluated ${d.rules_evaluated}, failed ${d.rules_failed}, warned ${d.rules_warned}`
+          : 'no adapter wired';
+      lines.push(`  ${tag} ${code} ${d.name}: ${lane}`);
     }
   }
   if (comparison.regressions.length > 0) {
@@ -613,17 +658,22 @@ export async function main(
   },
 ) {
   let baselinePath = 'harness/sensors/baseline.json';
+  let perfPath = 'harness/perf/baseline.json';
   let updateBaseline = false;
   let firstRunMode = 'snapshot';
   for (const a of argv) {
     if (a.startsWith('--baseline=')) {
       baselinePath = a.slice('--baseline='.length);
+    } else if (a.startsWith('--perf-baseline=')) {
+      perfPath = a.slice('--perf-baseline='.length);
     } else if (a === '--update-baseline') {
       updateBaseline = true;
     } else if (a.startsWith('--first-run-mode=')) {
       firstRunMode = a.slice('--first-run-mode='.length);
     }
   }
+
+  const fitnessOptions = { perfPath, io };
 
   let raw;
   try {
@@ -644,7 +694,7 @@ export async function main(
     return 2;
   }
 
-  const currentBaseline = extractApssFitnessBaseline(report);
+  const currentBaseline = extractApssFitnessBaseline(report, fitnessOptions);
 
   if (updateBaseline) {
     io.writeFile(baselinePath, `${JSON.stringify(currentBaseline, null, 2)}\n`);
@@ -676,7 +726,7 @@ export async function main(
     return 2;
   }
 
-  const comparison = compareBaseline(baseline, report);
+  const comparison = compareBaseline(baseline, report, fitnessOptions);
   io.write(renderReport(comparison));
   return comparison.ok ? 0 : 1;
 }
