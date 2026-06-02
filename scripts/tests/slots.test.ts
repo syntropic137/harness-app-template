@@ -77,6 +77,76 @@ describe('slot manifest resolver', () => {
     ).toThrow('Slot sensors has contract inspector in harness.manifest.json');
   });
 
+  test('uses the fallback entrypoint when a slot is absent', () => {
+    const invocation = resolveSlotInvocation('inspector', ['--help'], {
+      cwd: '/repo',
+      fallbackEntrypoint: 'harness/inspector/bin/inspector',
+      readText: () => manifest(activeSensorsSlot),
+    });
+
+    expect(invocation).toMatchObject({
+      disabled: false,
+      command: 'harness/inspector/bin/inspector',
+      args: ['--help'],
+      slot: {
+        contract: 'inspector',
+        plugin: 'fallback',
+        required: true,
+        swappable: false,
+        interface: {
+          type: 'cli',
+          entrypoint: 'harness/inspector/bin/inspector',
+        },
+      },
+    });
+  });
+
+  test('rejects a missing slot when no fallback entrypoint is provided', () => {
+    expect(() =>
+      resolveSlotInvocation('inspector', ['--help'], {
+        cwd: '/repo',
+        readText: () => manifest(activeSensorsSlot),
+      }),
+    ).toThrow('Slot inspector is not defined in harness.manifest.json');
+  });
+
+  test('rejects an active slot with no manifest or fallback entrypoint', () => {
+    expect(() =>
+      resolveSlotInvocation('sensors', ['report'], {
+        cwd: '/repo',
+        readText: () =>
+          manifest({
+            ...activeSensorsSlot,
+            interface: {
+              type: 'cli',
+            },
+          }),
+      }),
+    ).toThrow('Slot sensors does not define interface.entrypoint in harness.manifest.json');
+  });
+
+  test('uses a fallback entrypoint for an active slot without an entrypoint', () => {
+    const invocation = resolveSlotInvocation('sensors', ['report'], {
+      cwd: '/repo',
+      fallbackEntrypoint: 'harness/fallback-sensors/bin/sensors',
+      readText: () =>
+        `${JSON.stringify({
+          slots: {
+            sensors: {
+              ...activeSensorsSlot,
+              interface: undefined,
+            },
+          },
+        })}\n`,
+    });
+
+    expect(invocation).toMatchObject({
+      disabled: false,
+      command: 'harness/fallback-sensors/bin/sensors',
+      args: ['report'],
+    });
+  });
+
   test('resolves the swapped my-custom-sensors plugin entrypoint', () => {
     const customSensorsSlot: SlotConfig = {
       contract: 'sensors',
@@ -89,7 +159,7 @@ describe('slot manifest resolver', () => {
         commands: ['report', 'gate'],
       },
     };
-    
+
     const invocation = resolveSlotInvocation('sensors', ['report'], {
       cwd: '/repo',
       readText: () => manifest(customSensorsSlot),
@@ -109,5 +179,16 @@ describe('slot manifest resolver', () => {
         readText: () => '{',
       }),
     ).toThrow('/repo/harness.manifest.json is not valid JSON:');
+  });
+
+  test('reports non-error manifest read failures with the manifest path', () => {
+    expect(() =>
+      resolveSlotInvocation('sensors', ['report'], {
+        cwd: '/repo',
+        readText: () => {
+          throw 'plain failure';
+        },
+      }),
+    ).toThrow('/repo/harness.manifest.json is not valid JSON: plain failure');
   });
 });
