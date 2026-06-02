@@ -4,6 +4,7 @@ import {
   copyFileSync,
   existsSync,
   lstatSync,
+  mkdirSync,
   readdirSync,
   readlinkSync,
   type Stats,
@@ -13,6 +14,8 @@ import {
 import { join } from 'node:path';
 
 export type ChmodFn = (path: string, mode: number) => void;
+export type MkdirFn = (path: string, options: { recursive: true }) => void;
+export type SymlinkFn = (target: string, path: string) => void;
 
 export interface VendorFs {
   lstat: (path: string) => Pick<Stats, 'isSymbolicLink' | 'isFile' | 'isDirectory'> | null;
@@ -58,6 +61,8 @@ export interface BootstrapDeps {
   readdir?: (path: string) => string[];
   copyFile?: (src: string, dst: string) => void;
   chmod?: ChmodFn;
+  mkdir?: MkdirFn;
+  symlink?: SymlinkFn;
   vendorFs?: VendorFs;
 }
 
@@ -159,6 +164,8 @@ export function repairEsbuildMismatch(
   exists: (path: string) => boolean = existsSync,
   copyFile: (src: string, dst: string) => void = copyFileSync,
   chmod: ChmodFn = chmodSync,
+  mkdir: MkdirFn = mkdirSync,
+  symlink: SymlinkFn = symlinkSync,
 ): boolean {
   const source = join(
     cwd,
@@ -176,6 +183,31 @@ export function repairEsbuildMismatch(
   }
   copyFile(source, mismatch.binPath);
   chmod(mismatch.binPath, 0o755);
+
+  const optionalScopeDir = join(
+    cwd,
+    'node_modules',
+    '.pnpm',
+    `esbuild@${mismatch.version}`,
+    'node_modules',
+    '@esbuild',
+  );
+  const optionalLink = join(optionalScopeDir, platformArch);
+  if (!exists(optionalLink)) {
+    mkdir(optionalScopeDir, { recursive: true });
+    symlink(
+      join(
+        '..',
+        '..',
+        '..',
+        `@esbuild+${platformArch}@${mismatch.version}`,
+        'node_modules',
+        '@esbuild',
+        platformArch,
+      ),
+      optionalLink,
+    );
+  }
   return true;
 }
 
@@ -228,6 +260,8 @@ export function main(deps: BootstrapDeps): void {
   const readdir = deps.readdir ?? readdirSync;
   const copyFile = deps.copyFile ?? copyFileSync;
   const chmod = deps.chmod ?? chmodSync;
+  const mkdir = deps.mkdir ?? mkdirSync;
+  const symlink = deps.symlink ?? symlinkSync;
   const vendorFs = deps.vendorFs ?? defaultVendorFs();
 
   const missing = detectMissingTools(deps.spawn);
@@ -270,7 +304,7 @@ export function main(deps: BootstrapDeps): void {
     );
     let repaired = 0;
     for (const mismatch of mismatches) {
-      if (repairEsbuildMismatch(cwd, mismatch, slug, exists, copyFile, chmod)) {
+      if (repairEsbuildMismatch(cwd, mismatch, slug, exists, copyFile, chmod, mkdir, symlink)) {
         deps.stdout.log(
           `bootstrap: repaired esbuild@${mismatch.version} binary (was ${mismatch.actual})`,
         );

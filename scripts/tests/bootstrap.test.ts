@@ -131,6 +131,8 @@ function baseDeps(overrides: Partial<BootstrapDeps>): BootstrapDeps {
     readdir: overrides.readdir ?? (() => []),
     copyFile: overrides.copyFile ?? vi.fn(),
     chmod: overrides.chmod ?? vi.fn(),
+    mkdir: overrides.mkdir ?? vi.fn(),
+    symlink: overrides.symlink ?? vi.fn(),
     vendorFs: overrides.vendorFs ?? defaultVendorFsForTests(),
   };
 }
@@ -281,6 +283,36 @@ describe('repairEsbuildMismatch', () => {
       mismatch.binPath,
     );
     expect(chmod).toHaveBeenCalledWith(mismatch.binPath, 0o755);
+  });
+
+  test('creates package-local optional platform symlink when missing', () => {
+    const source =
+      '/c/node_modules/.pnpm/@esbuild+linux-x64@0.21.5/node_modules/@esbuild/linux-x64/bin/esbuild';
+    const optionalLink = '/c/node_modules/.pnpm/esbuild@0.21.5/node_modules/@esbuild/linux-x64';
+    const exists = vi.fn((path: string) => path === source);
+    const copyFile = vi.fn();
+    const chmod = vi.fn();
+    const mkdir = vi.fn();
+    const symlink = vi.fn();
+    const ok = repairEsbuildMismatch(
+      '/c',
+      mismatch,
+      'linux-x64',
+      exists,
+      copyFile,
+      chmod,
+      mkdir,
+      symlink,
+    );
+    expect(ok).toBe(true);
+    expect(mkdir).toHaveBeenCalledWith(
+      '/c/node_modules/.pnpm/esbuild@0.21.5/node_modules/@esbuild',
+      { recursive: true },
+    );
+    expect(symlink).toHaveBeenCalledWith(
+      '../../../@esbuild+linux-x64@0.21.5/node_modules/@esbuild/linux-x64',
+      optionalLink,
+    );
   });
 });
 
