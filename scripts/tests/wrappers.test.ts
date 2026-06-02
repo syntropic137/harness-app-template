@@ -21,16 +21,9 @@ describe('thin script wrappers', () => {
     calls.length = 0;
   });
 
-  test('bootstrap checks each required tool/workspace once', async () => {
-    const main = await loadMain('bootstrap');
-    main();
-    expect(calls).toEqual([
-      ['bun', ['--version']],
-      ['pnpm', ['install']],
-      ['cargo', ['check']],
-      ['uv', ['sync']],
-    ]);
-  });
+  // bootstrap is intentionally not a thin wrapper any more: it owns the
+  // preflight + esbuild auto-repair flow. See scripts/tests/bootstrap.test.ts
+  // for its full coverage suite.
 
   test.each([
     ['build', ['pnpm', ['turbo', 'run', 'build', '--filter=...']]],
