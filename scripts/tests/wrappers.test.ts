@@ -89,7 +89,7 @@ describe('thin script wrappers', () => {
     const main = await loadMain('test');
     main(['--filter=...']);
     expect(calls).toEqual([
-      ['pnpm', ['turbo', 'run', 'test', '--filter=...']],
+      ['pnpm', ['turbo', 'run', 'test', '--concurrency=1', '--filter=...']],
       ['pnpm', ['exec', 'vitest', 'run', 'scripts/tests', '--coverage']],
     ]);
   });

@@ -1,7 +1,7 @@
 import { runInherit } from './lib/git';
 
 export function main(argv: string[]): void {
-  runInherit('pnpm', ['turbo', 'run', 'test', ...argv]);
+  runInherit('pnpm', ['turbo', 'run', 'test', '--concurrency=1', ...argv]);
   runInherit('pnpm', ['exec', 'vitest', 'run', 'scripts/tests', '--coverage']);
 }
 
