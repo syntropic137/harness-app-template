@@ -2,3 +2,13 @@ packages:
   - ws_apps/*
   - ws_packages/*
   - harness/*
+
+overrides:
+  esbuild: 0.27.7
+
+allowBuilds:
+  esbuild: true
+  lefthook: true
+  protobufjs: true
+  sharp: true
+  turbo: true
