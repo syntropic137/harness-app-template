@@ -549,6 +549,75 @@ describe('main', () => {
     );
   });
 
+  test('successful install auto-repairs ignored esbuild mismatch before cargo', () => {
+    const sinks = captureSinks();
+    const calls: Array<{ command: string; args: readonly string[] }> = [];
+    const spawn = vi.fn((command: string, args: readonly string[] = []) => {
+      calls.push({ command, args: [...args] });
+      if (command.endsWith('/bin/esbuild') && args[0] === '--version') {
+        return { status: 0, stdout: '0.27.7' };
+      }
+      if (args[0] === '--version') return { status: 0 };
+      if (command === 'pnpm' && args[0] === 'install') return { status: 0 };
+      if (command === 'cargo' && args[0] === 'check') return { status: 0 };
+      if (command === 'uv' && args[0] === 'sync') return { status: 0 };
+      return { status: 0 };
+    });
+    const exists = (path: string) =>
+      path.endsWith('/.pnpm') ||
+      path.endsWith('esbuild@0.21.5/node_modules/esbuild/bin/esbuild') ||
+      path.endsWith('@esbuild+linux-x64@0.21.5/node_modules/@esbuild/linux-x64/bin/esbuild');
+    const copyFile = vi.fn();
+    const chmod = vi.fn();
+    main(
+      baseDeps({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks.stdout,
+        stderr: sinks.stderr,
+        exit: sinks.exit,
+        exists,
+        readdir: () => ['esbuild@0.21.5'],
+        copyFile,
+        chmod,
+      }),
+    );
+    expect(sinks.exit).not.toHaveBeenCalled();
+    expect(copyFile).toHaveBeenCalledTimes(1);
+    expect(chmod).toHaveBeenCalledTimes(1);
+    expect(calls.some((c) => c.command === 'pnpm' && c.args[0] === 'rebuild')).toBe(false);
+    expect(sinks.stdoutLog).toHaveBeenCalledWith('bootstrap: complete');
+  });
+
+  test('successful install exits when ignored esbuild mismatch cannot be repaired', () => {
+    const sinks = captureSinks();
+    const spawn = vi.fn((command: string, args: readonly string[] = []) => {
+      if (command.endsWith('/bin/esbuild') && args[0] === '--version') {
+        return { status: 0, stdout: '0.27.7' };
+      }
+      if (args[0] === '--version') return { status: 0 };
+      if (command === 'pnpm' && args[0] === 'install') return { status: 0 };
+      return { status: 0 };
+    });
+    const exists = (path: string) =>
+      path.endsWith('/.pnpm') || path.endsWith('esbuild@0.21.5/node_modules/esbuild/bin/esbuild');
+    expect(() =>
+      main(
+        baseDeps({
+          spawn: spawn as unknown as BootstrapDeps['spawn'],
+          stdout: sinks.stdout,
+          stderr: sinks.stderr,
+          exit: sinks.exit,
+          exists,
+          readdir: () => ['esbuild@0.21.5'],
+        }),
+      ),
+    ).toThrow('__exit__');
+    expect(sinks.exit).toHaveBeenCalledWith(1);
+    expect(sinks.stderrError).toHaveBeenCalledWith(
+      expect.stringMatching(/no platform binary available for esbuild@0\.21\.5/),
+    );
+  });
+
   test('cargo check failure exits 1', () => {
     const sinks = captureSinks();
     const spawn = vi.fn((command: string, args: readonly string[] = []) => {

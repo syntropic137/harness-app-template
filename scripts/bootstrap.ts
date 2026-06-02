@@ -258,14 +258,12 @@ export function main(deps: BootstrapDeps): void {
     return;
   }
 
-  const installStatus = runInherit(deps.spawn, 'pnpm', ['install'], cwd);
-  if (installStatus !== 0) {
+  const repairDetectedEsbuildMismatches = (): { detected: number; repaired: number } => {
     const mismatches = detectEsbuildMismatches(cwd, deps.spawn, exists, readdir);
     if (mismatches.length === 0) {
-      deps.stderr.error('bootstrap: pnpm install failed and no known auto-repair applies');
-      deps.exit(installStatus);
-      return;
+      return { detected: 0, repaired: 0 };
     }
+
     const slug = platformArchSlug(platform, arch);
     deps.stdout.log(
       `bootstrap: detected ${mismatches.length} esbuild binary mismatch(es); repairing for ${slug}`,
@@ -283,7 +281,18 @@ export function main(deps: BootstrapDeps): void {
         );
       }
     }
-    if (repaired === 0) {
+    return { detected: mismatches.length, repaired };
+  };
+
+  const installStatus = runInherit(deps.spawn, 'pnpm', ['install'], cwd);
+  if (installStatus !== 0) {
+    const repair = repairDetectedEsbuildMismatches();
+    if (repair.detected === 0) {
+      deps.stderr.error('bootstrap: pnpm install failed and no known auto-repair applies');
+      deps.exit(installStatus);
+      return;
+    }
+    if (repair.repaired === 0) {
       deps.exit(installStatus);
       return;
     }
@@ -291,6 +300,12 @@ export function main(deps: BootstrapDeps): void {
     if (rebuildStatus !== 0) {
       deps.stderr.error('bootstrap: pnpm rebuild esbuild failed after binary repair');
       deps.exit(rebuildStatus);
+      return;
+    }
+  } else {
+    const repair = repairDetectedEsbuildMismatches();
+    if (repair.detected > 0 && repair.repaired === 0) {
+      deps.exit(1);
       return;
     }
   }
