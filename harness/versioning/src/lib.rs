@@ -258,7 +258,7 @@ fn build_release_plan(
         _ => latest_release_tag(root, &to)?,
     };
     let base_version = match &resolved_from {
-        Some(tag) => Version::parse_tag(tag).unwrap_or_else(|| Version::zero()),
+        Some(tag) => Version::parse_tag(tag).unwrap_or_else(Version::zero),
         None => Version::zero(),
     };
     let commits = collect_commits(root, resolved_from.as_deref(), &to)?;
@@ -529,7 +529,7 @@ fn render_changelog_release(content: &str, plan: &ReleasePlan, date: &str) -> Re
     updated.push_str("\n\n");
     updated.push_str(&format!("## [{}] - {date}\n\n", plan.next_version));
     updated.push_str(release_body.trim_end());
-    updated.push_str("\n");
+    updated.push('\n');
     if !after.trim().is_empty() {
         updated.push('\n');
         updated.push_str(after.trim_start());
@@ -655,10 +655,10 @@ fn ensure_clean_tracked_worktree(root: &Path) -> Result<()> {
 }
 
 fn release_date(root: &Path) -> Result<String> {
-    if let Ok(value) = std::env::var("HARNESS_RELEASE_DATE") {
-        if !value.trim().is_empty() {
-            return Ok(value);
-        }
+    if let Ok(value) = std::env::var("HARNESS_RELEASE_DATE")
+        && !value.trim().is_empty()
+    {
+        return Ok(value);
     }
 
     let output = Command::new("date")
