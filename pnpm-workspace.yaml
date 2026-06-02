@@ -2,3 +2,22 @@ packages:
   - ws_apps/*
   - ws_packages/*
   - harness/*
+
+# esbuild ships a postinstall (`node install.js`) that validates the
+# platform binary `node_modules/<esbuild-dir>/bin/esbuild` against the
+# package version. With multiple esbuild versions in the workspace
+# (vite-5 wants 0.21.x, fumadocs-mdx wants 0.27.x, tsx wants 0.28.x),
+# pnpm's content-addressable store occasionally hardlinks the wrong
+# version of that bin file into `esbuild@<X.Y.Z>/node_modules/esbuild/`,
+# the postinstall throws `Expected "X.Y.Z" but got "Y.Y.Y"`, and
+# `pnpm install` aborts before it can link `node_modules/.bin/turbo`,
+# leaving `just test` / `just lint` red on a fresh clone. We never
+# invoke `esbuild` via CLI (only via vite/vitest's JS API, which
+# resolves the platform binary through `@esbuild/<platform-arch>`),
+# so skipping esbuild's postinstall is safe. `scripts/bootstrap.ts`
+# then ensures every `esbuild@<X.Y.Z>` has the matching
+# `@esbuild/<platform-arch>` symlink (pnpm 9 sometimes omits it for
+# the oldest esbuild version in a multi-version tree) and repairs any
+# mismatched `bin/esbuild` placeholder.
+neverBuiltDependencies:
+  - esbuild

@@ -10,7 +10,7 @@
 // unit tests can hit 100% lines/branches/functions without spawning a
 // subprocess. The script-entry block delegates to `runCli`.
 
-import { context, type Context, type Span, trace } from '@opentelemetry/api';
+import { type Context, context, type Span, trace } from '@opentelemetry/api';
 import { serviceName, shutdownTelemetry } from './telemetry.ts';
 
 const tracer = trace.getTracer(serviceName, '0.1.0');

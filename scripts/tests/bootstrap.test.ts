@@ -399,7 +399,7 @@ describe('main', () => {
     expect(sinks.stdoutLog).toHaveBeenCalledWith('bootstrap: complete');
   });
 
-  test('install failure with no esbuild mismatches surfaces and exits non-zero', () => {
+  test('install failure surfaces and exits with the install status', () => {
     const sinks = captureSinks();
     const spawn = vi
       .fn()
@@ -415,30 +415,28 @@ describe('main', () => {
           stdout: sinks.stdout,
           stderr: sinks.stderr,
           exit: sinks.exit,
-          exists: () => false,
-          readdir: () => [],
         }),
       ),
     ).toThrow('__exit__');
     expect(sinks.exit).toHaveBeenCalledWith(2);
     expect(sinks.stderrError).toHaveBeenCalledWith(
-      'bootstrap: pnpm install failed and no known auto-repair applies',
+      'bootstrap: pnpm install failed; see output above',
     );
   });
 
-  test('install failure with unrepairable mismatch exits with install status', () => {
+  test('install success + unrepairable esbuild mismatch exits 1', () => {
     const sinks = captureSinks();
-    const spawn = vi
-      .fn()
-      .mockImplementationOnce(() => ({ status: 0 })) // bun preflight
-      .mockImplementationOnce(() => ({ status: 0 })) // pnpm preflight
-      .mockImplementationOnce(() => ({ status: 0 })) // cargo preflight
-      .mockImplementationOnce(() => ({ status: 0 })) // uv preflight
-      .mockImplementationOnce(() => ({ status: 1 })) // pnpm install
-      .mockImplementationOnce(() => ({ status: 0, stdout: '0.27.7' })); // esbuild --version probe
+    const spawn = vi.fn((command: string, args: readonly string[] = []) => {
+      if (command.endsWith('/bin/esbuild') && args[0] === '--version') {
+        return { status: 0, stdout: '0.27.7' };
+      }
+      if (args[0] === '--version') return { status: 0 };
+      return { status: 0 };
+    });
     const exists = vi.fn((path: string) => {
       if (path.endsWith('node_modules/.pnpm')) return true;
       if (path.endsWith('esbuild@0.21.5/node_modules/esbuild/bin/esbuild')) return true;
+      // platform-arch source binary missing → repair returns false
       return false;
     });
     expect(() =>
@@ -459,29 +457,13 @@ describe('main', () => {
     );
   });
 
-  test('install failure auto-repairs esbuild and rebuilds successfully', () => {
+  test('install success + repairable esbuild mismatch logs the repair and continues', () => {
     const sinks = captureSinks();
-    const calls: Array<{ command: string; args: readonly string[] }> = [];
     const spawn = vi.fn((command: string, args: readonly string[] = []) => {
-      calls.push({ command, args: [...args] });
       if (command.endsWith('/bin/esbuild') && args[0] === '--version') {
         return { status: 0, stdout: '0.27.7' };
       }
-      if (args[0] === '--version') {
-        return { status: 0 };
-      }
-      if (command === 'pnpm' && args[0] === 'install') {
-        return { status: 1 };
-      }
-      if (command === 'pnpm' && args[0] === 'rebuild') {
-        return { status: 0 };
-      }
-      if (command === 'cargo' && args[0] === 'check') {
-        return { status: 0 };
-      }
-      if (command === 'uv' && args[0] === 'sync') {
-        return { status: 0 };
-      }
+      if (args[0] === '--version') return { status: 0 };
       return { status: 0 };
     });
     const exists = vi.fn((path: string) => {
@@ -508,45 +490,10 @@ describe('main', () => {
     expect(sinks.exit).not.toHaveBeenCalled();
     expect(copyFile).toHaveBeenCalledTimes(1);
     expect(chmod).toHaveBeenCalledTimes(1);
-    expect(
-      calls.some((c) => c.command === 'pnpm' && c.args[0] === 'rebuild' && c.args[1] === 'esbuild'),
-    ).toBe(true);
-    expect(sinks.stdoutLog).toHaveBeenCalledWith('bootstrap: complete');
-  });
-
-  test('rebuild failure after repair exits with rebuild status', () => {
-    const sinks = captureSinks();
-    const spawn = vi.fn((command: string, args: readonly string[] = []) => {
-      if (args[0] === '--version') {
-        if (command.endsWith('/bin/esbuild')) {
-          return { status: 0, stdout: '0.27.7' };
-        }
-        return { status: 0 };
-      }
-      if (command === 'pnpm' && args[0] === 'install') return { status: 1 };
-      if (command === 'pnpm' && args[0] === 'rebuild') return { status: 5 };
-      return { status: 0 };
-    });
-    const exists = (path: string) =>
-      path.endsWith('/.pnpm') ||
-      path.endsWith('esbuild@0.21.5/node_modules/esbuild/bin/esbuild') ||
-      path.endsWith('@esbuild+linux-x64@0.21.5/node_modules/@esbuild/linux-x64/bin/esbuild');
-    expect(() =>
-      main(
-        baseDeps({
-          spawn: spawn as unknown as BootstrapDeps['spawn'],
-          stdout: sinks.stdout,
-          stderr: sinks.stderr,
-          exit: sinks.exit,
-          exists,
-          readdir: () => ['esbuild@0.21.5'],
-        }),
-      ),
-    ).toThrow('__exit__');
-    expect(sinks.exit).toHaveBeenCalledWith(5);
-    expect(sinks.stderrError).toHaveBeenCalledWith(
-      'bootstrap: pnpm rebuild esbuild failed after binary repair',
+    expect(sinks.stdoutLog).toHaveBeenCalledWith(
+      expect.stringMatching(/repaired esbuild@0\.21\.5/),
     );
+    expect(sinks.stdoutLog).toHaveBeenCalledWith('bootstrap: complete');
   });
 
   test('cargo check failure exits 1', () => {
