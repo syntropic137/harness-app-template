@@ -36,7 +36,7 @@ This template is **standalone**: extracted once from the upstream R&D repo ([`ag
    ```
 
 4. **Run `just init <your-project-name>`** at the repo root. The script (`scripts/init.ts`, TypeScript via Bun, ≤150 lines) does a bounded set of renames — seed names `@example/typescript`, `@example/rust`, `@example/python`, `example-rust`, `example-python` → your project's equivalents; sets `pyproject.toml#project.name`; renames the compose project namespace at `harness/observability/compose.harness.yml`; writes `.harness-provenance.json` (git-native — `canonical_repo`, `canonical_commit`, `forked_at`); removes `TEMPLATE.md` and this `<!-- TEMPLATE-DOC-START/END -->` block. Fails fast if `bun`, `pnpm`, `cargo`, or `uv` aren't on `PATH`.
-5. **Run `just bootstrap && just build && just test`** to confirm everything wired up. `just` is the canonical entrypoint — every recipe is one line away.
+5. **Run `just bootstrap && just build && just test`** to confirm everything wired up. `just` is the canonical task surface for humans and agents. Prefer `just <recipe>` over direct `pnpm`, `turbo`, `cargo`, or `uv` calls unless a recipe explicitly delegates there.
 6. **Commit + push.** Your fork is now your project.
 
 > A future `npx create-harness-app` scaffolder is planned to wrap this template (variable substitution + multi-template selection) for users who prefer a CLI to the fork-first flow. It will be a separate repo; this template repo remains the canonical artifact. Until then, fork or "Use this template" is the supported get-started path.
@@ -142,7 +142,7 @@ Eleven slots, eleven plugin picks. Standard pinned at **v0.2** (additive-only si
 | [CHA Sync Source of Truth](./docs/adrs/ADR-0015-cha-sync-source-of-truth.md) | Treat the template as standalone canonical repo, not live-synced from the lab |
 | [Create Harness App Wrapper](./docs/adrs/ADR-0016-createapp-wrapper-design.md) | Design a future npx create-harness-app wrapper as an additive scaffolding path |
 
-All workspace members under `ws_apps/` and `ws_packages/` participate in the same Turborepo task graph regardless of primary language, via the [language-wrapper](#6-language-wrapper) pattern.
+All workspace members under `ws_apps/` and `ws_packages/` participate in the same Turborepo task graph regardless of primary language, via the [language-wrapper](#6-language-wrapper) pattern. `ws_apps/docs` is a workspace member for the documentation web app, not the root prose documentation folder; repository docs live under `docs/`.
 
 This template pins Tool-Belt Harness Standard v0.2 (additive-only since v0.1).
 

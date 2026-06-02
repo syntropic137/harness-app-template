@@ -1,4 +1,4 @@
-# Agentic Harness template task runner.
+# Agentic Harness template canonical task surface.
 #
 # Recipes stay thin by design: implementation lives in typed scripts under
 # scripts/*.ts so the behavior is testable and shared across entrypoints.
