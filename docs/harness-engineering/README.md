@@ -19,6 +19,8 @@ This area covers patterns, principles, and tools for making AI agents reliable, 
 
 ## Actionable
 
+**[Slot Architecture](slot-architecture.md)** — explains the template's plug-and-play slot model, how contracts map to swappable plugins, and a worked example for swapping one.
+
 **[Capability Checklist](capability-checklist.md)** — distilled task list for building an effective harness, organized by domain (infrastructure, browser legibility, observability, autonomous loop, etc.).
 
 **[Key Passages](key-passages.md)** — essential excerpts from the OpenAI articles on autonomy levels and agent-generated codebases.
