@@ -6,6 +6,29 @@ on:
     branches: [main]
 
 jobs:
+  workspace-qa:
+    name: workspace qa (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.1
+      - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm qa
+
   scripts:
     runs-on: ubuntu-latest
     steps:
@@ -16,7 +39,7 @@ jobs:
           node-version: '20'
       - uses: pnpm/action-setup@v4
         with:
-          version: 9.0.0
+          version: 11.5.1
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm test:coverage
 

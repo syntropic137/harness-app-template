@@ -35,6 +35,10 @@ describe('thin script wrappers', () => {
     ['versioning', ['harness/versioning/bin/versioning', ['check']]],
     ['cargo', ['cargo', ['check']]],
     ['uv', ['uv', ['sync']]],
+    [
+      'qa',
+      ['pnpm', ['turbo', 'run', 'lint', 'typecheck', 'test', '--concurrency=1', '--filter=...']],
+    ],
   ])('%s delegates to the expected command', async (moduleName, expected) => {
     const main = await loadMain(moduleName);
     main((expected[1] as string[]).slice(-1));

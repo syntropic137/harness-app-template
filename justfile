@@ -18,6 +18,9 @@ test *args:
 test-coverage *args:
     bun run scripts/test-coverage.ts {{args}}
 
+qa *args:
+    bun run scripts/qa.ts {{args}}
+
 lint *args:
     bun run scripts/lint.ts {{args}}
 

@@ -12,6 +12,7 @@
     "test:coverage": "bun run scripts/test-coverage.ts",
     "test:scripts": "vitest run scripts/tests --coverage",
     "cov:rust": "just cov-rust",
+    "qa": "bun run scripts/qa.ts",
     "lint": "bun run scripts/lint.ts"
   },
   "devDependencies": {

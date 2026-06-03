@@ -1,0 +1,10 @@
+import { runInherit } from './lib/git';
+
+export function main(argv: string[] = []): void {
+  runInherit('pnpm', ['turbo', 'run', 'lint', 'typecheck', 'test', '--concurrency=1', ...argv]);
+}
+
+/* v8 ignore next 3 */
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main(process.argv.slice(2));
+}
