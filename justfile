@@ -36,6 +36,10 @@ review *args:
 boot *args:
     bun run scripts/boot.ts {{args}}
 
+# Run the live polyglot telemetry roundtrip smoke against the local observability stack.
+observability-smoke:
+    harness/observability/smoke.sh
+
 init project-name:
     bun run scripts/init.ts {{project-name}}
 
