@@ -70,7 +70,8 @@ jobs:
         with:
           tool: just
       - run: uv sync --project ws_apps/example-python
-      - run: uv run --project ws_apps/example-python mypy src
+      - run: sh scripts/with-uv.sh uv run mypy src
+        working-directory: ws_apps/example-python
       - run: just cov-py
 
   fitness:
