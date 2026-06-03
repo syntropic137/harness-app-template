@@ -4,15 +4,23 @@
 // outside the captured-IO mocks).
 import { describe, expect, test } from 'vitest';
 import {
+  applyPolicyExcludes,
   compareBaseline,
+  evaluateGovernancePolicy,
   extractBaselineMetrics,
   main,
+  parsePolicy,
+  readingsFromReport,
   renderReport,
   // @ts-expect-error - plain ESM, no .d.ts ships with the slot.
 } from '../../harness/sensors/gate.mjs';
 
 function reportWith(folders: Array<{ name: string; I?: number | null; D?: number | null }>): {
-  workspace: { folders: Array<{ name: string; I: number | null; D: number | null }> };
+  workspace: {
+    folders: Array<{ name: string; I: number | null; D: number | null }>;
+    modules: Array<{ source: string; I: number | null; D: number | null }>;
+    circular_edges: number;
+  };
 } {
   return {
     workspace: {
@@ -21,7 +29,32 @@ function reportWith(folders: Array<{ name: string; I?: number | null; D?: number
         I: f.I === undefined ? null : f.I,
         D: f.D === undefined ? null : f.D,
       })),
+      modules: folders.map((f) => ({
+        source: `${f.name}/index.ts`,
+        I: f.I === undefined ? null : f.I,
+        D: f.D === undefined ? null : f.D,
+      })),
+      circular_edges: 0,
     },
+  };
+}
+
+function reading(opts: {
+  sensor?: string;
+  metric: string;
+  kind?: 'project' | 'module';
+  path?: string;
+  value: number;
+}) {
+  return {
+    sensor: opts.sensor ?? 'dep-cruiser@17.4.0',
+    metric: opts.metric,
+    scope:
+      opts.kind === 'project'
+        ? { kind: 'project' }
+        : { kind: 'module', path: opts.path ?? 'ws_apps/example/src' },
+    value: opts.value,
+    unit: 'raw',
   };
 }
 
@@ -157,6 +190,114 @@ describe('sensors gate - pure functions', () => {
       summary: { comparedFolders: 1, newFolders: [], removedFolders: [] },
     });
     expect(text).toContain('n/a -> n/a');
+  });
+
+  test('readingsFromReport emits project and module readings for governance policy replay', () => {
+    const report = {
+      workspace: {
+        circular_edges: 2,
+        folders: [{ name: 'ws_apps/a', Ca: 1, Ce: 3, I: 0.75, A: 0.25, D: 0 }],
+        modules: [{ source: 'ws_apps/a/index.ts', Ca: 0, Ce: 2, I: 1, A: 0, D: 0 }],
+      },
+    };
+    const readings = readingsFromReport(report);
+    expect(readings).toContainEqual(
+      expect.objectContaining({
+        sensor: 'dep-cruiser@17.4.0',
+        metric: 'cycle_count',
+        scope: { kind: 'project' },
+        value: 2,
+      }),
+    );
+    expect(readings).toContainEqual(
+      expect.objectContaining({
+        metric: 'instability',
+        scope: { kind: 'module', path: 'ws_apps/a/index.ts' },
+        value: 1,
+      }),
+    );
+  });
+
+  test('governance policy error severity violations fail while warn severity stays advisory', () => {
+    const policy = parsePolicy(`
+      [constraints]
+      max_cycles = 0
+      min_quality_signal = { value = 0.5, severity = "warn" }
+    `);
+    const violations = evaluateGovernancePolicy(
+      [
+        reading({ metric: 'cycle_count', kind: 'project', value: 1 }),
+        reading({
+          sensor: 'sentrux@0.5.7',
+          metric: 'quality_signal',
+          kind: 'project',
+          value: 0.2,
+        }),
+      ],
+      policy,
+    );
+    expect(violations).toHaveLength(2);
+    expect(violations.find((v: { rule: string }) => v.rule === 'max_cycles')).toMatchObject({
+      severity: 'error',
+    });
+    expect(violations.find((v: { rule: string }) => v.rule === 'min_quality_signal')).toMatchObject(
+      {
+        severity: 'warn',
+      },
+    );
+  });
+
+  test('governance policy per_sensor rules honor ignore entries', () => {
+    const policy = parsePolicy(`
+      [[per_sensor]]
+      sensor_prefix = "dep-cruiser"
+      metric = "instability"
+      scope_kind = "module"
+      max_value = 0.8
+      severity = "error"
+
+      [[ignore]]
+      metric = "instability"
+      scope_path = "ws_apps/a/tests"
+      reason = "test harness wiring"
+    `);
+    const violations = evaluateGovernancePolicy(
+      [
+        reading({ metric: 'instability', path: 'ws_apps/a/tests/fake.ts', value: 1 }),
+        reading({ metric: 'instability', path: 'ws_apps/a/src/index.ts', value: 1 }),
+      ],
+      policy,
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toMatchObject({
+      rule: 'dep-cruiser:instability',
+      scope: { kind: 'module', path: 'ws_apps/a/src/index.ts' },
+    });
+  });
+
+  test('governance policy exclude paths suppress readings before evaluation', () => {
+    const policy = parsePolicy(`
+      [[per_sensor]]
+      sensor_prefix = "dep-cruiser"
+      metric = "instability"
+      scope_kind = "module"
+      max_value = 0.8
+      severity = "error"
+
+      [exclude]
+      paths = ["generated", "**/node_modules"]
+    `);
+    const filtered = applyPolicyExcludes(
+      [
+        reading({ metric: 'instability', path: 'ws_apps/a/generated/client.ts', value: 1 }),
+        reading({ metric: 'instability', path: 'ws_apps/a/node_modules/pkg/index.ts', value: 1 }),
+        reading({ metric: 'instability', path: 'ws_apps/a/src/index.ts', value: 1 }),
+      ],
+      policy,
+    );
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.scope).toEqual({ kind: 'module', path: 'ws_apps/a/src/index.ts' });
+    expect(evaluateGovernancePolicy(filtered, policy)).toHaveLength(1);
   });
 });
 
@@ -312,5 +453,71 @@ describe('sensors gate - CLI main', () => {
     const code = await main([], io);
     expect(code).toBe(2);
     expect(stderr.join('')).toContain('failed to read baseline');
+  });
+
+  test('--readings-from and --format=json emit readings, violations, and exit_code', async () => {
+    const { io, stdout } = makeIo({
+      stdin: '',
+      files: {
+        'harness/sensors/baseline.json': JSON.stringify({ folders: {} }),
+        '/tmp/policy.toml': '[constraints]\nmax_cycles = 0\n',
+        '/tmp/readings.json': JSON.stringify([
+          reading({ metric: 'cycle_count', kind: 'project', value: 3 }),
+        ]),
+      },
+    });
+    const code = await main(
+      ['--policy=/tmp/policy.toml', '--readings-from=/tmp/readings.json', '--format=json'],
+      io,
+    );
+    expect(code).toBe(1);
+    let payload: {
+      exit_code: number;
+      readings: unknown[];
+      violations: Array<Record<string, unknown>>;
+    };
+    try {
+      payload = JSON.parse(stdout.join(''));
+    } catch (err) {
+      throw new Error(`expected JSON payload: ${(err as Error).message}`);
+    }
+    expect(payload.exit_code).toBe(1);
+    expect(payload.readings).toHaveLength(1);
+    expect(payload.violations).toHaveLength(1);
+    expect(payload.violations[0]).toMatchObject({
+      rule: 'max_cycles',
+      severity: 'error',
+      observed: 3,
+      threshold: 0,
+    });
+  });
+
+  test('warning-only governance violations do not fail the combined gate', async () => {
+    const { io, stdout } = makeIo({
+      stdin: '',
+      files: {
+        'harness/sensors/baseline.json': JSON.stringify({ folders: {} }),
+        '/tmp/policy.toml':
+          '[constraints]\nmin_quality_signal = { value = 0.5, severity = "warn" }\n',
+        '/tmp/readings.json': JSON.stringify([
+          reading({
+            sensor: 'sentrux@0.5.7',
+            metric: 'quality_signal',
+            kind: 'project',
+            value: 0.2,
+          }),
+        ]),
+      },
+    });
+    const code = await main(
+      ['--policy=/tmp/policy.toml', '--readings-from=/tmp/readings.json'],
+      io,
+    );
+    expect(code).toBe(0);
+    const out = stdout.join('');
+    expect(out).toContain('VERDICT: PASS sensors gate');
+    expect(out).toContain('Governance policy: PASS /tmp/policy.toml');
+    expect(out).toContain('warnings:');
+    expect(out).toContain('exit 0 for governance policy because warnings do not fail');
   });
 });

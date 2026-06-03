@@ -27,9 +27,13 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import toml from '@iarna/toml';
 
 const EPSILON = 1e-6;
 const FITNESS_SCHEMA_VERSION = '1.0.0';
+const DEFAULT_POLICY_PATH = 'harness/.harness/governance.toml';
+const DEPCRUISER_SENSOR = 'dep-cruiser@17.4.0';
+const TEMPLATE_SENSOR = 'harness-sensors@template';
 
 const DIMENSION_ORDER = ['MT01', 'MD01', 'ST01', 'SC01', 'LG01', 'AC01', 'PF01', 'AV01'];
 
@@ -374,6 +378,364 @@ function perfBenchmarkMeans(options) {
     .filter((v) => typeof v === 'number');
 }
 
+function numericReading(sensor, metric, scope, value, unit = 'raw') {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return { sensor, metric, scope, value, unit };
+}
+
+function pushReading(readings, sensor, metric, scope, value, unit = 'raw') {
+  const reading = numericReading(sensor, metric, scope, value, unit);
+  if (reading) {
+    readings.push(reading);
+  }
+}
+
+function moduleScope(path) {
+  return { kind: 'module', path };
+}
+
+function projectScope() {
+  return { kind: 'project' };
+}
+
+function maxFinite(values) {
+  const nums = values.filter((v) => typeof v === 'number' && Number.isFinite(v));
+  return nums.length === 0 ? null : Math.max(...nums);
+}
+
+export function readingsFromReport(report) {
+  const readings = [];
+  pushReading(
+    readings,
+    DEPCRUISER_SENSOR,
+    'cycle_count',
+    projectScope(),
+    report?.workspace?.circular_edges,
+    'count',
+  );
+
+  const folders = Array.isArray(report?.workspace?.folders) ? report.workspace.folders : [];
+  const modules = Array.isArray(report?.workspace?.modules) ? report.workspace.modules : [];
+  const distanceValues = [];
+
+  for (const folder of folders) {
+    if (typeof folder?.name !== 'string') {
+      continue;
+    }
+    const scope = moduleScope(folder.name);
+    pushReading(readings, DEPCRUISER_SENSOR, 'ca', scope, folder.Ca, 'count');
+    pushReading(readings, DEPCRUISER_SENSOR, 'ce', scope, folder.Ce, 'count');
+    pushReading(readings, DEPCRUISER_SENSOR, 'instability', scope, folder.I, 'ratio');
+    pushReading(readings, TEMPLATE_SENSOR, 'abstractness', scope, folder.A, 'ratio');
+    pushReading(
+      readings,
+      TEMPLATE_SENSOR,
+      'distance_from_main_sequence',
+      scope,
+      folder.D,
+      'distance',
+    );
+    pushReading(readings, TEMPLATE_SENSOR, 'max_cognitive', scope, folder.max_cognitive, 'count');
+    pushReading(readings, TEMPLATE_SENSOR, 'max_cyclomatic', scope, folder.max_cyclomatic, 'count');
+    if (typeof folder.D === 'number') {
+      distanceValues.push(folder.D);
+    }
+  }
+
+  for (const mod of modules) {
+    if (typeof mod?.source !== 'string') {
+      continue;
+    }
+    const scope = moduleScope(mod.source);
+    pushReading(readings, DEPCRUISER_SENSOR, 'ca', scope, mod.Ca, 'count');
+    pushReading(readings, DEPCRUISER_SENSOR, 'ce', scope, mod.Ce, 'count');
+    pushReading(readings, DEPCRUISER_SENSOR, 'instability', scope, mod.I, 'ratio');
+    pushReading(readings, TEMPLATE_SENSOR, 'abstractness', scope, mod.A, 'ratio');
+    pushReading(readings, TEMPLATE_SENSOR, 'distance_from_main_sequence', scope, mod.D, 'distance');
+    pushReading(readings, TEMPLATE_SENSOR, 'max_cognitive', scope, mod.max_cognitive, 'count');
+    pushReading(readings, TEMPLATE_SENSOR, 'max_cyclomatic', scope, mod.max_cyclomatic, 'count');
+    if (typeof mod.D === 'number') {
+      distanceValues.push(mod.D);
+    }
+    pushReading(
+      readings,
+      'apss-topology',
+      'efferent_coupling',
+      scope,
+      mod.apss?.efferent_coupling ?? mod.apss?.ce,
+      'count',
+    );
+    pushReading(readings, 'apss-topology', 'instability', scope, mod.apss?.instability, 'ratio');
+    pushReading(
+      readings,
+      'apss-topology',
+      'distance_from_main_sequence',
+      scope,
+      mod.apss?.distance_from_main_sequence,
+      'distance',
+    );
+  }
+
+  pushReading(
+    readings,
+    TEMPLATE_SENSOR,
+    'distance_from_main_sequence',
+    projectScope(),
+    maxFinite(distanceValues),
+    'distance',
+  );
+  return readings;
+}
+
+function comparisonOpFromKey(key) {
+  if (key.startsWith('min_')) {
+    return 'min';
+  }
+  if (key.startsWith('max_')) {
+    return 'max';
+  }
+  return 'max';
+}
+
+function normalizeSeverity(value) {
+  return value === 'warn' ? 'warn' : 'error';
+}
+
+function normalizeOp(key, value) {
+  if (value === 'min' || value === 'max' || value === 'equals') {
+    return value;
+  }
+  return comparisonOpFromKey(key);
+}
+
+function thresholdFromPolicyValue(key, value) {
+  if (typeof value === 'number') {
+    return { value, severity: 'error', op: comparisonOpFromKey(key) };
+  }
+  if (value && typeof value === 'object' && typeof value.value === 'number') {
+    return {
+      value: value.value,
+      severity: normalizeSeverity(value.severity),
+      op: normalizeOp(key, value.op),
+    };
+  }
+  return null;
+}
+
+export function parsePolicy(raw) {
+  const parsed = toml.parse(raw);
+  const constraints = {};
+  for (const [key, value] of Object.entries(parsed.constraints ?? {})) {
+    const threshold = thresholdFromPolicyValue(key, value);
+    if (threshold) {
+      constraints[key] = threshold;
+    }
+  }
+  const perSensor = [];
+  for (const rule of Array.isArray(parsed.per_sensor) ? parsed.per_sensor : []) {
+    if (
+      typeof rule?.sensor_prefix !== 'string' ||
+      typeof rule?.metric !== 'string' ||
+      (typeof rule.max_value !== 'number' && typeof rule.min_value !== 'number')
+    ) {
+      continue;
+    }
+    perSensor.push({
+      sensor_prefix: rule.sensor_prefix,
+      metric: rule.metric,
+      scope_kind: typeof rule.scope_kind === 'string' ? rule.scope_kind : 'module',
+      max_value: typeof rule.max_value === 'number' ? rule.max_value : null,
+      min_value: typeof rule.min_value === 'number' ? rule.min_value : null,
+      severity: normalizeSeverity(rule.severity),
+    });
+  }
+  const ignore = [];
+  for (const entry of Array.isArray(parsed.ignore) ? parsed.ignore : []) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+    ignore.push({
+      sensor_prefix: typeof entry.sensor_prefix === 'string' ? entry.sensor_prefix : null,
+      metric: typeof entry.metric === 'string' ? entry.metric : null,
+      scope_path: typeof entry.scope_path === 'string' ? entry.scope_path : null,
+      reason: typeof entry.reason === 'string' ? entry.reason : '',
+    });
+  }
+  const excludePaths = Array.isArray(parsed.exclude?.paths)
+    ? parsed.exclude.paths.filter((p) => typeof p === 'string')
+    : [];
+  return {
+    constraints,
+    per_sensor: perSensor,
+    ignore,
+    exclude: { paths: excludePaths },
+  };
+}
+
+function metricNameForConstraint(key) {
+  const stripped = key.replace(/^(max|min)_/, '');
+  if (stripped === 'cycles') {
+    return 'cycle_count';
+  }
+  return stripped;
+}
+
+function scopeKind(scope) {
+  return typeof scope?.kind === 'string' ? scope.kind : null;
+}
+
+function scopePath(scope) {
+  if (typeof scope?.path === 'string') {
+    return scope.path;
+  }
+  if (typeof scope?.file === 'string') {
+    return scope.file;
+  }
+  return null;
+}
+
+function policyExcludeMatches(path, pattern) {
+  if (typeof path !== 'string' || typeof pattern !== 'string') {
+    return false;
+  }
+  const normalizedPath = path.replaceAll('\\', '/');
+  const normalizedPattern = pattern
+    .replaceAll('\\', '/')
+    .replace(/^\*\*\//, '')
+    .replace(/\/$/, '');
+  return normalizedPattern.length > 0 && normalizedPath.includes(normalizedPattern);
+}
+
+export function applyPolicyExcludes(readings, policy) {
+  const patterns = policy?.exclude?.paths ?? [];
+  if (patterns.length === 0) {
+    return readings.slice();
+  }
+  return readings.filter((reading) => {
+    const path = scopePath(reading.scope);
+    return !patterns.some((pattern) => policyExcludeMatches(path, pattern));
+  });
+}
+
+function policyReadingIgnored(reading, ignores) {
+  for (const ignore of ignores ?? []) {
+    const sensorOk =
+      ignore.sensor_prefix === null ||
+      ignore.sensor_prefix === undefined ||
+      reading.sensor.startsWith(ignore.sensor_prefix);
+    const metricOk =
+      ignore.metric === null || ignore.metric === undefined || reading.metric === ignore.metric;
+    const ignorePath = ignore.scope_path;
+    const pathOk =
+      ignorePath === null || ignorePath === undefined
+        ? true
+        : (scopePath(reading.scope) ?? '').startsWith(ignorePath);
+    if (sensorOk && metricOk && pathOk) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function violatesPolicy(op, observed, threshold) {
+  if (op === 'min') {
+    return observed < threshold;
+  }
+  if (op === 'equals') {
+    return Math.abs(observed - threshold) > EPSILON;
+  }
+  return observed > threshold;
+}
+
+function opWord(op) {
+  if (op === 'min') {
+    return '>=';
+  }
+  if (op === 'equals') {
+    return '==';
+  }
+  return '<=';
+}
+
+function policyViolation(rule, severity, op, threshold, reading) {
+  return {
+    rule,
+    severity,
+    message:
+      `metric ${reading.metric} = ${reading.value} violates ${opWord(op)} ${threshold} ` +
+      `(sensor: ${reading.sensor})`,
+    metric: reading.metric,
+    scope: reading.scope,
+    sensor: reading.sensor,
+    observed: reading.value,
+    threshold,
+    op,
+  };
+}
+
+export function evaluateGovernancePolicy(readings, policy) {
+  const violations = [];
+  for (const [key, threshold] of Object.entries(policy?.constraints ?? {})) {
+    const metric = metricNameForConstraint(key);
+    for (const reading of readings) {
+      if (
+        scopeKind(reading.scope) !== 'project' ||
+        reading.metric !== metric ||
+        policyReadingIgnored(reading, policy.ignore)
+      ) {
+        continue;
+      }
+      if (violatesPolicy(threshold.op, reading.value, threshold.value)) {
+        violations.push(
+          policyViolation(key, threshold.severity, threshold.op, threshold.value, reading),
+        );
+      }
+    }
+  }
+
+  for (const rule of policy?.per_sensor ?? []) {
+    for (const reading of readings) {
+      if (
+        !reading.sensor.startsWith(rule.sensor_prefix) ||
+        reading.metric !== rule.metric ||
+        scopeKind(reading.scope) !== rule.scope_kind ||
+        policyReadingIgnored(reading, policy.ignore)
+      ) {
+        continue;
+      }
+      if (typeof rule.max_value === 'number' && reading.value > rule.max_value) {
+        violations.push(
+          policyViolation(
+            `${rule.sensor_prefix}:${rule.metric}`,
+            rule.severity,
+            'max',
+            rule.max_value,
+            reading,
+          ),
+        );
+      }
+      if (typeof rule.min_value === 'number' && reading.value < rule.min_value) {
+        violations.push(
+          policyViolation(
+            `${rule.sensor_prefix}:${rule.metric}`,
+            rule.severity,
+            'min',
+            rule.min_value,
+            reading,
+          ),
+        );
+      }
+    }
+  }
+  return violations;
+}
+
+function policyHasErrorViolations(violations) {
+  return violations.some((v) => v.severity === 'error');
+}
+
 function worsened(direction, current, baseline) {
   if (typeof current !== 'number' || typeof baseline !== 'number') {
     return false;
@@ -703,6 +1065,35 @@ export function renderReport(comparison) {
   return `${lines.join('\n')}\n`;
 }
 
+export function renderPolicyReport({ policyPath, loaded, readings, violations }) {
+  if (!loaded) {
+    return '';
+  }
+  const errors = violations.filter((v) => v.severity === 'error');
+  const warnings = violations.filter((v) => v.severity === 'warn');
+  const lines = [''];
+  lines.push(
+    `Governance policy: ${errors.length === 0 ? 'PASS' : 'FAIL'} ${policyPath} ` +
+      `(${readings.length} reading(s), ${violations.length} violation(s)).`,
+  );
+  if (errors.length > 0) {
+    lines.push('  errors:');
+    for (const violation of errors) {
+      lines.push(`    ${violation.rule}: ${violation.message}`);
+    }
+  }
+  if (warnings.length > 0) {
+    lines.push('  warnings:');
+    for (const violation of warnings) {
+      lines.push(`    ${violation.rule}: ${violation.message}`);
+    }
+  }
+  if (errors.length === 0 && warnings.length > 0) {
+    lines.push('  exit 0 for governance policy because warnings do not fail the gate.');
+  }
+  return `${lines.join('\n')}\n`;
+}
+
 async function readStdin() {
   const chunks = [];
   for await (const chunk of process.stdin) {
@@ -711,12 +1102,77 @@ async function readStdin() {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+function emptyReport() {
+  return {
+    workspace: {
+      folders: [],
+      modules: [],
+      circular_edges: 0,
+    },
+  };
+}
+
+function policyState(policyPath, explicit, io) {
+  if (policyPath === 'none') {
+    return { loaded: false, policy: parsePolicy(''), policyPath };
+  }
+  if (!io.fileExists(policyPath)) {
+    if (explicit) {
+      throw new Error(`policy file not found at ${policyPath}`);
+    }
+    return { loaded: false, policy: parsePolicy(''), policyPath };
+  }
+  return {
+    loaded: true,
+    policy: parsePolicy(io.readFile(policyPath)),
+    policyPath,
+  };
+}
+
+function readingsFromParsedJson(parsed) {
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+  if (Array.isArray(parsed?.readings)) {
+    return parsed.readings;
+  }
+  return readingsFromReport(parsed);
+}
+
+function loadReadingsFrom(path, io) {
+  const raw = io.readFile(path);
+  try {
+    return readingsFromParsedJson(JSON.parse(raw));
+  } catch (err) {
+    throw new Error(`readings JSON is invalid: ${err.message}`);
+  }
+}
+
+function jsonPayload(base, policy) {
+  const exitCode = base.exit_code;
+  return {
+    ...base,
+    readings: policy.readings,
+    violations: policy.violations,
+    policy: {
+      path: policy.policyPath,
+      loaded: policy.loaded,
+    },
+    exit_code: exitCode,
+  };
+}
+
 /**
  * CLI entry.  Defaults: read aggregator JSON from stdin, baseline from
  * `harness/sensors/baseline.json`.  Flags:
  *   --baseline=<path>      override baseline path
  *   --update-baseline      write the current report as the new baseline
  *                          (exits 0)
+ *   --policy=<path>        governance TOML policy. Defaults to
+ *                          `harness/.harness/governance.toml`.
+ *   --readings-from=<path> replay policy readings from JSON instead of
+ *                          deriving them from stdin.
+ *   --format=text|json     output text (default) or a CI JSON envelope.
  *   --first-run-mode=...   `snapshot` (default) writes baseline on first
  *                          run and exits 0; `strict` exits non-zero if no
  *                          baseline exists.
@@ -739,25 +1195,65 @@ export async function main(
   let perfPath = 'harness/perf/baseline.json';
   let securityPath = null;
   let licensesPath = null;
+  let policyPath = DEFAULT_POLICY_PATH;
+  let explicitPolicy = false;
+  let readingsFromPath = null;
+  let format = 'text';
   let updateBaseline = false;
   let firstRunMode = 'snapshot';
-  for (const a of argv) {
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
     if (a.startsWith('--baseline=')) {
       baselinePath = a.slice('--baseline='.length);
+    } else if (a === '--baseline') {
+      baselinePath = argv[i + 1] ?? baselinePath;
+      i += 1;
     } else if (a.startsWith('--perf-baseline=')) {
       perfPath = a.slice('--perf-baseline='.length);
     } else if (a.startsWith('--security=')) {
       securityPath = a.slice('--security='.length);
     } else if (a.startsWith('--licenses=')) {
       licensesPath = a.slice('--licenses='.length);
+    } else if (a.startsWith('--policy=')) {
+      policyPath = a.slice('--policy='.length);
+      explicitPolicy = true;
+    } else if (a === '--policy') {
+      policyPath = argv[i + 1] ?? policyPath;
+      explicitPolicy = true;
+      i += 1;
+    } else if (a.startsWith('--readings-from=')) {
+      readingsFromPath = a.slice('--readings-from='.length);
+    } else if (a === '--readings-from') {
+      readingsFromPath = argv[i + 1] ?? readingsFromPath;
+      i += 1;
+    } else if (a.startsWith('--format=')) {
+      format = a.slice('--format='.length);
+    } else if (a === '--format') {
+      format = argv[i + 1] ?? format;
+      i += 1;
+    } else if (a === '--json') {
+      format = 'json';
+    } else if (a === '--text') {
+      format = 'text';
     } else if (a === '--update-baseline') {
       updateBaseline = true;
     } else if (a.startsWith('--first-run-mode=')) {
       firstRunMode = a.slice('--first-run-mode='.length);
     }
   }
+  if (format !== 'text' && format !== 'json') {
+    io.writeErr(`gate: unsupported --format=${format}; expected text or json\n`);
+    return 2;
+  }
 
   const fitnessOptions = { perfPath, securityPath, licensesPath, io };
+  let policy;
+  try {
+    policy = policyState(policyPath, explicitPolicy, io);
+  } catch (err) {
+    io.writeErr(`gate: failed to load policy (${err.message})\n`);
+    return 2;
+  }
 
   let raw;
   try {
@@ -767,23 +1263,67 @@ export async function main(
     return 2;
   }
   if (raw.trim().length === 0) {
-    io.writeErr('gate: empty stdin - pipe aggregator JSON in\n');
-    return 2;
+    if (!readingsFromPath) {
+      io.writeErr('gate: empty stdin - pipe aggregator JSON in\n');
+      return 2;
+    }
   }
   let report;
+  if (raw.trim().length === 0) {
+    report = emptyReport();
+  } else {
+    try {
+      report = JSON.parse(raw);
+    } catch (err) {
+      io.writeErr(`gate: stdin is not valid JSON (${err.message})\n`);
+      return 2;
+    }
+  }
+
+  let rawPolicyReadings;
   try {
-    report = JSON.parse(raw);
+    rawPolicyReadings = readingsFromPath
+      ? loadReadingsFrom(readingsFromPath, io)
+      : readingsFromReport(report);
   } catch (err) {
-    io.writeErr(`gate: stdin is not valid JSON (${err.message})\n`);
+    io.writeErr(`gate: failed to read --readings-from=${readingsFromPath} (${err.message})\n`);
     return 2;
   }
+  const policyReadings = policy.loaded
+    ? applyPolicyExcludes(rawPolicyReadings, policy.policy)
+    : rawPolicyReadings.slice();
+  const policyViolations = policy.loaded
+    ? evaluateGovernancePolicy(policyReadings, policy.policy)
+    : [];
+  const policyOk = !policyHasErrorViolations(policyViolations);
+  const policyOutput = {
+    loaded: policy.loaded,
+    policyPath: policy.policyPath,
+    readings: policyReadings,
+    violations: policyViolations,
+  };
 
   const currentBaseline = extractApssFitnessBaseline(report, fitnessOptions);
 
   if (updateBaseline) {
     io.writeFile(baselinePath, `${JSON.stringify(currentBaseline, null, 2)}\n`);
-    io.write(`sensors gate: baseline updated at ${baselinePath}\n`);
-    return 0;
+    const exitCode = policyOk ? 0 : 1;
+    if (format === 'json') {
+      io.write(
+        `${JSON.stringify(
+          jsonPayload(
+            { baseline: { path: baselinePath, updated: true }, exit_code: exitCode },
+            policyOutput,
+          ),
+          null,
+          2,
+        )}\n`,
+      );
+    } else {
+      io.write(`sensors gate: baseline updated at ${baselinePath}\n`);
+      io.write(renderPolicyReport(policyOutput));
+    }
+    return exitCode;
   }
 
   if (!io.fileExists(baselinePath)) {
@@ -795,11 +1335,33 @@ export async function main(
       return 2;
     }
     io.writeFile(baselinePath, `${JSON.stringify(currentBaseline, null, 2)}\n`);
-    io.write(
-      `sensors gate: baseline created at ${baselinePath} (first run; ` +
-        `${Object.keys(currentBaseline.folders).length} folder(s) recorded).\n`,
-    );
-    return 0;
+    const exitCode = policyOk ? 0 : 1;
+    if (format === 'json') {
+      io.write(
+        `${JSON.stringify(
+          jsonPayload(
+            {
+              baseline: {
+                path: baselinePath,
+                created: true,
+                folders: Object.keys(currentBaseline.folders).length,
+              },
+              exit_code: exitCode,
+            },
+            policyOutput,
+          ),
+          null,
+          2,
+        )}\n`,
+      );
+    } else {
+      io.write(
+        `sensors gate: baseline created at ${baselinePath} (first run; ` +
+          `${Object.keys(currentBaseline.folders).length} folder(s) recorded).\n`,
+      );
+      io.write(renderPolicyReport(policyOutput));
+    }
+    return exitCode;
   }
 
   let baseline;
@@ -811,8 +1373,31 @@ export async function main(
   }
 
   const comparison = compareBaseline(baseline, report, fitnessOptions);
-  io.write(renderReport(comparison));
-  return comparison.ok ? 0 : 1;
+  const exitCode = comparison.ok && policyOk ? 0 : 1;
+  if (format === 'json') {
+    io.write(
+      `${JSON.stringify(
+        jsonPayload(
+          {
+            baseline: {
+              path: baselinePath,
+              ok: comparison.ok,
+              regressions: comparison.regressions,
+              summary: comparison.summary,
+            },
+            exit_code: exitCode,
+          },
+          policyOutput,
+        ),
+        null,
+        2,
+      )}\n`,
+    );
+  } else {
+    io.write(renderReport(comparison));
+    io.write(renderPolicyReport(policyOutput));
+  }
+  return exitCode;
 }
 
 function isScriptEntry() {

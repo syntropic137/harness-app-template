@@ -10,6 +10,7 @@
     "lint": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs"
   },
   "dependencies": {
+    "@iarna/toml": "^2.2.5",
     "ts-morph": "23.0.0"
   }
 }

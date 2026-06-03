@@ -20,9 +20,10 @@ Subcommands:
   report [--format json|md]   Run dependency-cruiser against ws_apps & ws_packages
                               and print Martin Ca/Ce/I/A/D per folder & per module.
   gate [--update-baseline]    Enforce the baseline-snapshot fitness floor at
-                              harness/sensors/baseline.json. Exits non-zero on
-                              any per-folder I or D regression. On first run
-                              (no baseline file) creates the snapshot and exits 0.
+                              harness/sensors/baseline.json and the governance
+                              TOML policy at harness/.harness/governance.toml.
+                              Add --policy PATH, --readings-from PATH, or
+                              --format json for replay and CI envelopes.
                               Wired into lefthook pre-push.
   --help                      This text.
 
@@ -116,15 +117,54 @@ case "${1:-}" in
   gate)
     shift
     gate_args=()
+    readings_from=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --update-baseline)
           gate_args+=("--update-baseline")
           shift
           ;;
+        --policy)
+          gate_args+=("--policy=${2:-}")
+          shift 2 || true
+          ;;
+        --policy=*)
+          gate_args+=("$1")
+          shift
+          ;;
+        --readings-from)
+          readings_from="${2:-}"
+          gate_args+=("--readings-from=$readings_from")
+          shift 2 || true
+          ;;
+        --readings-from=*)
+          readings_from="${1#--readings-from=}"
+          gate_args+=("$1")
+          shift
+          ;;
+        --format)
+          gate_args+=("--format=${2:-text}")
+          shift 2 || true
+          ;;
+        --format=*)
+          gate_args+=("$1")
+          shift
+          ;;
+        --json)
+          gate_args+=("--format=json")
+          shift
+          ;;
+        --text)
+          gate_args+=("--format=text")
+          shift
+          ;;
         --baseline=*)
           gate_args+=("$1")
           shift
+          ;;
+        --baseline)
+          gate_args+=("--baseline=${2:-}")
+          shift 2 || true
           ;;
         --first-run-mode=*)
           gate_args+=("$1")
@@ -144,12 +184,16 @@ case "${1:-}" in
     lic_tmp=""
     report_tmp="$(mktemp -t harness-sensors-report-XXXXXX.json)"
     trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$report_tmp"' EXIT
-    build_report "json" "$report_tmp"
+    if [ -z "$readings_from" ]; then
+      build_report "json" "$report_tmp"
+    else
+      printf '{}\n' > "$report_tmp"
+    fi
     # SC01 Security adapter (bead create-harness-app-2zz.2). Runs UBS over a
     # stable, template-owned set of source paths. Soft-skips when ubs is
     # absent; downstream gate.mjs reports SC01 as no-reading rather than
     # zero so a missing scanner does not silently pass.
-    if command -v ubs >/dev/null 2>&1; then
+    if [ -z "$readings_from" ] && command -v ubs >/dev/null 2>&1; then
       sec_tmp="$(mktemp -t harness-sensors-security-XXXXXX.json)"
       ubs --quiet --report-json="$sec_tmp" \
         --files="scripts/lib/git.ts,scripts/lib/fs.ts,scripts/lib/slots.ts,harness/sensors/aggregate.mjs,harness/sensors/gate.mjs,harness/sensors/abstractness.mjs,harness/sensors/complexity.mjs,harness/sensors/apss_topology.mjs,harness/sensors/license_scan.mjs,harness/perf/gate.mjs,harness/perf/bench.sh,harness/sensors/bin/sensors" \
@@ -163,10 +207,12 @@ case "${1:-}" in
     # declared license is missing or outside the OSI-permissive allowlist.
     # Soft-skips cleanly when no node_modules tree is present (license_scan
     # emits {available: false} and gate.mjs treats LG01 as no-reading).
-    lic_tmp="$(mktemp -t harness-sensors-licenses-XXXXXX.json)"
-    node "$HERE/license_scan.mjs" > "$lic_tmp" 2>/dev/null || true
-    if [ -s "$lic_tmp" ]; then
-      gate_args+=("--licenses=$lic_tmp")
+    if [ -z "$readings_from" ]; then
+      lic_tmp="$(mktemp -t harness-sensors-licenses-XXXXXX.json)"
+      node "$HERE/license_scan.mjs" > "$lic_tmp" 2>/dev/null || true
+      if [ -s "$lic_tmp" ]; then
+        gate_args+=("--licenses=$lic_tmp")
+      fi
     fi
     node "$HERE/gate.mjs" "${gate_args[@]+"${gate_args[@]}"}" < "$report_tmp"
     ;;
