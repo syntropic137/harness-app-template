@@ -20,6 +20,21 @@ jobs:
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm exec vitest run scripts/tests --coverage
 
+  rust-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - run: just cov-rust
+
   fitness:
     # APSS 8-dimension architectural fitness gate (bead
     # create-harness-app-2zz). Mirrors the lefthook pre-push sensors-gate

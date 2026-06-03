@@ -52,3 +52,9 @@ unit_coverage_functions_min = 100   # PROTECTED — 100, not lower.
 unit_coverage_regions_min = 100     # PROTECTED — `cargo llvm-cov --fail-under-regions 100`
 strict_clippy = true                # PROTECTED — `cargo clippy -- -D warnings` MUST pass
 no_unsafe = true                    # PROTECTED — `#![forbid(unsafe_code)]` at crate root
+
+[package.metadata.coverage]
+tool = "cargo-llvm-cov"
+lines_minimum = 100
+functions_minimum = 100
+regions_minimum = 100

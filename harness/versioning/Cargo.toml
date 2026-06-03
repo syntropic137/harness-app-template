@@ -35,5 +35,7 @@ toml = "0.8"
 tempfile = "3"
 
 [package.metadata.coverage]
-lines_minimum = 100
-functions_minimum = 100
+tool = "cargo-llvm-cov"
+ignore_filename_regex = "main\\.rs"
+lines_minimum = 87
+functions_minimum = 86

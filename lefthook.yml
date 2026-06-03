@@ -82,6 +82,27 @@ pre-push:
           pnpm exec vitest run scripts/tests --coverage
         '
 
+    cov-rust:
+      # Rust llvm-cov gate for template Rust surfaces. The hook soft-skips
+      # when cargo-llvm-cov is absent locally; CI installs the tool and runs
+      # the same `just cov-rust` recipe as the hard gate.
+      run: |
+        sh -eu -c '
+          if ! command -v cargo >/dev/null 2>&1; then
+            printf "%s\n" "warning: cargo not found; skipping Rust coverage hook" >&2
+            exit 0
+          fi
+          if ! command -v cargo-llvm-cov >/dev/null 2>&1; then
+            printf "%s\n" "warning: cargo-llvm-cov not found; skipping Rust coverage hook" >&2
+            exit 0
+          fi
+          if ! command -v just >/dev/null 2>&1; then
+            printf "%s\n" "warning: just not found; skipping Rust coverage hook" >&2
+            exit 0
+          fi
+          just cov-rust
+        '
+
     doc-validator:
       # Excludes (re-listing the validator defaults explicitly because
       # passing --exclude REPLACES the default list rather than adding

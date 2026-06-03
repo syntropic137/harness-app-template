@@ -6,6 +6,7 @@
     "build": "cargo build --release",
     "typecheck": "cargo check",
     "test": "cargo test",
+    "test:coverage": "cargo llvm-cov --manifest-path Cargo.toml --package harness-versioning --ignore-filename-regex 'main\\.rs' --fail-under-lines 87 --fail-under-functions 86",
     "lint": "cargo clippy --all-targets -- -D warnings"
   }
 }

@@ -33,3 +33,12 @@ walkdir = "2"
 
 [dev-dependencies]
 tempfile = "3"
+
+# HARNESS-ENGINEERING PROTECTED COVERAGE TARGETS / DO NOT ADJUST.
+# Enforced by just cov-doc-validator. main.rs is excluded because it is a
+# small CLI shell; all business logic lives in lib.rs.
+[package.metadata.coverage]
+tool = "cargo-llvm-cov"
+ignore_filename_regex = "main\\.rs"
+lines_minimum = 82
+functions_minimum = 94
