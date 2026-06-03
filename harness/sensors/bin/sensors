@@ -25,9 +25,15 @@ Subcommands:
                               Add --policy PATH, --readings-from PATH, or
                               --format json for replay and CI envelopes.
                               Wired into lefthook pre-push.
+  adapters                    Print adapter precheck and package fanout JSON.
+  sentrux                     Optional sentrux adapter entrypoint. Emits a
+                              soft-skip JSON envelope when sentrux is absent.
+  grimp                       Optional grimp-instability adapter entrypoint.
+                              Emits a soft-skip JSON envelope when grimp is absent.
   --help                      This text.
 
 Notes:
+  - report and gate accept --workspace-root PATH and --skip-tier NAME[,NAME].
   - Reads .dependency-cruiser.cjs at the repo root for scope (includeOnly +
     excludePattern). De-dup and workspace-scope filtering happen here, not in
     cruiser.
@@ -38,37 +44,76 @@ Notes:
 EOF
 }
 
+append_skip_tier() {
+  local current="$1"
+  local addition="$2"
+  if [ -z "$current" ]; then
+    printf '%s' "$addition"
+  else
+    printf '%s,%s' "$current" "$addition"
+  fi
+}
+
 # Build the merged report JSON to a path the caller chooses.
 # Sets globals: $cruiser_tmp $abs_tmp $cplx_tmp $report_tmp (caller cleans
 # up via trap).
 build_report() {
   local out_format="$1"
   local out_path="$2"
-  if ! command -v npx >/dev/null 2>&1; then
-    echo "error: npx not found - install Node.js to run the TS adapter" >&2
-    return 2
-  fi
-  cd "$REPO_ROOT"
+  local workspace_root="$3"
+  local skip_tier="$4"
+  should_skip() {
+    local name="$1"
+    local base="${name%%@*}"
+    local IFS=','
+    for skip in $skip_tier; do
+      if [ "$skip" = "$name" ] || [ "$skip" = "$base" ]; then
+        return 0
+      fi
+    done
+    return 1
+  }
+  cd "$workspace_root"
   cruiser_tmp="$(mktemp -t harness-sensors-cruiser-XXXXXX.json)"
   abs_tmp="$(mktemp -t harness-sensors-abs-XXXXXX.json)"
   cplx_tmp="$(mktemp -t harness-sensors-cplx-XXXXXX.json)"
-  npx --yes "dependency-cruiser@${DEPCRUISER_VERSION}" \
-    --metrics --output-type json \
-    'ws_apps/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
-    'ws_packages/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
-    > "$cruiser_tmp"
+  if should_skip "dep-cruiser" || should_skip "dependency-cruiser"; then
+    printf '{"summary":{"totalCruised":0,"totalDependenciesCruised":0},"modules":[],"folders":[]}\n' > "$cruiser_tmp"
+  else
+    if ! command -v npx >/dev/null 2>&1; then
+      echo "error: npx not found - install Node.js to run the TS adapter" >&2
+      return 2
+    fi
+    npx --yes "dependency-cruiser@${DEPCRUISER_VERSION}" \
+      --metrics --output-type json \
+      'ws_apps/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
+      'ws_packages/**/*.{ts,tsx,js,jsx,mjs,cjs}' \
+      > "$cruiser_tmp"
+  fi
   # ts-morph adapters - both take raw cruiser JSON, extract workspace
   # .ts/.tsx sources, and emit per-source readings. Abstractness counts
   # abstract vs concrete declarations; complexity walks function-shaped
   # AST nodes for per-function cyclomatic + cognitive metrics (bead
   # create-harness-app-n48.5).
-  node "$HERE/abstractness.mjs" < "$cruiser_tmp" > "$abs_tmp"
-  node "$HERE/complexity.mjs" < "$cruiser_tmp" > "$cplx_tmp"
+  if should_skip "ts-morph-abstractness" || should_skip "ts-morph"; then
+    printf '{"tool":"ts-morph","available":false,"readings":[],"skipped":true}\n' > "$abs_tmp"
+  else
+    node "$HERE/abstractness.mjs" < "$cruiser_tmp" > "$abs_tmp"
+  fi
+  if should_skip "ts-morph-complexity" || should_skip "ts-morph"; then
+    printf '{"tool":"ts-morph-complexity","available":false,"readings":[],"skipped":true}\n' > "$cplx_tmp"
+  else
+    node "$HERE/complexity.mjs" < "$cruiser_tmp" > "$cplx_tmp"
+  fi
   # APSS topology adapter (bead n48.3 / ADR-0017): reads .topology/metrics/
   # if present. No-op when the APSS `aps` binary has not been run - emits
   # `{available: false, readings: []}` which aggregate.mjs treats as absent.
   apss_tmp="$(mktemp -t harness-sensors-apss-XXXXXX.json)"
-  node "$HERE/apss_topology.mjs" --root="$REPO_ROOT" > "$apss_tmp"
+  if should_skip "apss-topology"; then
+    printf '{"tool":"apss-topology","available":false,"readings":[],"skipped":true}\n' > "$apss_tmp"
+  else
+    node "$HERE/apss_topology.mjs" --root="$workspace_root" > "$apss_tmp"
+  fi
   if [ "$out_path" = "-" ]; then
     node "$HERE/aggregate.mjs" "--format=$out_format" "--abstractness=$abs_tmp" "--complexity=$cplx_tmp" "--apss=$apss_tmp" < "$cruiser_tmp"
   else
@@ -83,6 +128,8 @@ case "${1:-}" in
   report)
     shift
     fmt="json"
+    workspace_root="$REPO_ROOT"
+    skip_tier=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --format)
@@ -101,23 +148,42 @@ case "${1:-}" in
           fmt="json"
           shift
           ;;
+        --workspace-root)
+          workspace_root="${2:-$workspace_root}"
+          shift 2 || true
+          ;;
+        --workspace-root=*)
+          workspace_root="${1#--workspace-root=}"
+          shift
+          ;;
+        --skip-tier)
+          skip_tier="$(append_skip_tier "$skip_tier" "${2:-}")"
+          shift 2 || true
+          ;;
+        --skip-tier=*)
+          skip_tier="$(append_skip_tier "$skip_tier" "${1#--skip-tier=}")"
+          shift
+          ;;
         *)
           echo "error: unknown report flag: $1" >&2
           exit 2
           ;;
       esac
     done
+    workspace_root="$(cd "$workspace_root" && pwd)"
     cruiser_tmp=""
     abs_tmp=""
     cplx_tmp=""
     apss_tmp=""
     trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp"' EXIT
-    build_report "$fmt" "-"
+    build_report "$fmt" "-" "$workspace_root" "$skip_tier"
     ;;
   gate)
     shift
     gate_args=()
     readings_from=""
+    workspace_root="$REPO_ROOT"
+    skip_tier=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --update-baseline)
@@ -140,6 +206,22 @@ case "${1:-}" in
         --readings-from=*)
           readings_from="${1#--readings-from=}"
           gate_args+=("$1")
+          shift
+          ;;
+        --workspace-root)
+          workspace_root="${2:-$workspace_root}"
+          shift 2 || true
+          ;;
+        --workspace-root=*)
+          workspace_root="${1#--workspace-root=}"
+          shift
+          ;;
+        --skip-tier)
+          skip_tier="$(append_skip_tier "$skip_tier" "${2:-}")"
+          shift 2 || true
+          ;;
+        --skip-tier=*)
+          skip_tier="$(append_skip_tier "$skip_tier" "${1#--skip-tier=}")"
           shift
           ;;
         --format)
@@ -176,6 +258,7 @@ case "${1:-}" in
           ;;
       esac
     done
+    workspace_root="$(cd "$workspace_root" && pwd)"
     cruiser_tmp=""
     abs_tmp=""
     cplx_tmp=""
@@ -185,7 +268,7 @@ case "${1:-}" in
     report_tmp="$(mktemp -t harness-sensors-report-XXXXXX.json)"
     trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$report_tmp"' EXIT
     if [ -z "$readings_from" ]; then
-      build_report "json" "$report_tmp"
+      build_report "json" "$report_tmp" "$workspace_root" "$skip_tier"
     else
       printf '{}\n' > "$report_tmp"
     fi
@@ -215,6 +298,18 @@ case "${1:-}" in
       fi
     fi
     node "$HERE/gate.mjs" "${gate_args[@]+"${gate_args[@]}"}" < "$report_tmp"
+    ;;
+  adapters)
+    shift
+    node "$HERE/adapters.mjs" manifest "$@"
+    ;;
+  sentrux)
+    shift
+    node "$HERE/adapters.mjs" run-sentrux "$@"
+    ;;
+  grimp)
+    shift
+    node "$HERE/adapters.mjs" run-grimp "$@"
     ;;
   *)
     echo "error: unknown sensors subcommand: $1" >&2

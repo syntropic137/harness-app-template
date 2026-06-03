@@ -22,6 +22,8 @@ just sensors gate
 just sensors gate --update-baseline
 just sensors gate --format json
 just sensors gate --readings-from /tmp/readings.json --policy /tmp/governance.toml
+just sensors adapters --workspace-root .
+just sensors report --workspace-root . --skip-tier dep-cruiser
 ```
 
 Requires Node 20 or newer and `npx` on `PATH`. The cruiser version is pinned at
@@ -62,6 +64,24 @@ just sensors gate --readings-from /tmp/readings.json --format json
 The JSON envelope includes `readings`, `violations`, and `exit_code` for CI and
 agent consumers.
 
+## Adapter Seam
+
+The adapter seam lives in `adapters.mjs` and is documented in
+`plugin-protocol.md`. It provides:
+
+- Built-in adapter identity records for dep-cruiser, ts-morph abstractness,
+  ts-morph complexity, APSS topology, sentrux, and grimp-instability.
+- Applicability prechecks: `applicable`, `not_applicable`, `missing_dep`, and
+  `skipped`.
+- Workspace package detection and package fanout for `ws_apps`, `ws_packages`,
+  `apps`, `packages`, `libs`, and `services`.
+- `--workspace-root` and `--skip-tier` controls on `report` and `gate`.
+- Optional sentrux and grimp entrypoints that soft-skip when their dependencies
+  are absent.
+
+APSS topology remains the canonical default. Optional adapters can be ported or
+installed behind the documented names without changing the baseline model.
+
 ## APSS Topology Inputs
 
 The APSS adapter reads these files when present:
@@ -80,5 +100,7 @@ Node sensors remain available as fallback signals.
 - `abstractness.mjs`: ts-morph abstractness adapter.
 - `complexity.mjs`: ts-morph complexity adapter.
 - `apss_topology.mjs`: APSS topology adapter.
+- `adapters.mjs`: adapter seam, precheck, skip-tier, and fanout utilities.
 - `gate.mjs`: baseline and APSS fitness gate.
 - `baseline.json`: committed regression floor.
+- `plugin-protocol.md`: adapter contract and lab lineage.
