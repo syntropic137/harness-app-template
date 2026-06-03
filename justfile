@@ -89,6 +89,7 @@ cov-example-rust:
     cargo llvm-cov --manifest-path ws_apps/example-rust/Cargo.toml --package example-rust --fail-under-lines 100 --fail-under-functions 100 --fail-under-regions 100
 
 cov-doc-validator:
+    cargo build --manifest-path harness/doc-validator/Cargo.toml --bin harness-doc-validator
     cargo llvm-cov --manifest-path harness/doc-validator/Cargo.toml --package harness-doc-validator --ignore-filename-regex 'main\.rs' --fail-under-lines 82 --fail-under-functions 94
 
 cov-versioning:
