@@ -36,8 +36,35 @@ pre-commit:
       # See pre-push doc-validator for the --exclude rationale.
       run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ .
 
+    python-ruff:
+      glob: "ws_apps/example-python/**/*.py"
+      run: |
+        sh -eu -c '
+          cd ws_apps/example-python
+          sh scripts/with-uv.sh uv run ruff check .
+        '
+
+    python-mypy:
+      glob: "ws_apps/example-python/**/*.py"
+      run: |
+        sh -eu -c '
+          cd ws_apps/example-python
+          sh scripts/with-uv.sh uv run mypy src
+        '
+
     ubs-staged:
       run: mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
+
+    python-ruff-format:
+      # Read-only ruff format check (mirror of biome-format-lint's
+      # write-then-check posture, but non-mutating so the staged set is
+      # not silently rewritten). Pairs with python-ruff (lint) above.
+      glob: "ws_apps/example-python/**/*.py"
+      run: |
+        sh -eu -c '
+          cd ws_apps/example-python
+          sh scripts/with-uv.sh uv run ruff format --check .
+        '
 
 pre-push:
   parallel: true
@@ -101,6 +128,17 @@ pre-push:
             exit 0
           fi
           just cov-rust
+        '
+
+    cov-py:
+      # Python pytest-cov gate for ws_apps/example-python. The package keeps
+      # its 100 percent threshold in pyproject.toml; this hook soft-skips
+      # when uv is missing so first-clone pushes fail only once the Python
+      # toolchain is present.
+      run: |
+        sh -eu -c '
+          cd ws_apps/example-python
+          sh scripts/with-uv.sh uv run pytest
         '
 
     doc-validator:

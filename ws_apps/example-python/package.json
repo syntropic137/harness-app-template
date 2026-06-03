@@ -3,9 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "build": "uv build",
-    "typecheck": "uv run python -m compileall src tests",
-    "test": "uv run pytest",
-    "lint": "uv run ruff check ."
+    "build": "sh scripts/with-uv.sh uv build",
+    "typecheck": "sh scripts/with-uv.sh uv run mypy src",
+    "test": "sh scripts/with-uv.sh uv run pytest",
+    "test:coverage": "sh scripts/with-uv.sh uv run pytest",
+    "lint": "sh scripts/with-uv.sh uv run ruff check ."
   }
 }
