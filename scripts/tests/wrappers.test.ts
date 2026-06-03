@@ -28,7 +28,7 @@ describe('thin script wrappers', () => {
   test.each([
     ['build', ['pnpm', ['turbo', 'run', 'build', '--filter=...']]],
     ['lint', ['pnpm', ['turbo', 'run', 'lint', '--filter=...']]],
-    ['boot', ['docker', ['compose', '-f', 'harness/observability/compose.harness.yml', 'up']]],
+    ['boot', ['harness/stack/bin/stack', ['boot', 'up']]],
     ['inspector', ['harness/inspector/bin/inspector', ['--help']]],
     ['sensors', ['harness/sensors/bin/sensors', ['--help']]],
     ['stack', ['harness/stack/bin/stack', ['inspect']]],

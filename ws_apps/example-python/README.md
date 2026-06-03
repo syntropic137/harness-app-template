@@ -4,14 +4,16 @@ Minimal Python hello-world for the `telemetry-sdk` slot per the [Tool-Belt Harne
 
 ## What it proves
 
-End-to-end for Python: scaffold → bootstrap → boot the observability stack → `pip install -e . && example-python` → emit one span + one JSON log line → retrieve via the `observability-queries` agent skill.
+End-to-end for Python: scaffold -> bootstrap -> boot the observability stack -> `pip install -e . && example-python` -> emit one span plus one JSON log line -> retrieve via the `observability-queries` agent skill.
 
 ## Run
 
 ```sh
-just stack boot                              # bring up Victoria* + OTEL Collector
-pip install -e ws_apps/example-python        # install (creates the `example-python` console script)
-example-python                               # emit one trace + one log line
+just stack boot
+eval "$(just stack ports)"
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:${OTEL_OTLP_PORT}"
+pip install -e ws_apps/example-python
+example-python
 ```
 
 ## Tests
@@ -27,7 +29,7 @@ Seven tests; all run with telemetry disabled so the OTEL SDK isn't required to i
 
 | Var | Default | Purpose |
 |---|---|---|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | OTEL Collector OTLP HTTP endpoint |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | OTEL Collector OTLP HTTP endpoint. For the template stack, set it to `http://localhost:${OTEL_OTLP_PORT}` from `just stack ports`. |
 | `OTEL_SERVICE_NAME` | `example-python` | resource.service.name |
 | `HARNESS_TELEMETRY_DISABLED` | unset | set `1` to skip SDK startup (tests use this) |
 

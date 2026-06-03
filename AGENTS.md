@@ -17,8 +17,9 @@ The harness gives you 11 named slots wired in: `stack-manager`, `inspector`, `ho
 ```sh
 just                  # list every recipe with a one-line description
 just bootstrap        # verify vendor symlinks + validate cross-cutting deps
-just boot up          # boot the observability compose stack
-just stack --help     # stack-manager slot stub / replacement entrypoint
+just stack boot       # boot the isolated observability stack
+just stack ports      # print eval-safe per-worktree ports
+just stack --help     # stack-manager slot entrypoint
 just inspector --help # evidence-capture utilities (screenshot, record, keyframes)
 ```
 
