@@ -1,7 +1,24 @@
 import { execFileSync, type SpawnOptions, spawn } from 'node:child_process';
 
+const LOCAL_GIT_ENV_KEYS = [
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_COMMON_DIR',
+  'GIT_DIR',
+  'GIT_INDEX_FILE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_WORK_TREE',
+];
+
+export function withoutLocalGitEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const clean = { ...env };
+  for (const key of LOCAL_GIT_ENV_KEYS) {
+    delete clean[key];
+  }
+  return clean;
+}
+
 export function captureSync(cmd: string, args: string[], cwd?: string): string {
-  return execFileSync(cmd, args, { cwd, encoding: 'utf8' }).trim();
+  return execFileSync(cmd, args, { cwd, env: withoutLocalGitEnv(), encoding: 'utf8' }).trim();
 }
 
 export interface CaptureResult {
@@ -12,7 +29,10 @@ export interface CaptureResult {
 
 export function tryCapture(cmd: string, args: string[]): Promise<CaptureResult> {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(cmd, args, {
+      env: withoutLocalGitEnv(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     let stdout = '';
     let stderr = '';
     // The `?.` branches are defensive: with stdio ['ignore', 'pipe', 'pipe']
@@ -40,7 +60,11 @@ export function tryCapture(cmd: string, args: string[]): Promise<CaptureResult> 
 
 export function run(cmd: string, args: string[], opts: SpawnOptions = {}): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: 'inherit', ...opts });
+    const child = spawn(cmd, args, {
+      stdio: 'inherit',
+      ...opts,
+      env: withoutLocalGitEnv(opts.env),
+    });
     child.on('error', reject);
     /* c8 ignore next -- `code ?? 1` only takes fallback on signal exit */
     child.on('exit', (code) => resolve(code ?? 1));

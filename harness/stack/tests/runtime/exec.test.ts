@@ -1,11 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { captureSync, run, tryCapture } from '../../src/runtime/exec.js';
+import { captureSync, run, tryCapture, withoutLocalGitEnv } from '../../src/runtime/exec.js';
 
 describe('runtime/exec', () => {
   describe('captureSync', () => {
     it('captures and trims stdout of a successful command', () => {
       const out = captureSync('node', ['-e', 'process.stdout.write("hello\\n")']);
       expect(out).toBe('hello');
+    });
+
+    it('strips hook-local git env before running git commands', () => {
+      const previous = process.env['GIT_DIR'];
+      process.env['GIT_DIR'] = '/not/a/repo/.git';
+      try {
+        expect(
+          withoutLocalGitEnv({ GIT_DIR: '/repo/.git', GIT_WORK_TREE: '/repo', KEEP_ME: 'yes' }),
+        ).toEqual({
+          KEEP_ME: 'yes',
+        });
+        expect(captureSync('git', ['rev-parse', '--is-inside-work-tree'])).toBe('true');
+      } finally {
+        if (previous === undefined) {
+          delete process.env['GIT_DIR'];
+        } else {
+          process.env['GIT_DIR'] = previous;
+        }
+      }
     });
 
     it('throws on non-zero exit (execFileSync behavior)', () => {
