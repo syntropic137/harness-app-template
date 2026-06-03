@@ -12,25 +12,43 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
-const [input, output] = process.argv.slice(2);
-if (!input || !output) {
-  console.error('usage: keyframe-grid.mjs <input.webm> <output.jpg>');
-  process.exit(2);
-}
-if (!existsSync(input)) {
-  console.error(`input not found: ${input}`);
-  process.exit(2);
+export function main(argv = process.argv.slice(2), deps = { console, existsSync, spawnSync }) {
+  const [input, output] = argv;
+  if (!input || !output) {
+    deps.console.error('usage: keyframe-grid.mjs <input.webm> <output.jpg>');
+    return 2;
+  }
+  if (!deps.existsSync(input)) {
+    deps.console.error(`input not found: ${input}`);
+    return 2;
+  }
+
+  const ffmpeg = deps.spawnSync(
+    'ffmpeg',
+    [
+      '-y',
+      '-i',
+      input,
+      '-vf',
+      'fps=1,scale=640:360,tile=3x3',
+      '-frames:v',
+      '1',
+      '-q:v',
+      '4',
+      output,
+    ],
+    { stdio: 'inherit' },
+  );
+
+  if (ffmpeg.error) {
+    deps.console.error(`ffmpeg failed to launch: ${ffmpeg.error.message}`);
+    deps.console.error('Install ffmpeg via `brew install ffmpeg` or your package manager.');
+    return 127;
+  }
+  return ffmpeg.status ?? 1;
 }
 
-const ffmpeg = spawnSync(
-  'ffmpeg',
-  ['-y', '-i', input, '-vf', 'fps=1,scale=640:360,tile=3x3', '-frames:v', '1', '-q:v', '4', output],
-  { stdio: 'inherit' },
-);
-
-if (ffmpeg.error) {
-  console.error(`ffmpeg failed to launch: ${ffmpeg.error.message}`);
-  console.error('Install ffmpeg via `brew install ffmpeg` or your package manager.');
-  process.exit(127);
+/* v8 ignore next 4 */
+if (import.meta.url === `file://${process.argv[1]}`) {
+  process.exit(main());
 }
-process.exit(ffmpeg.status ?? 1);

@@ -15,6 +15,9 @@ build *args:
 test *args:
     bun run scripts/test.ts {{args}}
 
+test-coverage *args:
+    bun run scripts/test-coverage.ts {{args}}
+
 lint *args:
     bun run scripts/lint.ts {{args}}
 

@@ -93,4 +93,28 @@ describe('thin script wrappers', () => {
       ['pnpm', ['exec', 'vitest', 'run', 'scripts/tests', '--coverage']],
     ]);
   });
+
+  test('test-coverage runs package-local coverage gates', async () => {
+    const main = await loadMain('test-coverage');
+    main(['--run']);
+    expect(calls).toEqual([
+      ['pnpm', ['exec', 'vitest', 'run', 'scripts/tests', '--coverage', '--run']],
+      [
+        'pnpm',
+        [
+          '--dir',
+          'ws_apps/example-typescript',
+          'exec',
+          'vitest',
+          'run',
+          '--coverage',
+          '--exclude',
+          'tests/integration/**',
+          '--run',
+        ],
+      ],
+      ['pnpm', ['--dir', 'harness/stack', 'exec', 'vitest', 'run', '--coverage', '--run']],
+      ['pnpm', ['--dir', 'harness/inspector', 'exec', 'vitest', 'run', '--coverage', '--run']],
+    ]);
+  });
 });

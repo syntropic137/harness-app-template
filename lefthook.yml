@@ -72,14 +72,14 @@ pre-push:
           pnpm turbo run test --filter="...[$base]"
         '
 
-    scripts-coverage:
+    cov-ts:
       run: |
         sh -eu -c '
           if ! command -v pnpm >/dev/null 2>&1; then
-            printf "%s\n" "warning: pnpm not found; skipping scripts coverage hook" >&2
+            printf "%s\n" "warning: pnpm not found; skipping TypeScript workspace coverage hook" >&2
             exit 0
           fi
-          pnpm exec vitest run scripts/tests --coverage
+          pnpm test:coverage
         '
 
     cov-rust:

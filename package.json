@@ -9,6 +9,7 @@
     "docs:build": "pnpm --filter @harness/docs build",
     "docs:dev": "pnpm --filter @harness/docs dev",
     "test": "bun run scripts/test.ts",
+    "test:coverage": "bun run scripts/test-coverage.ts",
     "test:scripts": "vitest run scripts/tests --coverage",
     "cov:rust": "just cov-rust",
     "lint": "bun run scripts/lint.ts"
