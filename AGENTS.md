@@ -141,6 +141,44 @@ Use conventional commits. N commits total (Part 1 then Part 2 if applicable)."
 **What needs explicit naming:**
 - Project-local skills under `.claude/skills/`: dispatched via the Skill tool by **bare unnamespaced name** when the task mentions them. Skills are NOT auto-discovered in `-p`.
 
+## Agent Mail wiring (opt-in)
+
+This template targets the VPS swarm workflow (see
+`.claude/skills/orchestrating-a-vps-agent-swarm/`). Cross-agent
+coordination flows through Agent Mail, exposed to Claude Code, Codex,
+and Gemini as the `mcp-agent-mail` HTTP MCP server at
+`http://127.0.0.1:8765/mcp/`.
+
+The wiring is **opt-in by design**: the Bearer token is per-host and
+MUST NOT be committed. Copy `.claude/settings.local.example.json` to
+`.claude/settings.local.json` (gitignored) and replace
+`YOUR_BEARER_TOKEN_HERE` with your host's token.
+
+```sh
+cp .claude/settings.local.example.json .claude/settings.local.json
+# edit .claude/settings.local.json and set the Bearer token
+```
+
+The token is provisioned by the operator from the launchpad's
+`services-setup` wizard (see `~/CLAUDE.md` on a provisioned VPS for the
+ACFS path). On the VPS the Agent Mail server runs as a systemd user
+unit; the wiring above will be a dead handle until the unit is active:
+
+```sh
+systemctl --user status agent-mail
+systemctl --user start agent-mail   # if not running
+```
+
+Without the unit, `am macros start-session` and every other `am`
+operation will return a connection-refused error. With the unit and the
+local settings file in place, Claude Code, Codex, and Gemini all see
+the same MCP surface.
+
+For forks that do not run a VPS swarm, leave
+`.claude/settings.local.json` absent. The template degrades cleanly:
+no Agent Mail tools appear, beads still tracks state per-project, and
+no other slot depends on the MCP wiring.
+
 ## Conventions worth knowing
 
 - **Token-aware:** harness binaries default to terse output. Use `--verbose` when you need it.

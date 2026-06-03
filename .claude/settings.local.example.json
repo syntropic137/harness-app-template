@@ -1,0 +1,12 @@
+{
+  "_comment": "Opt-in MCP wiring for Agent Mail. Copy to .claude/settings.local.json (gitignored) and replace YOUR_BEARER_TOKEN_HERE. The Bearer token MUST NOT be committed; the token is per-host and is set up by the operator from the launchpad. Requires the agent-mail.service systemd user unit to be running (see AGENTS.md 'Agent Mail wiring').",
+  "mcpServers": {
+    "mcp-agent-mail": {
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp/",
+      "headers": {
+        "Authorization": "Bearer YOUR_BEARER_TOKEN_HERE"
+      }
+    }
+  }
+}
