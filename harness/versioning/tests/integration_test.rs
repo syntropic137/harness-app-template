@@ -3,6 +3,14 @@ use std::path::Path;
 use std::process::Command;
 
 const BINARY_PATH: &str = env!("CARGO_BIN_EXE_harness-versioning");
+const LOCAL_GIT_ENV: &[&str] = &[
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_WORK_TREE",
+];
 
 fn harness_command() -> Command {
     let mut command = Command::new("/usr/bin/env");
@@ -14,11 +22,7 @@ fn git<const N: usize, S>(root: &Path, args: [S; N])
 where
     S: AsRef<OsStr>,
 {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .expect("spawn git");
+    let out = git_command(root).args(args).output().expect("spawn git");
     assert!(
         out.status.success(),
         "stdout={} stderr={}",
@@ -31,11 +35,7 @@ fn git_output<const N: usize, S>(root: &Path, args: [S; N]) -> String
 where
     S: AsRef<OsStr>,
 {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .expect("spawn git");
+    let out = git_command(root).args(args).output().expect("spawn git");
     assert!(
         out.status.success(),
         "stdout={} stderr={}",
@@ -43,6 +43,15 @@ where
         String::from_utf8_lossy(&out.stderr)
     );
     String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
+fn git_command(root: &Path) -> Command {
+    let mut command = Command::new("git");
+    command.current_dir(root);
+    for key in LOCAL_GIT_ENV {
+        command.env_remove(key);
+    }
+    command
 }
 
 fn seed_repo(subject: &str) -> tempfile::TempDir {
@@ -148,9 +157,8 @@ fn release_execute_updates_changelog_commits_and_tags() {
     assert!(changelog.contains("- add releaser"));
     let manifest = std::fs::read_to_string(tmp.path().join("harness.manifest.json")).unwrap();
     assert!(manifest.contains("\"version\": \"0.1.0\""));
-    let tags = Command::new("git")
+    let tags = git_command(tmp.path())
         .args(["tag", "--list", "v0.1.0"])
-        .current_dir(tmp.path())
         .output()
         .expect("git tag");
     assert_eq!(String::from_utf8_lossy(&tags.stdout).trim(), "v0.1.0");

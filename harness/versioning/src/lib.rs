@@ -10,6 +10,15 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+const LOCAL_GIT_ENV: &[&str] = &[
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_WORK_TREE",
+];
+
 #[derive(Parser, Debug)]
 #[command(
     name = "harness-versioning",
@@ -635,9 +644,8 @@ fn latest_release_tag(root: &Path, to: &str) -> Result<Option<String>> {
 }
 
 fn ensure_tag_missing(root: &Path, tag: &str) -> Result<()> {
-    let status = Command::new("git")
+    let status = git_command(root)
         .args(["rev-parse", "-q", "--verify", &format!("refs/tags/{tag}")])
-        .current_dir(root)
         .status()
         .context("run git rev-parse")?;
     if status.success() {
@@ -681,11 +689,7 @@ fn git<const N: usize, S>(root: &Path, args: [S; N]) -> Result<()>
 where
     S: AsRef<OsStr>,
 {
-    let status = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .status()
-        .context("run git")?;
+    let status = git_command(root).args(args).status().context("run git")?;
     if !status.success() {
         bail!("git command failed");
     }
@@ -696,11 +700,7 @@ fn git_output<const N: usize, S>(root: &Path, args: [S; N]) -> Result<String>
 where
     S: AsRef<OsStr>,
 {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .context("run git")?;
+    let output = git_command(root).args(args).output().context("run git")?;
     if !output.status.success() {
         bail!(
             "git command failed: {}",
@@ -708,6 +708,15 @@ where
         );
     }
     Ok(String::from_utf8(output.stdout)?)
+}
+
+fn git_command(root: &Path) -> Command {
+    let mut command = Command::new("git");
+    command.current_dir(root);
+    for key in LOCAL_GIT_ENV {
+        command.env_remove(key);
+    }
+    command
 }
 
 fn short_hash(hash: &str) -> String {
@@ -861,5 +870,18 @@ mod tests {
         let updated = replace_manifest_version_text(manifest, &version).unwrap();
         assert!(updated.contains("  \"version\": \"1.2.3\","));
         assert!(updated.contains("      \"version\": \"0.1.0\""));
+    }
+
+    #[test]
+    fn git_command_strips_local_git_env() {
+        let command = git_command(Path::new("."));
+        for expected_key in LOCAL_GIT_ENV {
+            assert!(
+                command
+                    .get_envs()
+                    .any(|(key, value)| key == OsStr::new(expected_key) && value.is_none()),
+                "{expected_key} should be removed from git subprocesses"
+            );
+        }
     }
 }
