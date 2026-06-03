@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { removeIfExists, renameIfExists, replaceInTree, walkTextFiles, writeText } from '../lib/fs';
-import { git, isGitRepo, run, runInherit, shortSha } from '../lib/git';
+import { git, isGitRepo, run, runInherit, shortSha, withoutLocalGitEnv } from '../lib/git';
 
 describe('script fs helpers', () => {
   test('write/remove/rename helpers handle existing, missing, and conflicting paths', () => {
@@ -36,7 +36,9 @@ describe('script fs helpers', () => {
       writeFileSync(join(root, 'image.png'), 'not text');
       symlinkSync(join(root, 'keep.md'), join(root, 'linked.md'));
       expect(walkTextFiles(join(root, 'missing'))).toEqual([]);
-      const relative = walkTextFiles(root).map((path) => path.slice(root.length + 1)).sort();
+      const relative = walkTextFiles(root)
+        .map((path) => path.slice(root.length + 1))
+        .sort();
       expect(relative).toEqual(['LICENSE', 'keep.md', 'nested/keep.ts']);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -65,16 +67,23 @@ describe('script git helpers', () => {
     expect(git(['definitely-not-a-git-command'], { allowFailure: true })).toBe('');
     expect(() => git(['definitely-not-a-git-command'])).toThrow();
     expect(shortSha('1234567890abcdef')).toBe('1234567890ab');
+    expect(
+      withoutLocalGitEnv({ GIT_DIR: '/repo/.git', GIT_WORK_TREE: '/repo', KEEP_ME: 'yes' }),
+    ).toEqual({
+      KEEP_ME: 'yes',
+    });
   });
 
   test('runInherit throws on nonzero status and isGitRepo detects repo roots', () => {
     const root = mkdtempSync(join(tmpdir(), 'cha-git-'));
     try {
       expect(isGitRepo(root)).toBe(false);
-      execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
+      execFileSync('git', ['init'], { cwd: root, env: withoutLocalGitEnv(), stdio: 'ignore' });
       expect(isGitRepo(root)).toBe(true);
       runInherit(process.execPath, ['-e', 'process.exit(0)'], root);
-      expect(() => runInherit(process.execPath, ['-e', 'process.exit(9)'], root)).toThrow(/failed with 9/);
+      expect(() => runInherit(process.execPath, ['-e', 'process.exit(9)'], root)).toThrow(
+        /failed with 9/,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { chdir, cwd as processCwd } from 'node:process';
 import { describe, expect, test } from 'vitest';
+import { withoutLocalGitEnv } from '../lib/git';
 import { parseCli, updateProject } from '../update';
 
 function run(cwd: string, args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  return execFileSync('git', args, { cwd, env: withoutLocalGitEnv(), encoding: 'utf8' }).trim();
 }
 
 function write(path: string, content: string): void {
@@ -38,7 +39,7 @@ function setupCanonicalAndFork(root: string): { canonical: string; fork: string 
   write(join(canonical, 'ws_apps/app.txt'), 'seed\n');
   commitAll(canonical, 'initial template');
 
-  execFileSync('git', ['clone', canonical, fork], { stdio: 'ignore' });
+  execFileSync('git', ['clone', canonical, fork], { env: withoutLocalGitEnv(), stdio: 'ignore' });
   run(fork, ['config', 'user.email', 'test@example.invalid']);
   run(fork, ['config', 'user.name', 'Template Test']);
   run(fork, ['config', 'commit.gpgsign', 'false']);
@@ -81,7 +82,7 @@ describe('updateProject', () => {
     try {
       const { canonical, fork } = setupCanonicalAndFork(root);
 
-      // Consumer edits ws_apps and commits — this must survive the update.
+      // Consumer edits ws_apps and commits; this must survive the update.
       write(join(fork, 'ws_apps/app.txt'), 'consumer edit\n');
       commitAll(fork, 'consumer product edit');
 
@@ -200,7 +201,10 @@ describe('updateProject', () => {
       write(join(canonical, 'docs-consumer/readme.md'), 'v1\n');
       commitAll(canonical, 'initial non-harness template');
 
-      execFileSync('git', ['clone', canonical, fork], { stdio: 'ignore' });
+      execFileSync('git', ['clone', canonical, fork], {
+        env: withoutLocalGitEnv(),
+        stdio: 'ignore',
+      });
       run(fork, ['config', 'user.email', 'test@example.invalid']);
       run(fork, ['config', 'user.name', 'Template Test']);
       run(fork, ['config', 'commit.gpgsign', 'false']);
@@ -244,7 +248,6 @@ describe('updateProject', () => {
     }
   });
 
-
   test('refuses without upstream remote', () => {
     const root = mkdtempSync(join(tmpdir(), 'cha-update-no-up-'));
     try {
@@ -252,7 +255,9 @@ describe('updateProject', () => {
       initRepo(join(root, 'repo'));
       write(join(root, 'repo/harness/file.txt'), 'v1\n');
       commitAll(join(root, 'repo'), 'init');
-      expect(() => updateProject({ cwd: join(root, 'repo') })).toThrow(/no `upstream` remote configured/);
+      expect(() => updateProject({ cwd: join(root, 'repo') })).toThrow(
+        /no `upstream` remote configured/,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -267,7 +272,9 @@ describe('updateProject', () => {
       commitAll(canonical, 'bump');
       // Dirty the fork's harness/.
       writeFileSync(join(fork, 'harness/file.txt'), 'consumer in-flight edit\n');
-      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(/dirty harness-owned paths/);
+      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
+        /dirty harness-owned paths/,
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -285,8 +292,10 @@ describe('updateProject', () => {
       } catch (e) {
         thrown = e as Error;
       }
-      expect(thrown).not.toBeNull();
-      expect(thrown!.message).toContain('1 commit(s) ahead');
+      if (!thrown) {
+        throw new Error('expected updateProject to throw');
+      }
+      expect(thrown.message).toContain('1 commit(s) ahead');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

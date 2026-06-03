@@ -1,14 +1,32 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 
+const LOCAL_GIT_ENV_KEYS = [
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_COMMON_DIR',
+  'GIT_DIR',
+  'GIT_INDEX_FILE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_WORK_TREE',
+];
+
 export interface RunOptions {
   cwd?: string;
   allowFailure?: boolean;
+}
+
+export function withoutLocalGitEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const clean = { ...env };
+  for (const key of LOCAL_GIT_ENV_KEYS) {
+    delete clean[key];
+  }
+  return clean;
 }
 
 export function git(args: string[], options: RunOptions = {}): string {
   try {
     return execFileSync('git', args, {
       cwd: options.cwd,
+      env: withoutLocalGitEnv(),
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trimEnd();
