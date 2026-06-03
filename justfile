@@ -12,6 +12,9 @@ bootstrap *args:
 build *args:
     bun run scripts/build.ts {{args}}
 
+typecheck *args:
+    bun run scripts/typecheck.ts {{args}}
+
 test *args:
     bun run scripts/test.ts {{args}}
 

@@ -27,6 +27,7 @@ describe('thin script wrappers', () => {
 
   test.each([
     ['build', ['pnpm', ['turbo', 'run', 'build', '--filter=...']]],
+    ['typecheck', ['pnpm', ['turbo', 'run', 'typecheck', '--filter=...']]],
     ['lint', ['pnpm', ['turbo', 'run', 'lint', '--filter=...']]],
     ['boot', ['harness/stack/bin/stack', ['boot', 'up']]],
     ['inspector', ['harness/inspector/bin/inspector', ['--help']]],
