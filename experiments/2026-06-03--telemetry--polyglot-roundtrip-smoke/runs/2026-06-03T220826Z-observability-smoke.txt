@@ -1,0 +1,42 @@
+harness/observability/smoke.sh
+Booting harness_harness-app-template-0ka--main_7c2b10f0 (branch=main, iso=7c2b10f0)
+ Network harness_harness-app-template-0ka--main_7c2b10f0_default Creating 
+ Network harness_harness-app-template-0ka--main_7c2b10f0_default Created 
+ Volume harness_harness-app-template-0ka--main_7c2b10f0_victorialogs_data Creating 
+ Volume harness_harness-app-template-0ka--main_7c2b10f0_victorialogs_data Created 
+ Volume harness_harness-app-template-0ka--main_7c2b10f0_victoriametrics_data Creating 
+ Volume harness_harness-app-template-0ka--main_7c2b10f0_victoriametrics_data Created 
+ Volume harness_harness-app-template-0ka--main_7c2b10f0_victoriatraces_data Creating 
+ Volume harness_harness-app-template-0ka--main_7c2b10f0_victoriatraces_data Created 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-victorialogs-1 Creating 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-victoriametrics-1 Creating 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-victoriatraces-1 Creating 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-victorialogs-1 Created 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-victoriatraces-1 Created 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-victoriametrics-1 Created 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-otel-collector-1 Creating 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-otel-collector-1 Created 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-victoriatraces-1 Starting 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-victoriametrics-1 Starting 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-victorialogs-1 Starting 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-victoriametrics-1 Started 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-victoriatraces-1 Started 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-victorialogs-1 Started 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-otel-collector-1 Starting 
+ Container harness_harness-app-template-0ka--main_7c2b10f0-otel-collector-1 Started 
+observability smoke: emitting TypeScript as observability-smoke-typescript-1780524517
+$ node --import tsx --import ./src/telemetry.ts src/main.ts
+observability smoke: TypeScript VictoriaLogs round trip ok
+observability smoke: TypeScript VictoriaTraces round trip ok
+observability smoke: emitting Rust as observability-smoke-rust-1780524517
+observability smoke: Rust VictoriaLogs round trip ok
+observability smoke: Rust VictoriaTraces round trip ok
+observability smoke: emitting Python as observability-smoke-python-1780524517
+Using CPython 3.13.13
+Creating virtual environment at: .venv
+   Building example-python @ file:///tmp/harness-app-template-0ka/ws_apps/example-python
+      Built example-python @ file:///tmp/harness-app-template-0ka/ws_apps/example-python
+Installed 32 packages in 886ms
+observability smoke: Python VictoriaLogs round trip ok
+observability smoke: Python VictoriaTraces round trip ok
+observability smoke: PASS polyglot telemetry round trip ok
