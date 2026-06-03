@@ -33,6 +33,9 @@ harness-engineering-skills *args:
 review *args:
     bun run scripts/harness-review.ts {{args}}
 
+agents action="link" *args:
+    @if [ "{{action}}" = "link" ]; then bun run scripts/agents-link.ts {{args}}; else echo "unknown agents action: {{action}}" >&2; exit 64; fi
+
 boot *args:
     bun run scripts/boot.ts {{args}}
 

@@ -51,9 +51,11 @@ function vendorFsFixture(
   fs: VendorFs;
   state: Map<string, LstatLike | null>;
   symlinks: Map<string, string>;
+  contents: Map<string, string>;
 } {
   const state = new Map(initial);
   const symlinks = new Map(readlinkTargets);
+  const contents = new Map<string, string>();
   const fs: VendorFs = {
     lstat: (path: string) => state.get(path) ?? null,
     readlink: (path: string) => {
@@ -71,9 +73,13 @@ function vendorFsFixture(
       state.set(path, linkStat());
       symlinks.set(path, target);
     },
-    exists: (path: string) => state.has(path),
+    readFile: (path: string) => contents.get(path) ?? '',
+    writeFile: (path: string, content: string) => {
+      state.set(path, fileStat());
+      contents.set(path, content);
+    },
   };
-  return { fs, state, symlinks };
+  return { fs, state, symlinks, contents };
 }
 
 type SpawnResultLike = { status: number; stdout?: string; stderr?: string };

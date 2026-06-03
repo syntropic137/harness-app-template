@@ -1,44 +1,19 @@
 import { spawnSync } from 'node:child_process';
-import {
-  chmodSync,
-  copyFileSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  readlinkSync,
-  type Stats,
-  symlinkSync,
-  unlinkSync,
-} from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { defaultVendorFs, type VendorFs, verifyAndRepairVendorLinks } from './lib/vendor-links';
+
+export {
+  defaultVendorFs,
+  VENDOR_SYMLINKS,
+  type VendorFs,
+  type VendorReport,
+  verifyAndRepairVendorLinks,
+} from './lib/vendor-links';
 
 export type ChmodFn = (path: string, mode: number) => void;
 export type MkdirFn = (path: string, options: { recursive: true }) => void;
 export type SymlinkFn = (target: string, path: string) => void;
-
-export interface VendorFs {
-  lstat: (path: string) => Pick<Stats, 'isSymbolicLink' | 'isFile' | 'isDirectory'> | null;
-  readlink: (path: string) => string;
-  unlink: (path: string) => void;
-  symlink: (target: string, path: string) => void;
-  exists: (path: string) => boolean;
-}
-
-export interface VendorReport {
-  ok: string[];
-  repaired: string[];
-  errors: string[];
-}
-
-export const VENDOR_SYMLINKS: ReadonlyArray<readonly [string, string]> = [
-  ['CLAUDE.md', 'AGENTS.md'],
-  ['GEMINI.md', 'AGENTS.md'],
-  ['.codex', 'AGENTS.md'],
-  ['.gemini', 'AGENTS.md'],
-];
-
-const CANONICAL_AGENT_FILE = 'AGENTS.md';
 
 const REQUIRED_TOOLS = ['bun', 'pnpm', 'cargo', 'uv'] as const;
 
@@ -64,22 +39,6 @@ export interface BootstrapDeps {
   mkdir?: MkdirFn;
   symlink?: SymlinkFn;
   vendorFs?: VendorFs;
-}
-
-function defaultVendorFs(): VendorFs {
-  return {
-    lstat: (path) => {
-      try {
-        return lstatSync(path);
-      } catch {
-        return null;
-      }
-    },
-    readlink: readlinkSync,
-    unlink: unlinkSync,
-    symlink: (target, path) => symlinkSync(target, path),
-    exists: existsSync,
-  };
 }
 
 export interface EsbuildMismatch {
@@ -214,42 +173,6 @@ export function repairEsbuildMismatch(
 function runInherit(spawn: typeof spawnSync, command: string, args: string[], cwd: string): number {
   const result = spawn(command, args, { cwd, stdio: 'inherit' });
   return result.status ?? 1;
-}
-
-export function verifyAndRepairVendorLinks(cwd: string, fs: VendorFs): VendorReport {
-  const report: VendorReport = { ok: [], repaired: [], errors: [] };
-  const canonicalPath = join(cwd, CANONICAL_AGENT_FILE);
-  const canonicalStat = fs.lstat(canonicalPath);
-  if (!canonicalStat || !canonicalStat.isFile()) {
-    report.errors.push(
-      `${CANONICAL_AGENT_FILE} is missing or not a regular file; the canonical agent context must live there`,
-    );
-    return report;
-  }
-  for (const [name, target] of VENDOR_SYMLINKS) {
-    const linkPath = join(cwd, name);
-    const stat = fs.lstat(linkPath);
-    if (stat === null) {
-      fs.symlink(target, linkPath);
-      report.repaired.push(`${name} -> ${target} (created)`);
-      continue;
-    }
-    if (!stat.isSymbolicLink()) {
-      report.errors.push(
-        `${name} exists but is not a symlink; refusing to clobber. Remove it manually if you intended to track the canonical layout`,
-      );
-      continue;
-    }
-    const actualTarget = fs.readlink(linkPath);
-    if (actualTarget === target) {
-      report.ok.push(name);
-      continue;
-    }
-    fs.unlink(linkPath);
-    fs.symlink(target, linkPath);
-    report.repaired.push(`${name} -> ${target} (was ${actualTarget})`);
-  }
-  return report;
 }
 
 export function main(deps: BootstrapDeps): void {
