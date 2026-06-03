@@ -6,28 +6,30 @@ Strict TS (`strict: true`, `noUncheckedIndexedAccess`, `noPropertyAccessFromInde
 
 ## What it proves
 
-End-to-end: scaffold → bootstrap → boot the observability stack → run this app → emit one span + one Pino-shaped JSON log line → retrieve via the `observability-queries` agent skill.
+End-to-end: scaffold -> bootstrap -> boot the observability stack -> run this app -> emit one span plus one Pino-shaped JSON log line -> retrieve via the `observability-queries` agent skill.
 
 ## Run
 
 ```sh
 # from project root
-just stack boot                              # bring up Victoria* + OTEL Collector
-pnpm --filter @example/typescript start      # emit one trace + log line
+just stack boot
+eval "$(just stack ports)"
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:${OTEL_OTLP_PORT}"
+pnpm --filter @example/typescript start
 ```
 
 Then query (see `.claude/skills/observability-queries/`):
 
 ```sh
-curl 'http://localhost:9428/select/logsql/query' --data-urlencode 'query=service:"example-typescript" | fields severity,msg,traceId'
-curl 'http://localhost:9428/select/tempo/api/search?service=example-typescript'
+curl "http://localhost:${VL_PORT}/select/logsql/query" --data-urlencode 'query=service:"example-typescript" | fields severity,msg,traceId'
+curl "http://localhost:${VT_PORT}/select/jaeger/api/traces?service=example-typescript"
 ```
 
 ## Config (env vars)
 
 | Var | Default | Purpose |
 |---|---|---|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | OTEL Collector OTLP HTTP endpoint |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | OTEL Collector OTLP HTTP endpoint. For the template stack, set it to `http://localhost:${OTEL_OTLP_PORT}` from `just stack ports`. |
 | `OTEL_SERVICE_NAME` | `example-typescript` | resource.service.name |
 | `HARNESS_TELEMETRY_DISABLED` | unset | set `1` to skip SDK startup (tests use this) |
 

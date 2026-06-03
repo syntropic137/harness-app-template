@@ -47,7 +47,7 @@ update *args:
     bun run scripts/update.ts {{args}}
 
 stack *args:
-    bun run scripts/stack.ts {{args}}
+    @bun run scripts/stack.ts {{args}}
 
 inspector *args:
     bun run scripts/inspector.ts {{args}}
