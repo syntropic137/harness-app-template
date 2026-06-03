@@ -19,6 +19,7 @@ async function loadMain(moduleName: string): Promise<(argv?: string[]) => void> 
 describe('thin script wrappers', () => {
   beforeEach(() => {
     calls.length = 0;
+    process.exitCode = undefined;
   });
 
   // bootstrap is intentionally not a thin wrapper any more: it owns the
@@ -29,7 +30,6 @@ describe('thin script wrappers', () => {
     ['build', ['pnpm', ['turbo', 'run', 'build', '--filter=...']]],
     ['typecheck', ['pnpm', ['turbo', 'run', 'typecheck', '--filter=...']]],
     ['lint', ['pnpm', ['turbo', 'run', 'lint', '--filter=...']]],
-    ['boot', ['harness/stack/bin/stack', ['boot', 'up']]],
     ['inspector', ['harness/inspector/bin/inspector', ['--help']]],
     ['sensors', ['harness/sensors/bin/sensors', ['--help']]],
     ['stack', ['harness/stack/bin/stack', ['inspect']]],
@@ -44,6 +44,100 @@ describe('thin script wrappers', () => {
     const main = await loadMain(moduleName);
     main((expected[1] as string[]).slice(-1));
     expect(calls).toEqual([expected]);
+  });
+
+  test('boot wrapper forwards legacy up through the stack manager', async () => {
+    const errors: string[] = [];
+    const error = vi.spyOn(console, 'error').mockImplementation((message: string) => {
+      errors.push(message);
+    });
+
+    try {
+      const main = await loadMain('boot');
+      main(['up', '-d', '--bug', 'BUG_COMPLETE_TASK_500']);
+      expect(calls).toEqual([
+        ['harness/stack/bin/stack', ['boot', '--bug', 'BUG_COMPLETE_TASK_500']],
+      ]);
+      expect(errors).toEqual(['warning: just boot is deprecated; forwarding to just stack boot']);
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  test('boot wrapper forwards bare legacy detach through the stack manager', async () => {
+    const errors: string[] = [];
+    const error = vi.spyOn(console, 'error').mockImplementation((message: string) => {
+      errors.push(message);
+    });
+
+    try {
+      const main = await loadMain('boot');
+      main(['-d']);
+      expect(calls).toEqual([['harness/stack/bin/stack', ['boot']]]);
+      expect(errors).toEqual(['warning: just boot is deprecated; forwarding to just stack boot']);
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  test('boot wrapper maps legacy down to stack destroy', async () => {
+    const errors: string[] = [];
+    const error = vi.spyOn(console, 'error').mockImplementation((message: string) => {
+      errors.push(message);
+    });
+
+    try {
+      const main = await loadMain('boot');
+      main(['down', '-v']);
+      expect(calls).toEqual([['harness/stack/bin/stack', ['destroy', '-v']]]);
+      expect(errors).toEqual([
+        'warning: just boot down is deprecated; forwarding to just stack destroy',
+      ]);
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  test('boot wrapper maps legacy stop to stack stop', async () => {
+    const errors: string[] = [];
+    const error = vi.spyOn(console, 'error').mockImplementation((message: string) => {
+      errors.push(message);
+    });
+
+    try {
+      const main = await loadMain('boot');
+      main(['stop']);
+      expect(calls).toEqual([['harness/stack/bin/stack', ['stop']]]);
+      expect(errors).toEqual([
+        'warning: just boot stop is deprecated; forwarding to just stack stop',
+      ]);
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  test('boot wrapper rejects raw compose commands', async () => {
+    const errors: string[] = [];
+    const error = vi.spyOn(console, 'error').mockImplementation((message: string) => {
+      errors.push(message);
+    });
+
+    try {
+      const main = await loadMain('boot');
+      main(['ps']);
+      expect(calls).toEqual([]);
+      expect(errors).toEqual([
+        'usage: just boot [up|-d|stop|down] [--bug NAME]',
+        'use just stack <boot|inspect|ports|stop|destroy|doctor> for the canonical stack-manager entrypoint',
+      ]);
+      expect(process.exitCode).toBe(64);
+    } finally {
+      error.mockRestore();
+    }
   });
 
   test('sensors wrapper honors the manifest none plugin swap', async () => {

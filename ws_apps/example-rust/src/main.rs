@@ -1,9 +1,13 @@
-// main.rs — minimal hello-world that emits one trace + one log line.
+// main.rs - minimal hello-world that emits one trace + one log line.
 //
-// Run with:   cargo run --release
+// Run with:
+//   just stack boot
+//   eval "$(just stack ports)"
+//   OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:$OTEL_OTLP_PORT" cargo run --release -p example-rust
 //
 // Then query via the observability-queries skill:
-//   curl 'http://localhost:9428/select/logsql/query' -d 'query=service:"example-rust"'
+//   curl -sG "http://localhost:$VL_PORT/select/logsql/query" --data-urlencode 'query={service.name="example-rust"} | fields _time, severity, _msg, trace_id | limit 20'
+//   curl -s "http://localhost:$VT_PORT/select/jaeger/api/services"
 
 // ── HARNESS-ENGINEERING PROTECTED: do not relax. ────────────────────────────
 // Per `Cargo.toml [package.metadata.harness-engineering] no_unsafe = true`
@@ -49,7 +53,7 @@ async fn main() -> std::process::ExitCode {
 /// Full binary lifecycle, parameterised on the stdout and stderr sinks so
 /// unit tests can drive both the happy path and the error path without
 /// touching the real process streams. Uses `dyn Write` (not generics) so
-/// there is exactly one instantiation in the compiled artifact — this keeps
+/// there is exactly one instantiation in the compiled artifact. This keeps
 /// `cargo llvm-cov` from inflating coverage denominators with per-type
 /// monomorphizations.
 pub async fn run(out: &mut dyn Write, err: &mut dyn Write) -> std::process::ExitCode {
@@ -79,7 +83,7 @@ pub fn build_hello_message(traced: bool, now_rfc3339: String) -> serde_json::Val
 }
 
 /// Emit one hello-world span + one structured log line to `out`.
-/// Takes `&mut dyn Write` so there's only one instantiation — keeps coverage
+/// Takes `&mut dyn Write` so there is only one instantiation. This keeps coverage
 /// denominators stable across the bin and test builds.
 pub async fn hello_world(
     traced: bool,
@@ -103,7 +107,7 @@ mod tests {
 
     // std::env is process-global; serialize tests that touch it. We use
     // `tokio::sync::Mutex` (not `std::sync::Mutex`) because some tests hold
-    // the guard across `.await` points — clippy's `await_holding_lock` lint
+    // the guard across `.await` points. Clippy's `await_holding_lock` lint
     // rejects the std mutex in that pattern, and the async-aware mutex is the
     // canonical fix.
     static ENV_LOCK: Mutex<()> = Mutex::const_new(());

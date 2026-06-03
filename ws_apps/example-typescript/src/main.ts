@@ -1,10 +1,13 @@
-// main.ts — minimal hello-world that emits one trace + one log line.
+// main.ts - minimal hello-world that emits one trace + one log line.
 //
-// Run with:   pnpm --filter @example/typescript start
+// Run with:
+//   just stack boot
+//   eval "$(just stack ports)"
+//   OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:$OTEL_OTLP_PORT" pnpm --filter @example/typescript start
 //
 // Then query via the observability-queries skill:
-//   curl http://localhost:9428/select/logsql/query -d 'query=service:example-typescript'
-//   curl http://localhost:9428/select/tempo/api/search?service=example-typescript
+//   curl -sG "http://localhost:$VL_PORT/select/logsql/query" --data-urlencode 'query={service.name="example-typescript"} | fields _time, severity, _msg, trace_id | limit 20'
+//   curl -s "http://localhost:$VT_PORT/select/jaeger/api/services"
 //
 // Design note: every code path is reachable from `helloWorld` or `runCli` so
 // unit tests can hit 100% lines/branches/functions without spawning a
@@ -66,7 +69,7 @@ export interface RunCliDeps {
 }
 
 /**
- * CLI runner — testable. Returns the exit code; the script-entry block
+ * CLI runner - testable. Returns the exit code; the script-entry block
  * passes that to `process.exit()`.
  */
 export async function runCli({
@@ -78,7 +81,7 @@ export async function runCli({
 }: RunCliDeps = {}): Promise<number> {
   try {
     await hello();
-    // BatchSpanProcessor needs an explicit flush — `process.exit()` skips
+    // BatchSpanProcessor needs an explicit flush. `process.exit()` skips
     // `beforeExit`. Without this, the span never reaches the collector.
     await shutdown();
     return 0;
@@ -102,7 +105,7 @@ export function isScriptEntry(
   return meta.url === `file://${argv[1]}`;
 }
 
-/* c8 ignore start — Reason: these 3 lines fire only when the module is run
+/* c8 ignore start - Reason: these 3 lines fire only when the module is run
    as a script (not when imported by tests). `isScriptEntry()` itself IS
    unit-tested above; this block only wires it up. Excluding this from
    coverage is the standard pattern for ESM module-as-script entrypoints.

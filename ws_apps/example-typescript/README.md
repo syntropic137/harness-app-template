@@ -21,8 +21,9 @@ pnpm --filter @example/typescript start
 Then query (see `.claude/skills/observability-queries/`):
 
 ```sh
-curl "http://localhost:${VL_PORT}/select/logsql/query" --data-urlencode 'query=service:"example-typescript" | fields severity,msg,traceId'
-curl "http://localhost:${VT_PORT}/select/jaeger/api/traces?service=example-typescript"
+curl -sG "http://localhost:${VL_PORT}/select/logsql/query" --data-urlencode \
+  'query={service.name="example-typescript"} | fields _time, severity, _msg, trace_id | limit 20'
+curl -s "http://localhost:${VT_PORT}/select/jaeger/api/services"
 ```
 
 ## Config (env vars)

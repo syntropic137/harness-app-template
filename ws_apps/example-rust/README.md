@@ -15,6 +15,14 @@ export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:${OTEL_OTLP_PORT}"
 cargo run --release -p example-rust
 ```
 
+Then query (see `.claude/skills/observability-queries/`):
+
+```sh
+curl -sG "http://localhost:${VL_PORT}/select/logsql/query" --data-urlencode \
+  'query={service.name="example-rust"} | fields _time, severity, _msg, trace_id | limit 20'
+curl -s "http://localhost:${VT_PORT}/select/jaeger/api/services"
+```
+
 ## Tests
 
 ```sh

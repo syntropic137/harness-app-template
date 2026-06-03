@@ -1,10 +1,16 @@
-"""main.py — minimal hello-world that emits one trace + one JSON log line.
+"""main.py - minimal hello-world that emits one trace + one JSON log line.
 
-Run with:    pip install -e . && example-python
-Or:          python -m example_python.main
+Run with:
+  just stack boot
+  eval "$(just stack ports)"
+  OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:$OTEL_OTLP_PORT" example-python
+
+Or:
+  python -m example_python.main
 
 Then query via the observability-queries skill:
-  curl 'http://localhost:9428/select/logsql/query' -d 'query=service:"example-python"'
+  curl -sG "http://localhost:$VL_PORT/select/logsql/query" --data-urlencode 'query={service.name="example-python"} | fields _time, severity, _msg, trace_id | limit 20'
+  curl -s "http://localhost:$VT_PORT/select/jaeger/api/services"
 
 Design note: every code path is reachable from `hello_world` or `cli` via
 injectable dependencies so unit tests hit 100% lines/branches without spawning

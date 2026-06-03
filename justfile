@@ -40,7 +40,7 @@ agents action="link" *args:
     @if [ "{{action}}" = "link" ]; then bun run scripts/agents-link.ts {{args}}; else echo "unknown agents action: {{action}}" >&2; exit 64; fi
 
 boot *args:
-    bun run scripts/boot.ts {{args}}
+    @bun run scripts/boot.ts {{args}}
 
 # Run the live polyglot telemetry roundtrip smoke against the local observability stack.
 observability-smoke:
