@@ -42,6 +42,24 @@ agents action="link" *args:
 boot *args:
     @bun run scripts/boot.ts {{args}}
 
+stop:
+    bun run scripts/stack.ts stop
+
+destroy:
+    bun run scripts/stack.ts destroy
+
+inspect:
+    @bun run scripts/stack.ts inspect
+
+ports:
+    @bun run scripts/stack.ts ports
+
+doctor-explain check_id:
+    @bun run scripts/stack.ts doctor --explain {{check_id}}
+
+doctor-json *probe:
+    @bun run scripts/stack.ts doctor --json {{probe}}
+
 # Run the live polyglot telemetry roundtrip smoke against the local observability stack.
 observability-smoke:
     harness/observability/smoke.sh
