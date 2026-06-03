@@ -58,6 +58,21 @@ jobs:
           tool: just
       - run: just cov-rust
 
+  python-coverage:
+    # mypy --strict + pytest --cov-fail-under=100 for ws_apps/example-python.
+    # Mirrors the lefthook pre-commit python-mypy and pre-push cov-py so a
+    # fork that bypasses local hooks still hits the gate at PR time.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - run: uv sync --project ws_apps/example-python
+      - run: uv run --project ws_apps/example-python mypy src
+      - run: just cov-py
+
   fitness:
     # APSS 8-dimension architectural fitness gate (bead
     # create-harness-app-2zz). Mirrors the lefthook pre-push sensors-gate

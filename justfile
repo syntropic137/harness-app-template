@@ -92,6 +92,9 @@ uv *args:
 # Refactor production or add tests before raising these thresholds.
 cov-rust: cov-example-rust cov-doc-validator cov-versioning
 
+cov-py:
+    cd ws_apps/example-python && sh scripts/with-uv.sh uv run pytest
+
 cov-example-rust:
     cargo llvm-cov --manifest-path ws_apps/example-rust/Cargo.toml --package example-rust --fail-under-lines 100 --fail-under-functions 100 --fail-under-regions 100
 
