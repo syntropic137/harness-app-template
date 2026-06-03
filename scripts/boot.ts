@@ -1,7 +1,7 @@
 import { runInherit } from './lib/git';
 
 export function main(argv: string[]): void {
-  runInherit('docker', ['compose', '-f', 'harness/observability/compose.harness.yml', ...argv]);
+  runInherit('harness/stack/bin/stack', ['boot', ...argv]);
 }
 
 /* v8 ignore next 3 */
