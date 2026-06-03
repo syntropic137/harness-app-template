@@ -5,7 +5,7 @@ checks:
   - id: node-20
     description: Node 20+ on PATH
     command: ["node", "--version"]
-    expect_stdout_match: "^v(20|21|22|23|24|25)\\."
+    expect_stdout_match: "^v(2[0-9]|[3-9][0-9]|[1-9][0-9]{2,})\\."
     remediation: |
       Install via `brew install node@22` (or use nvm/fnm/volta).
 
@@ -18,7 +18,7 @@ checks:
       OR: brew install pnpm
 
   - id: bun
-    description: Bun runtime (optional — only needed to compile the harness binary per EXP-20)
+    description: Bun runtime (optional, only needed to compile the harness binary per EXP-20)
     command: ["bun", "--version"]
     expect_exit: 0
     remediation: |

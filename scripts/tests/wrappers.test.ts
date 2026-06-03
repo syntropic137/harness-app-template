@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
@@ -137,6 +137,22 @@ describe('thin script wrappers', () => {
       expect(process.exitCode).toBe(64);
     } finally {
       error.mockRestore();
+    }
+  });
+
+  test('justfile exposes lab stack lifecycle recipes as thin dispatchers', () => {
+    const justfile = readFileSync(new URL('../../justfile', import.meta.url), 'utf8');
+    const expectedRecipes = [
+      'stop:\n    bun run scripts/stack.ts stop',
+      'destroy:\n    bun run scripts/stack.ts destroy',
+      'inspect:\n    @bun run scripts/stack.ts inspect',
+      'ports:\n    @bun run scripts/stack.ts ports',
+      'doctor-explain check_id:\n    @bun run scripts/stack.ts doctor --explain {{check_id}}',
+      'doctor-json *probe:\n    @bun run scripts/stack.ts doctor --json {{probe}}',
+    ];
+
+    for (const recipe of expectedRecipes) {
+      expect(justfile).toContain(recipe);
     }
   });
 
