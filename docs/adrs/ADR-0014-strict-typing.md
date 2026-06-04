@@ -1,7 +1,7 @@
 ---
 name: "Strict Typing"
-description: "Track strict typing posture and proposed tightenings as an audit record"
-status: proposed
+description: "Treat strict typing as enforced template policy with explicit gaps"
+status: accepted
 ---
 
 # ADR-0014: Strict Typing
@@ -12,84 +12,133 @@ status: proposed
 
 ## Context
 
-The template advertises strict typing across languages, but declarations and enforcement can diverge if hooks or compiler settings are incomplete.
+The template advertises strict typing across TypeScript, Python, and Rust.
+That promise is useful only when the declared compiler or linter posture is
+bound to commands, hooks, and CI workflows that agents actually run.
+
+This ADR was imported from a lab audit and had drifted. It claimed the template
+had no `lefthook.yml` or Biome configuration, and it cited lab-specific app and
+package paths. The template now has its own enforcement surface:
+
+- `lefthook.yml` with staged Biome, Python ruff, Python mypy, affected
+  typecheck, and CI-mirrored pre-push checks.
+- `biome.jsonc` with `suspicious.noExplicitAny = "error"` and
+  `style.noNonNullAssertion = "error"`.
+- `tsconfig.base.json` with strict compiler settings inherited by TypeScript
+  packages.
+- `ws_apps/example-python/pyproject.toml` with `mypy strict = true` plus
+  additional rules for explicit `Any`, unreachable code, strict equality, and
+  bare type-ignore comments.
+- Rust `[lints]` tables and `#![forbid(unsafe_code)]` in the example Rust app
+  and the real Rust harness slots.
 
 ## Decision
 
-Track the strict-typing posture as an audit record and prioritize concrete enforcement gaps before introducing new lint rules.
+The template treats strict typing as an enforced policy, not an aspirational
+audit note:
+
+- TypeScript workspaces must inherit `tsconfig.base.json`, pass their package
+  `typecheck` script, and pass Biome with `any` and non-null assertions blocked.
+- Python workspaces must pass package-local mypy strict mode and ruff checks.
+- Rust workspaces and Rust harness slots must forbid unsafe code and deny
+  Clippy's `all` lint group through Cargo lints and package `lint` scripts.
+- Gaps are documented below as template policy debt. They are not silent
+  exceptions.
 
 ## Consequences
 
-The record identifies where strictness is real and where it is only declarative. Proposed rule additions need source confirmation before becoming gates.
+The template no longer has a "declared but not run" strict-typing posture for
+the primary example app and harness slot surfaces. A fork gets runnable
+commands, local hooks, and CI workflows that exercise the same policy.
+
+This also makes the remaining gaps sharper. Root `scripts/*.ts` are linted and
+tested, but they are not currently covered by a root `tsc --noEmit` project.
+TypeScript suppression comments are review-governed rather than mechanically
+banned. JavaScript `.mjs` harness slots are syntax-checked and tested, but are
+not TypeScript strict surfaces.
 
 ## Details
 
-> Audit-only decision doc. Items marked **[no-research]** are config tightenings using tools we already have — safe to ship. Items marked **[needs-research]** propose new lint-rule names; must be confirmed against current-year tool docs via WebSearch before merging per CLAUDE.md rule #0.
+### Current Policy As Of 2026-06-04
 
-## Current state — declared vs enforced
-
-| Lang | Declared | Enforced pre-commit | Gap |
+| Surface | Strictness contract | Enforcement paths | Known gap |
 |---|---|---|---|
-| **TS (lab)** | `tsconfig.base.json`: strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes, noImplicitOverride, noPropertyAccessFromIndexSignature. Biome: `noExplicitAny: warn`. | `biome check` + `pnpm -r typecheck` | `any` is **warn** not error; `@ts-ignore` / `@ts-expect-error` / `@ts-nocheck` unbanned; `!` non-null silenced; no `noUnusedLocals` / `noUnusedParameters`. |
-| **TS (template)** | Same `tsconfig.base.json` with `_protected` sentinel. | **No `lefthook.yml` or `biome.json` shipped.** | Strict declarations but zero hook wiring — scaffolded projects inherit *type theatre*, not enforcement. |
-| **Rust (lab `apps/api-rust`)** | No `[lints]` table, no `#![forbid(unsafe_code)]`. | `cargo fmt --check` + `cargo clippy -- -D warnings`. | **Lab's own Rust crate is weaker than the template's example.** |
-| **Rust (template `example-rust`)** | `#![forbid(unsafe_code)]`; `[package.metadata.harness-engineering] strict_clippy=true, no_unsafe=true`. | None (template has no hook file). | Metadata is descriptive only — no tool reads it. `strict_clippy` not bound to clippy::pedantic/restriction. |
-| **Python (lab)** | `[tool.mypy] strict=true`, `files=["src"]`. | mypy pre-commit on staged `*.py`. | `--strict` does NOT enable `disallow_any_explicit`, `warn_unreachable`, `strict_equality`. Tests dir untyped. |
-| **Python (template)** | `[tool.mypy] strict=true`. | None. | Same template gap as TS. |
-| **C++ (lab)** | `.clang-tidy` with `WarningsAsErrors: "*"`. | `clang-format` + `clang-tidy` pre-commit, **silently skipped** if toolchain or `compile_commands.json` missing. | Green-by-default on macOS dev hosts. |
+| `ws_apps/example-typescript` | Extends `tsconfig.base.json`; package lint uses Biome over `src` and `tests`; `any` and non-null assertions are errors. | `pnpm --filter @example/typescript typecheck`; `pnpm --filter @example/typescript lint`; `just typecheck`; `just lint`; `just qa`; `lefthook` pre-commit Biome; pre-push affected typecheck; `.github/workflows/test.yml` `pnpm qa`. | TypeScript suppression comments are not mechanically banned. Existing uses must carry a reason and be reviewed. |
+| `ws_packages/telemetry` | Extends `tsconfig.base.json`; package lint uses Biome over `src` and `tests`. | `pnpm --filter @harness/telemetry typecheck`; `pnpm --filter @harness/telemetry lint`; `just typecheck`; `just lint`; `just qa`; `lefthook` pre-commit Biome; pre-push affected typecheck; `.github/workflows/test.yml` `pnpm qa`. | Same TypeScript suppression gap as above. |
+| `ws_apps/docs` | Extends `tsconfig.base.json`; `typecheck` runs `fumadocs-mdx` and `tsc --noEmit`. | `pnpm --filter @harness/docs typecheck`; `pnpm docs:build`; `.github/workflows/pages.yml`; `just typecheck`; `just qa`. | `allowJs = true` is required by the docs stack, so docs are not a pure TypeScript-only surface. |
+| `harness/stack` | Extends `tsconfig.base.json`; `lint` and `typecheck` run `tsc --noEmit`. | `pnpm --filter @harness/stack typecheck`; `pnpm --filter @harness/stack lint`; `just typecheck`; `just lint`; `just qa`; pre-push affected typecheck; `.github/workflows/test.yml` `pnpm qa`. | No separate Biome lint is wired for this package; the compiler is the strictness gate. |
+| Root `scripts/*.ts` | Biome lint and Vitest coverage protect the scripts tree. | `lefthook` pre-commit Biome; `pnpm test:scripts`; `pnpm test:coverage`; `just qa`; `.github/workflows/test.yml` scripts coverage job. | No root `tsconfig.json` or root package `tsc --noEmit` gate covers the scripts tree today. |
+| `harness/sensors` and `harness/inspector` `.mjs` tools | Syntax checks, focused tests, and gate scripts. | Package `lint`, `typecheck`, and `test` scripts; `just sensors gate`; pre-push sensors gate; `.github/workflows/test.yml` fitness job. | These are JavaScript slot tools, not TypeScript strict surfaces. |
+| `ws_apps/example-python` | `mypy strict = true`; `disallow_any_explicit = true`; `warn_unreachable = true`; `strict_equality = true`; `ignore-without-code` enabled; ruff lint and format checks. | `pnpm --filter @example/python typecheck`; `pnpm --filter @example/python lint`; `just typecheck`; `just lint`; `just qa`; `lefthook` pre-commit python-mypy, python-ruff, and python-ruff-format; `.github/workflows/test.yml` python coverage job. | Explicit `Any` exists only behind specific `# type: ignore[explicit-any]` escape hatches for OpenTelemetry SDK boundaries. |
+| `ws_apps/example-rust` | `#![forbid(unsafe_code)]`; Cargo `[lints.rust] unsafe_code = "forbid"`; unused denied; Clippy `all` denied. | `cargo check`; `cargo clippy --all-targets -- -D warnings`; package `lint` and `typecheck`; `just qa`; `just bootstrap`; `.github/workflows/test.yml` `pnpm qa`. | Clippy is not a pre-commit or pre-push hook. It is enforced through `just lint`, `just qa`, and CI. |
+| `harness/doc-validator` and `harness/versioning` | `#![forbid(unsafe_code)]` in crate roots; Cargo `[lints]` forbid unsafe and deny Clippy `all`. | Package `lint` and `typecheck`; `just qa`; `.github/workflows/test.yml` `pnpm qa`; versioning workflow runs versioning tests and release checks. | Same Rust hook gap as above. |
+| `harness/stack/rust-stub` | Cargo `[lints]` forbid unsafe and deny Clippy `all`, even though the crate is a stub. | Package build surfaces and direct Cargo commands. | Stub is intentionally excluded from root Rust coverage and is not a real stack-manager implementation. |
 
-## Headline findings
+### Enforcement Map
 
-1. **The template ships strict typing declarations but NO hook wiring.** A scaffolded project has `strict: true` in tsconfig but no lefthook running typecheck pre-commit. Type-theatre.
-2. **The lab's own `apps/api-rust` is weaker than the template's `example-rust`.** Inconsistency — the example sets a higher bar than the lab demonstrates.
-3. **`mypy --strict` is not maximally strict.** Specifically misses `disallow_any_explicit`, `warn_unreachable`, `strict_equality`, `ignore-without-code`.
-4. **`@ts-ignore` / `@ts-expect-error` / `@ts-nocheck` are not banned in TS.** Biome `noExplicitAny` is warn-only.
-5. **C++ hooks fail soft.** When LLVM isn't installed, the hook prints "skipped" and exits 0 — green CI on machines that can't enforce anything.
+- `just lint` runs `bun run scripts/lint.ts`, which delegates to
+  `pnpm turbo run lint`.
+- `just typecheck` runs `bun run scripts/typecheck.ts`, which delegates to
+  `pnpm turbo run typecheck`.
+- `just qa` runs `pnpm turbo run lint typecheck test --concurrency=1`.
+- `lefthook.yml` pre-commit checks staged TypeScript, JavaScript, JSON,
+  Markdown, YAML, Python, secrets, docs, and UBS findings.
+- `lefthook.yml` pre-push runs affected package typecheck and tests, coverage,
+  doc validation, sensors, performance, versioning, and UBS gates.
+- `.github/workflows/test.yml` runs `pnpm qa` on Ubuntu and macOS, root scripts
+  coverage, Rust coverage, Python mypy plus coverage, and fitness gates.
+- `.github/workflows/pages.yml` builds the docs app on docs-relevant changes.
+- `.github/workflows/versioning.yml` tests the versioning slot and release
+  discipline.
 
-## Proposed tightenings — ranked by leverage
+Local hooks deliberately soft-skip when required tools are absent so a partial
+developer machine can still commit. CI installs the toolchains needed for the
+main checks and is the hard backstop for pull requests and pushes to `main`.
 
-### 1. **[no-research] Ship `lefthook.yml` + minimal `biome.json` in the template.** ★ TOP PRIORITY
-   The template has every strictness lever set in config but nothing actually runs them on commit. Add to `templates/polyglot-monorepo/files/`:
-   - `lefthook.yml` mirroring the lab's gates (biome, typecheck, mypy, clippy, fmt).
-   - `biome.json` with the same lab rules + the v0.2 tightenings below.
-   - Wire `just bootstrap` to `pnpm install` so lefthook auto-registers.
+### Resolved Drift From The Imported Audit
 
-### 2. **[no-research] Bring `apps/api-rust` to parity with template's example-rust.**
-   - `apps/api-rust/src/main.rs:1`: add `#![forbid(unsafe_code)]`.
-   - `apps/api-rust/Cargo.toml`:
-     ```toml
-     [lints.rust]
-     unsafe_code = "forbid"
-     unused = "deny"
-     [lints.clippy]
-     all = { level = "deny", priority = -1 }
-     pedantic = { level = "warn", priority = -1 }
-     ```
-   `[lints]` table is stable since Rust 1.74 (no new tool).
+- The missing hook file claim is obsolete. The template has `lefthook.yml`.
+- The missing Biome config claim is obsolete. The template has `biome.jsonc`.
+- `noExplicitAny` is now an error, not a warning.
+- Non-null assertions are blocked by Biome.
+- Python strict typing now includes explicit `Any`, unreachable-code, strict
+  equality, and bare-ignore checks.
+- Rust example and Rust slot crates have Cargo lints and unsafe-code forbids.
+- Legacy lab app paths and C++ hook findings are not template policy surfaces.
 
-### 3. **[no-research] Same `[lints]` block in `templates/.../example-rust/Cargo.toml`.**
-   Makes the metadata declaration `strict_clippy=true` actually enforced instead of descriptive.
+### Open Gaps
 
-### 4. **[no-research] Extend mypy beyond `strict=true` in both pyproject.toml blocks (`apps/api-py/`, `templates/.../example-python/`):**
-   ```toml
-   disallow_any_explicit = true
-   warn_unreachable = true
-   strict_equality = true
-   enable_error_code = ["redundant-self", "truthy-bool", "ignore-without-code"]
-   ```
-   `ignore-without-code` forces every `# type: ignore` to name a rule (Python parity for the `@ts-ignore` ban below).
+1. Add a root TypeScript compiler project for `scripts/*.ts` or document why
+   Biome plus tests are sufficient for that tree.
+2. Confirm a current Biome rule or companion tool for banning unreasoned
+   `@ts-ignore`, `@ts-expect-error`, and `@ts-nocheck` comments. Until then,
+   review must reject suppressions that lack a narrow reason.
+3. Decide whether Rust Clippy should also run in local pre-push, or whether the
+   current `just qa` plus CI backstop is the right cost tradeoff.
+4. Keep `.mjs` harness slots explicit as syntax-checked JavaScript until they
+   either move to TypeScript or grow a separate typed contract.
 
-### 5. **[no-research] Make cpp hooks fail-closed via env gate.**
-   Replace `|| echo "skipped"` with `HARNESS_CPP_REQUIRE_LOCAL=1` → exit 1 when toolchain missing. Keep graceful skip as default for non-cpp contributors per retro 011, but enforce in CI.
+### Sources
 
-### 6. **[needs-research] Biome `noExplicitAny: error` + ban TS ignore comments.**
-   Flip `suspicious.noExplicitAny` from `warn` to `error`. Add a rule banning `@ts-ignore` / `@ts-expect-error` / `@ts-nocheck` — exact rule name must be confirmed against Biome 2.4.15+ release notes via WebSearch (current session denied). Until then: this is the only item that legitimately blocks on rule #0.
+This ADR is based on file verification in the template:
 
-## Sources
-
-Audit performed against repo state at HEAD (`172c45a`). Tool-version claims:
-- Biome 2.4.15 — declared in `package.json` `devDependencies`
-- mypy 1.13+ — declared as a workspace devDep
-- Rust 1.74+ `[lints]` table support — Rust stable docs (pre-WebSearch knowledge, not load-bearing for the audit's existing-config findings)
-
-Item #6 specifically requires WebSearch confirmation before shipping.
+- `lefthook.yml`
+- `biome.jsonc`
+- `tsconfig.base.json`
+- `turbo.json`
+- `justfile`
+- `package.json`
+- `pnpm-workspace.yaml`
+- `.github/workflows/test.yml`
+- `.github/workflows/pages.yml`
+- `.github/workflows/versioning.yml`
+- `ws_apps/example-typescript/package.json`
+- `ws_apps/example-python/pyproject.toml`
+- `ws_apps/example-rust/Cargo.toml`
+- `ws_packages/telemetry/package.json`
+- `harness/stack/package.json`
+- `harness/stack/tsconfig.json`
+- `harness/doc-validator/Cargo.toml`
+- `harness/versioning/Cargo.toml`
+- `harness/sensors/package.json`
+- `harness/inspector/package.json`
