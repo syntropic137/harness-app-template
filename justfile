@@ -27,6 +27,9 @@ qa *args:
 lint *args:
     bun run scripts/lint.ts {{args}}
 
+lint-fix *args:
+    bun run scripts/lint.ts --fix {{args}}
+
 doctor *args:
     bun run scripts/doctor.ts {{args}}
 

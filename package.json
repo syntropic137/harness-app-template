@@ -14,7 +14,8 @@
     "typecheck": "bun run scripts/typecheck.ts",
     "cov:rust": "just cov-rust",
     "qa": "bun run scripts/qa.ts",
-    "lint": "bun run scripts/lint.ts"
+    "lint": "bun run scripts/lint.ts",
+    "lint:fix": "bun run scripts/lint.ts --fix"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0",

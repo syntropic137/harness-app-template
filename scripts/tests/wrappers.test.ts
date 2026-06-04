@@ -36,14 +36,31 @@ describe('thin script wrappers', () => {
     ['versioning', ['harness/versioning/bin/versioning', ['check']]],
     ['cargo', ['cargo', ['check']]],
     ['uv', ['uv', ['sync']]],
-    [
-      'qa',
-      ['pnpm', ['turbo', 'run', 'lint', 'typecheck', 'test', '--concurrency=1', '--filter=...']],
-    ],
   ])('%s delegates to the expected command', async (moduleName, expected) => {
     const main = await loadMain(moduleName);
     main((expected[1] as string[]).slice(-1));
     expect(calls).toEqual([expected]);
+  });
+
+  test('lint-fix delegates to biome write mode', async () => {
+    const main = await loadMain('lint');
+    main(['--fix', '--files-ignore-unknown=true']);
+    expect(calls).toEqual([
+      ['pnpm', ['exec', 'biome', 'check', '.', '--write', '--files-ignore-unknown=true']],
+    ]);
+  });
+
+  test('qa runs the full quality sweep', async () => {
+    const main = await loadMain('qa');
+    main(['--filter=...']);
+    expect(calls).toEqual([
+      ['pnpm', ['turbo', 'run', 'typecheck', '--filter=...']],
+      ['pnpm', ['turbo', 'run', 'lint', '--filter=...']],
+      ['pnpm', ['turbo', 'run', 'test', '--concurrency=1', '--filter=...']],
+      ['pnpm', ['exec', 'vitest', 'run', 'scripts/tests', '--coverage']],
+      ['harness/sensors/bin/sensors', ['gate']],
+      ['sh', ['-eu', '-c', expect.stringContaining('gitleaks detect --redact --no-banner')]],
+    ]);
   });
 
   test('boot wrapper forwards legacy up through the stack manager', async () => {
@@ -147,6 +164,7 @@ describe('thin script wrappers', () => {
       'destroy:\n    bun run scripts/stack.ts destroy',
       'inspect:\n    @bun run scripts/stack.ts inspect',
       'ports:\n    @bun run scripts/stack.ts ports',
+      'lint-fix *args:\n    bun run scripts/lint.ts --fix {{args}}',
       'doctor-explain check_id:\n    @bun run scripts/stack.ts doctor --explain {{check_id}}',
       'doctor-json *probe:\n    @bun run scripts/stack.ts doctor --json {{probe}}',
     ];
