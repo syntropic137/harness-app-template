@@ -1,6 +1,6 @@
 ---
 name: before-after-evidence
-description: Produce a verifiable evidence bundle for a fix — screenshot pair, optional flow recording, ffmpeg keyframe grid, trace correlation. Use when claiming "fix verified" so the artifacts can be diffed by a reviewer (human or LLM).
+description: Produce a verifiable evidence bundle for a fix: screenshot pair, optional flow recording, ffmpeg keyframe grid, trace correlation. Use when claiming "fix verified" so the artifacts can be diffed by a reviewer (human or LLM).
 ---
 
 # Before/after evidence capture
@@ -13,7 +13,7 @@ Every "fix verified" claim produces a directory `.harness/artifacts/<iso_key>/` 
 meta.json             { run_id, branch, fix_commit, target_url, started_at, finished_at }
 screenshots/
   before.png          full-fidelity archive
-  before.jpg          1280×720 JPEG quality 80 (for LLM ingestion)
+  before.jpg          1280x720 JPEG quality 80 (for LLM ingestion)
   after.png
   after.jpg
 video/                (only if a flow recording was taken)
@@ -24,34 +24,56 @@ video/                (only if a flow recording was taken)
 review/               (only if a keyframe grid was generated)
   keyframe-grid-before.jpg   ffmpeg tile montage, single JPEG
   keyframe-grid-after.jpg
-trace-correlation.md  list of failed requests → trace_ids → VictoriaTraces links
+trace-correlation.md  list of failed requests -> trace_ids -> VictoriaTraces links
 ```
 
-`<iso_key>` is the per-worktree key from `pnpm harness inspect`.
+`<iso_key>` is the per-worktree key from `just stack inspect` or
+`harness/stack/bin/stack inspect`. `WEB_PORT` and `VT_PORT` come from
+`just stack ports`.
+
+```sh
+eval "$(just stack ports)"
+ISO_KEY="$(just stack inspect | awk '/^Iso key:/ {print $3}')"
+TARGET_URL="http://localhost:${WEB_PORT}"
+```
 
 ## Recipe A: screenshot pair (sufficient for 80% of UI fixes)
 
-Use `harness/agent-tools/screenshot-pair.mjs`:
+Use the template inspector dispatcher:
 
 ```sh
-node harness/agent-tools/screenshot-pair.mjs --phase=before --url=http://localhost:$WEB_PORT
+just inspector screenshot-pair --phase=before --url="$TARGET_URL" --isoKey="$ISO_KEY"
 # ...apply fix, redeploy via hot reload...
-node harness/agent-tools/screenshot-pair.mjs --phase=after --url=http://localhost:$WEB_PORT
+just inspector screenshot-pair --phase=after --url="$TARGET_URL" --isoKey="$ISO_KEY"
+```
+
+Direct path equivalent:
+
+```sh
+node harness/inspector/screenshot-pair.mjs --phase=before --url="$TARGET_URL" --isoKey="$ISO_KEY"
+node harness/inspector/screenshot-pair.mjs --phase=after --url="$TARGET_URL" --isoKey="$ISO_KEY"
 ```
 
 The script writes PNG (full fidelity) + JPEG (LLM-optimized) to `.harness/artifacts/<iso>/screenshots/`.
 
 ## Recipe B: flow recording with keyframe grid (for animation/transition/loading-state bugs)
 
-Use `harness/agent-tools/record-flow.mjs`:
+Use the template inspector dispatcher:
 
 ```sh
-node harness/agent-tools/record-flow.mjs --phase=before --url=http://localhost:$WEB_PORT --flow=task-crud
+just inspector record-flow --phase=before --url="$TARGET_URL" --flow=task-crud --isoKey="$ISO_KEY"
 # ...apply fix...
-node harness/agent-tools/record-flow.mjs --phase=after --url=http://localhost:$WEB_PORT --flow=task-crud
+just inspector record-flow --phase=after --url="$TARGET_URL" --flow=task-crud --isoKey="$ISO_KEY"
 ```
 
-The script does: open browser → record screencast → run the named flow → stop recording → ffmpeg extract 3×3 keyframe grid → write `events.jsonl` from console + network listeners.
+Direct path equivalent:
+
+```sh
+node harness/inspector/record-flow.mjs --phase=before --url="$TARGET_URL" --flow=task-crud --isoKey="$ISO_KEY"
+node harness/inspector/record-flow.mjs --phase=after --url="$TARGET_URL" --flow=task-crud --isoKey="$ISO_KEY"
+```
+
+The script does: open browser -> record screencast -> run the named flow -> stop recording -> ffmpeg extract 3x3 keyframe grid -> write `events.jsonl` from console + network listeners.
 
 LLM consumption: send the **keyframe grids** (1 JPEG each, ~2.7K tokens) plus the **screenshot pair**, NOT the WebM. Total budget ~8K vision tokens per validation.
 
@@ -71,7 +93,7 @@ for failure in events.jsonl where type==network and status>=400:
     - Error message from the span attributes
 ```
 
-This is the highest-leverage debug bridge — browser-visible failure to backend-resolved root cause.
+This is the highest-leverage debug bridge: browser-visible failure to backend-resolved root cause.
 
 ## Decision matrix: which recipe to use
 

@@ -146,6 +146,20 @@ That’s all, really. Hopefully this blog post proves that taking advantage of t
 None of the ideas in this blog post are new. In fact, the core idea—“write total functions”—is conceptually quite simple. Despite that, I find it remarkably challenging to communicate actionable, practicable details about the way I write Haskell code. It’s easy to spend lots of time talking about abstract concepts—many of which are quite valuable!—without communicating anything useful about process. My hope is that this is a small step in that direction.
 Sadly, I don’t know very many other resources on this particular topic, but I do know of one: I never hesitate to recommend Matt Parson’s fantastic blog post [Type Safety Back and Forth](https://www.parsonsmatt.org/2017/10/11/type_safety_back_and_forth.html). If you want another accessible perspective on these ideas, including another worked example, I’d highly encourage giving it a read. For a significantly more advanced take on many of these ideas, I can also recommend Matt Noonan’s 2018 paper [Ghosts of Departed Proofs](https://kataskeue.com/gdp.pdf), which outlines a handful of techniques for capturing more complex invariants in the type system than I have described here.
 As a closing note, I want to say that doing the kind of refactoring described in this blog post is not always easy. The examples I’ve given are simple, but real life is often much less straightforward. Even for those experienced in type-driven design, it can be genuinely difficult to capture certain invariants in the type system, so do not consider it a personal failing if you cannot solve something the way you’d like! Consider the principles in this blog post ideals to strive for, not strict requirements to meet. All that matters is to try.- 
-Technically, in Haskell, this ignores “bottoms,” constructions that can inhabit any value. These aren’t “real” values (unlike `null` in some other languages)—they’re things like infinite loops or computations that raise exceptions—and in idiomatic Haskell, we usually try to avoid them, so reasoning that pretends they don’t exist still has value. But don’t take my word for it—I’ll let Danielsson et al. convince you that [Fast and Loose Reasoning is Morally Correct](https://www.cs.ox.ac.uk/jeremy.gibbons/publications/fast+loose.pdf). [↩](#footnote-ref-1-1)- 
-In fact, `Data.List.NonEmpty` already provides a `head` function with this type, but just for the sake of illustration, we’ll reimplement it ourselves. [↩](#footnote-ref-2-1)- 
+Technically, in Haskell, this ignores “bottoms,” constructions that can inhabit any value. These aren’t “real” values (unlike `null` in some other languages) - they’re things like infinite loops or computations that raise exceptions - and in idiomatic Haskell, we usually try to avoid them, so reasoning that pretends they don’t exist still has value. But don’t take my word for it - I’ll let Danielsson et al. convince you that [Fast and Loose Reasoning is Morally Correct](https://www.cs.ox.ac.uk/jeremy.gibbons/publications/fast+loose.pdf). [↩](#footnote-ref-1-1)-
+In fact, `Data.List.NonEmpty` already provides a `head` function with this type, but just for the sake of illustration, we’ll reimplement it ourselves. [↩](#footnote-ref-2-1)-
 Sometimes it is necessary to perform some kind of authorization before parsing user input to avoid denial of service attacks, but that’s okay: authorization should have a relatively small surface area, and it shouldn’t cause any significant modifications to the state of your system. [↩](#footnote-ref-3-1)- [← No, dynamic type systems are not inherently more open](/blog/2020/01/19/no-dynamic-type-systems-are-not-inherently-more-open/)- [Empathy and subjective experience in programming languages →](/blog/2019/10/19/empathy-and-subjective-experience-in-programming-languages/)
+
+## Link Anchors
+
+### footnote-1
+
+### footnote-2
+
+### footnote-3
+
+### footnote-ref-1-1
+
+### footnote-ref-2-1
+
+### footnote-ref-3-1
