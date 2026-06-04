@@ -1,4 +1,6 @@
 use std::ffi::OsStr;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
@@ -162,6 +164,29 @@ fn release_execute_updates_changelog_commits_and_tags() {
         .output()
         .expect("git tag");
     assert_eq!(String::from_utf8_lossy(&tags.stdout).trim(), "v0.1.0");
+}
+
+#[cfg(unix)]
+#[test]
+fn release_execute_reports_date_failure() {
+    let tmp = seed_repo("feat: add releaser");
+    let bin_dir = tempfile::tempdir().unwrap();
+    let date_path = bin_dir.path().join("date");
+    std::fs::write(&date_path, "#!/bin/sh\nexit 1\n").unwrap();
+    let mut permissions = std::fs::metadata(&date_path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&date_path, permissions).unwrap();
+    let path = format!("{}:/usr/bin:/bin", bin_dir.path().display());
+
+    let out = harness_command()
+        .args(["release", "--execute", tmp.path().to_str().unwrap()])
+        .env_remove("HARNESS_RELEASE_DATE")
+        .env("PATH", path)
+        .output()
+        .expect("spawn");
+
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("date +%F failed"));
 }
 
 #[test]

@@ -37,5 +37,5 @@ tempfile = "3"
 [package.metadata.coverage]
 tool = "cargo-llvm-cov"
 ignore_filename_regex = "main\\.rs"
-lines_minimum = 87
-functions_minimum = 86
+lines_minimum = 100
+functions_minimum = 100

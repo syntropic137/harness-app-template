@@ -1,4 +1,4 @@
-//! harness-doc-validator — doc-validator slot implementation.
+//! harness-doc-validator - doc-validator slot implementation.
 //!
 //! The lab engine provides Markdown cross-reference scanning. This template
 //! version keeps that core and adds APSS ADR01, manifest, and principle-doc
@@ -16,30 +16,16 @@ pub use validators::{
     ValidationFinding, validate_adr_directory, validate_manifest_decisions, validate_principles,
 };
 
-use anyhow::{Context, Result};
-use clap::Parser;
+use anyhow::{Result, anyhow};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use walkdir::WalkDir;
 
-#[derive(Parser, Debug, Clone)]
-#[command(
-    name = "harness-doc-validator",
-    version,
-    about = "Check Markdown links, APSS ADR shape, and harness manifest cross-references."
-)]
+#[derive(Debug, Clone)]
 pub struct Cli {
-    /// Repository root to validate.
-    #[arg(default_value = ".")]
     pub root: PathBuf,
-
-    /// Substring exclude patterns matched against full paths.
-    #[arg(long, default_values_t = default_excludes())]
     pub exclude: Vec<String>,
-
-    /// JSON output instead of human-readable output.
-    #[arg(long)]
     pub json: bool,
 }
 
@@ -50,11 +36,16 @@ pub struct ValidationReport {
 }
 
 pub fn run(cli: Cli) -> Result<ExitCode> {
-    let root = cli.root.canonicalize().unwrap_or_else(|_| cli.root.clone());
+    let root = match cli.root.canonicalize() {
+        Ok(root) => root,
+        Err(_) => cli.root.clone(),
+    };
     let report = validate(&root, &cli.exclude)?;
 
     if cli.json {
-        println!("{}", serde_json::to_string_pretty(&report)?);
+        let json = serde_json::to_string_pretty(&report)
+            .expect("ValidationReport serialization cannot fail");
+        println!("{json}");
     } else {
         print_human_report(&report);
     }
@@ -69,11 +60,14 @@ pub fn run(cli: Cli) -> Result<ExitCode> {
 pub fn validate(root: &Path, excludes: &[String]) -> Result<ValidationReport> {
     let mut report = ValidationReport::default();
 
-    for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_entry(|entry| should_descend(entry.path(), excludes))
-    {
-        let entry = entry.context("walk docs")?;
+    for entry in WalkDir::new(root) {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => return Err(anyhow!("walk docs: {error}")),
+        };
+        if !should_descend(entry.path(), excludes) {
+            continue;
+        }
         if !entry.file_type().is_file() {
             continue;
         }
@@ -81,14 +75,17 @@ pub fn validate(root: &Path, excludes: &[String]) -> Result<ValidationReport> {
             continue;
         }
 
-        let content = std::fs::read_to_string(entry.path())
-            .with_context(|| format!("read {}", entry.path().display()))?;
+        let content = match std::fs::read_to_string(entry.path()) {
+            Ok(content) => content,
+            Err(error) => return Err(anyhow!("read {}: {error}", entry.path().display())),
+        };
         let links = extract_links(&content);
         report.links.total_links += links.len();
-        report.links.checked_links += links
-            .iter()
-            .filter(|link| link.kind != LinkKind::External)
-            .count();
+        for link in &links {
+            if link.kind != LinkKind::External {
+                report.links.checked_links += 1;
+            }
+        }
         report
             .links
             .broken
@@ -109,44 +106,57 @@ fn should_descend(path: &Path, excludes: &[String]) -> bool {
 
 fn print_human_report(report: &ValidationReport) {
     if report.links.broken.is_empty() && report.findings.is_empty() {
-        println!(
-            "✓ doc-validator: {} internal links across {} markdown links, ADRs, manifest decisions, and principle docs all validate",
-            report.links.checked_links, report.links.total_links
-        );
+        println!("{}", human_success_line(report));
         return;
     }
 
-    eprintln!("✗ doc-validator failed");
+    for line in human_failure_lines(report) {
+        eprintln!("{line}");
+    }
+}
+
+fn human_success_line(report: &ValidationReport) -> String {
+    format!(
+        "✓ doc-validator: {} internal links across {} markdown links, ADRs, manifest decisions, and principle docs all validate",
+        report.links.checked_links, report.links.total_links
+    )
+}
+
+fn human_failure_lines(report: &ValidationReport) -> Vec<String> {
+    let mut lines = vec!["✗ doc-validator failed".to_string()];
     if !report.links.broken.is_empty() {
-        eprintln!(
-            "\nBroken links: {} of {} internal links checked",
+        lines.push(String::new());
+        lines.push(format!(
+            "Broken links: {} of {} internal links checked",
             report.links.broken.len(),
             report.links.checked_links
-        );
+        ));
         for broken in &report.links.broken {
-            eprintln!(
+            lines.push(format!(
                 "  {}:{}: {} -> {} ({})",
                 broken.source.display(),
                 broken.line,
                 broken.target,
                 broken.resolved.display(),
                 broken.reason
-            );
+            ));
         }
     }
-
-    if !report.findings.is_empty() {
-        eprintln!(
-            "\nDocumentation contract findings: {}",
-            report.findings.len()
-        );
-        for finding in &report.findings {
-            eprintln!("  {}: {}", finding.path.display(), finding.message);
-        }
+    if report.findings.is_empty() {
+        return lines;
     }
+    lines.push(String::new());
+    lines.push(format!(
+        "Documentation contract findings: {}",
+        report.findings.len()
+    ));
+    for finding in &report.findings {
+        lines.push(format!("  {}: {}", finding.path.display(), finding.message));
+    }
+    lines
 }
 
-fn default_excludes() -> Vec<String> {
+pub fn default_excludes() -> Vec<String> {
     vec![
         "/.git/".to_string(),
         "/.beads/".to_string(),
@@ -248,5 +258,151 @@ mod tests {
         };
 
         assert_eq!(run(cli).unwrap(), ExitCode::from(1));
+    }
+
+    #[test]
+    fn run_returns_success_and_prints_human_report_for_clean_tree() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_valid_adr_tree(tmp.path());
+        write_valid_manifest(tmp.path());
+        write_valid_principles(tmp.path());
+
+        let cli = Cli {
+            root: tmp.path().to_path_buf(),
+            exclude: default_excludes(),
+            json: false,
+        };
+
+        assert_eq!(run(cli).unwrap(), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_human_report_includes_links_and_contract_findings() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_valid_adr_tree(tmp.path());
+        fs::write(tmp.path().join("a.md"), "[bad](./missing.md)").unwrap();
+
+        let cli = Cli {
+            root: tmp.path().to_path_buf(),
+            exclude: default_excludes(),
+            json: false,
+        };
+
+        assert_eq!(run(cli).unwrap(), ExitCode::from(1));
+    }
+
+    #[test]
+    fn validate_skips_excluded_paths_and_non_markdown_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_valid_adr_tree(tmp.path());
+        write_valid_manifest(tmp.path());
+        write_valid_principles(tmp.path());
+        let ignored = tmp.path().join("ignored");
+        fs::create_dir_all(&ignored).unwrap();
+        fs::write(ignored.join("bad.md"), "[bad](./missing.md)").unwrap();
+        fs::write(tmp.path().join("notes.txt"), "[bad](./missing.md)").unwrap();
+
+        let report = validate(tmp.path(), &[ignored.to_string_lossy().to_string()]).unwrap();
+
+        assert!(report.links.broken.is_empty());
+        assert_eq!(report.links.total_links, 1);
+    }
+
+    #[test]
+    fn should_descend_uses_substring_excludes() {
+        assert!(!should_descend(
+            Path::new("/repo/node_modules/pkg"),
+            &["/node_modules/".to_string()]
+        ));
+        assert!(should_descend(
+            Path::new("/repo/docs/readme.md"),
+            &["/node_modules/".to_string()]
+        ));
+    }
+
+    #[test]
+    fn run_returns_error_when_root_cannot_be_walked() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cli = Cli {
+            root: tmp.path().join("missing"),
+            exclude: Vec::new(),
+            json: false,
+        };
+
+        assert!(run(cli).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validate_returns_error_for_unreadable_markdown_entry() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let bad = tmp.path().join("bad.md");
+        fs::write(&bad, "[bad](./missing.md)").unwrap();
+        let original = fs::metadata(&bad).unwrap().permissions();
+        let mut locked = original.clone();
+        locked.set_mode(0o0);
+        fs::set_permissions(&bad, locked).unwrap();
+
+        let err = validate(tmp.path(), &[]).unwrap_err();
+
+        fs::set_permissions(&bad, original).unwrap();
+        assert!(err.to_string().contains("read"));
+    }
+
+    #[test]
+    fn human_report_helpers_render_success_and_failure_lines() {
+        let success = ValidationReport {
+            links: CheckReport {
+                broken: Vec::new(),
+                total_links: 2,
+                checked_links: 1,
+            },
+            findings: Vec::new(),
+        };
+        assert!(human_success_line(&success).contains("1 internal links"));
+
+        let failure = ValidationReport {
+            links: CheckReport {
+                broken: vec![BrokenLink {
+                    source: PathBuf::from("docs/a.md"),
+                    line: 3,
+                    target: "./missing.md".to_string(),
+                    reason: "target file not found".to_string(),
+                    resolved: PathBuf::from("docs/missing.md"),
+                }],
+                total_links: 1,
+                checked_links: 1,
+            },
+            findings: vec![ValidationFinding {
+                path: PathBuf::from("docs/adrs/README.md"),
+                message: "bad index".to_string(),
+            }],
+        };
+        let lines = human_failure_lines(&failure);
+        assert!(lines.iter().any(|line| line.contains("Broken links")));
+        assert!(lines.iter().any(|line| line.contains("bad index")));
+
+        let broken_only = ValidationReport {
+            findings: Vec::new(),
+            ..failure
+        };
+        let lines = human_failure_lines(&broken_only);
+        assert!(
+            !lines
+                .iter()
+                .any(|line| line.contains("Documentation contract findings"))
+        );
+
+        let findings_only = ValidationReport {
+            links: CheckReport::default(),
+            findings: vec![ValidationFinding {
+                path: PathBuf::from("docs/adrs/README.md"),
+                message: "bad index".to_string(),
+            }],
+        };
+        let lines = human_failure_lines(&findings_only);
+        assert!(lines.iter().any(|line| line.contains("bad index")));
     }
 }

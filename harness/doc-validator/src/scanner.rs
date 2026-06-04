@@ -159,7 +159,11 @@ fn footnote_labels(line: &str) -> BTreeSet<String> {
             break;
         };
         let label = &line[label_start..label_start + end];
-        if !label.is_empty() && label.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-') {
+        if !label.is_empty()
+            && label
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+        {
             labels.insert(label.to_string());
         }
         cursor = label_start + end + 1;
@@ -204,5 +208,20 @@ mod tests {
     fn treats_site_root_links_as_external() {
         let links = extract_links("[home](/blog/post)");
         assert_eq!(links[0].kind, LinkKind::External);
+    }
+
+    #[test]
+    fn handles_malformed_links_and_code_boundaries() {
+        let links = extract_links("[ok](./ok.md) `code` [broken](./missing\n[after](./after.md)");
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].target, "./ok.md");
+        assert_eq!(links[1].target, "./after.md");
+    }
+
+    #[test]
+    fn ignores_empty_headings_and_unclosed_footnotes() {
+        let anchors = extract_anchors("# \n[^missing\n#### Too Deep\n#NoSpace\n## Present");
+        assert_eq!(anchors.len(), 1);
+        assert!(anchors.contains("present"));
     }
 }

@@ -130,4 +130,48 @@ mod tests {
         assert_eq!(broken.len(), 1);
         assert_eq!(broken[0].reason, "target file not found");
     }
+
+    #[test]
+    fn ignores_external_links() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("a.md");
+        fs::write(&source, "[web](https://example.com)").unwrap();
+
+        let content = fs::read_to_string(&source).unwrap();
+        let broken = check_links(&source, &extract_links(&content));
+
+        assert!(broken.is_empty());
+    }
+
+    #[test]
+    fn checks_anchor_inside_same_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("a.md");
+        fs::write(&source, "# Local\n\n[local](#local)").unwrap();
+
+        let content = fs::read_to_string(&source).unwrap();
+        let broken = check_links(&source, &extract_links(&content));
+
+        assert!(broken.is_empty());
+    }
+
+    #[test]
+    fn skips_anchor_validation_for_non_markdown_targets_and_unreadable_markdown() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("a.md");
+        let text_target = tmp.path().join("data.txt");
+        let unreadable_markdown = tmp.path().join("folder.md");
+        fs::write(
+            &source,
+            "[text](./data.txt#ignored)\n[dir](./folder.md#ignored)",
+        )
+        .unwrap();
+        fs::write(&text_target, "not markdown").unwrap();
+        fs::create_dir(&unreadable_markdown).unwrap();
+
+        let content = fs::read_to_string(&source).unwrap();
+        let broken = check_links(&source, &extract_links(&content));
+
+        assert!(broken.is_empty());
+    }
 }

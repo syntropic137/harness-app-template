@@ -109,11 +109,11 @@ uv *args:
 # self-contained slot workspaces (each carries its own [workspace] block by
 # design, so the root never pulls slot stubs in transitively) and are
 # covered by explicit --manifest-path invocations.
-# Thresholds are pinned to current measured baselines: example-rust stays
-# 100/100/100, doc-validator is 82 lines / 94 functions, and versioning is
-# 87 lines / 86 functions. main.rs files are excluded per the ADR-0013
-# opt-out table because they are CLI shells with no business logic.
-# Refactor production or add tests before raising these thresholds.
+# Thresholds are pinned to protected baselines: example-rust stays
+# 100/100/100, and doc-validator and versioning enforce 100 percent lines
+# and functions over their library business logic. main.rs files are built
+# separately and excluded per the ADR-0013 opt-out table because they are CLI
+# shells with no business logic.
 cov-rust: cov-example-rust cov-doc-validator cov-versioning
 
 cov-py:
@@ -124,7 +124,8 @@ cov-example-rust:
 
 cov-doc-validator:
     cargo build --manifest-path harness/doc-validator/Cargo.toml --bin harness-doc-validator
-    cargo llvm-cov --manifest-path harness/doc-validator/Cargo.toml --package harness-doc-validator --ignore-filename-regex 'main\.rs' --fail-under-lines 82 --fail-under-functions 94
+    cargo llvm-cov --manifest-path harness/doc-validator/Cargo.toml --package harness-doc-validator --lib --ignore-filename-regex 'main\.rs' --fail-under-lines 100 --fail-under-functions 100
 
 cov-versioning:
-    cargo llvm-cov --manifest-path harness/versioning/Cargo.toml --package harness-versioning --ignore-filename-regex 'main\.rs' --fail-under-lines 87 --fail-under-functions 86
+    cargo build --manifest-path harness/versioning/Cargo.toml --bin harness-versioning
+    cargo llvm-cov --manifest-path harness/versioning/Cargo.toml --package harness-versioning --lib --ignore-filename-regex 'main\.rs' --fail-under-lines 100 --fail-under-functions 100

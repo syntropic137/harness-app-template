@@ -62,13 +62,15 @@ local recipes, not comments that agents must remember.
 | Stack slot | `harness/stack/vitest.config.ts`; `pnpm --dir harness/stack exec vitest run --coverage` | Report-only, no threshold | `pnpm test:coverage`; pre-push `cov-ts` |
 | Python example app | `ws_apps/example-python/pyproject.toml`; `just cov-py` | 100 total coverage with branch coverage enabled | pre-push `cov-py`; package `test` |
 | Rust example app | `just cov-example-rust` | 100 lines, functions, regions | `just cov-rust`; pre-push `cov-rust` |
-| Doc-validator slot | `just cov-doc-validator` | 82 lines, 94 functions | `just cov-rust`; pre-push `cov-rust` |
-| Versioning slot | `just cov-versioning` | 87 lines, 86 functions | `just cov-rust`; pre-push `cov-rust` |
+| Doc-validator slot | `just cov-doc-validator` | 100 lines, 100 functions over the library target | `just cov-rust`; pre-push `cov-rust` |
+| Versioning slot | `just cov-versioning` | 100 lines, 100 functions over the library target | `just cov-rust`; pre-push `cov-rust` |
 
 `pnpm test:coverage` is the TypeScript umbrella. It runs root scripts,
 `ws_apps/example-typescript`, `harness/stack`, and `harness/inspector`.
 `just cov-rust` is the Rust umbrella. It runs the Rust example,
-doc-validator, and versioning gates.
+doc-validator, and versioning gates. Rust slot gates build their CLI shell
+first, then run `cargo llvm-cov --lib` so integration smoke tests do not
+double-count library instantiations as missed business logic.
 
 ## What this protects against
 
@@ -98,8 +100,8 @@ add it to this table first, then add the comment in code.
 |---|---|---|
 | `ws_apps/example-typescript/tests/integration/**` | Excluded from the coverage command in `scripts/test-coverage.ts` | Integration tests spawn subprocesses and prove CLI boundaries. Unit coverage remains 100 percent over `src/**/*.ts`. |
 | `ws_apps/example-python/tests/integration` | Ignored in `pyproject.toml` pytest addopts | Subprocess coverage is not merged. Unit coverage remains 100 percent over `example_python`. |
-| `harness/doc-validator/src/main.rs` | `--ignore-filename-regex 'main\.rs'` in `just cov-doc-validator` | CLI shell. Business logic lives in `lib.rs` and modules. |
-| `harness/versioning/src/main.rs` | `--ignore-filename-regex 'main\.rs'` in `just cov-versioning` | CLI shell. Business logic lives in `lib.rs`. |
+| `harness/doc-validator/src/main.rs` | Binary build plus `--lib --ignore-filename-regex 'main\.rs'` in `just cov-doc-validator` | CLI shell. Business logic lives in `lib.rs` and modules. |
+| `harness/versioning/src/main.rs` | Binary build plus `--lib --ignore-filename-regex 'main\.rs'` in `just cov-versioning` | CLI shell. Business logic lives in `lib.rs`. |
 | `harness/stack` | Coverage report with no threshold | Real tests exist, but no ratcheted coverage floor has landed yet. Treat as policy debt, not a protected exemption. |
 | `ws_packages/telemetry` | `vitest run` without coverage threshold | Shared telemetry package is tested and typechecked but not yet a coverage-gated surface. Treat as policy debt. |
 | `harness/sensors` | Package syntax checks plus sensor/gate tests outside package coverage | Sensors are guarded by focused tests and `just sensors gate`. A package-local coverage threshold is not declared. |

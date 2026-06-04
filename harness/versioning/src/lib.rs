@@ -3,10 +3,9 @@
 
 #![forbid(unsafe_code)]
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use std::collections::BTreeMap;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
@@ -188,7 +187,10 @@ fn check_versioning(
 
 fn check_whole_repo(root: &Path, from: Option<String>, to: String) -> Result<ExitCode> {
     ensure_changelog_shape(root)?;
-    let explicit_range = from.as_ref().is_some_and(|rev| !rev.trim().is_empty());
+    let explicit_range = match from.as_ref() {
+        Some(rev) => !rev.trim().is_empty(),
+        None => false,
+    };
     let plan = build_release_plan(root, from, to, RequestedLevel::Auto)?;
 
     if plan.commits.is_empty() {
@@ -234,24 +236,16 @@ fn release(
     let tag = format!("v{}", plan.next_version);
     ensure_tag_missing(&root, &tag)?;
     let changelog_path = root.join("CHANGELOG.md");
-    let current = std::fs::read_to_string(&changelog_path)
-        .with_context(|| format!("read {}", changelog_path.display()))?;
+    let current = read_text(&changelog_path)?;
     let updated = render_changelog_release(&current, &plan, &release_date(&root)?)?;
-    std::fs::write(&changelog_path, updated)
-        .with_context(|| format!("write {}", changelog_path.display()))?;
+    write_text(&changelog_path, &updated)?;
     update_manifest_version(&root, &plan.next_version)?;
 
-    git(&root, ["add", "CHANGELOG.md", "harness.manifest.json"])?;
-    git(
-        &root,
-        [
-            "commit",
-            "-m",
-            &format!("chore(release): {tag}"),
-            "--no-verify",
-        ],
-    )?;
-    git(&root, ["tag", "-a", &tag, "-m", &format!("Release {tag}")])?;
+    git(&root, &["add", "CHANGELOG.md", "harness.manifest.json"])?;
+    let commit_message = format!("chore(release): {tag}");
+    let commit_args = ["commit", "-m", commit_message.as_str(), "--no-verify"];
+    git(&root, &commit_args)?;
+    git(&root, &["tag", "-a", &tag, "-m", &format!("Release {tag}")])?;
     println!("versioning: created release commit and tag {tag}");
     Ok(ExitCode::SUCCESS)
 }
@@ -298,7 +292,7 @@ fn collect_commits(root: &Path, from: Option<&str>, to: &str) -> Result<Vec<Comm
     };
     let output = git_output(
         root,
-        [
+        &[
             "log",
             "--reverse",
             "--format=%H%x1f%P%x1f%s%x1f%b%x1e",
@@ -405,10 +399,13 @@ fn parse_conventional(subject: &str, body: &str) -> Option<ConventionalCommit> {
 }
 
 fn has_breaking_footer(body: &str) -> bool {
-    body.lines().any(|line| {
+    for line in body.lines() {
         let line = line.trim_start();
-        line.starts_with("BREAKING CHANGE:") || line.starts_with("BREAKING-CHANGE:")
-    })
+        if line.starts_with("BREAKING CHANGE:") || line.starts_with("BREAKING-CHANGE:") {
+            return true;
+        }
+    }
+    false
 }
 
 fn is_valid_type(value: &str) -> bool {
@@ -419,7 +416,14 @@ fn is_valid_type(value: &str) -> bool {
 }
 
 fn derive_level(commits: &[(Commit, ConventionalCommit)]) -> Option<BumpLevel> {
-    commits.iter().map(|(_, parsed)| bump_for(parsed)).max()
+    let mut level: Option<BumpLevel> = None;
+    for (_, parsed) in commits {
+        level = Some(match level {
+            Some(existing) => existing.max(bump_for(parsed)),
+            None => bump_for(parsed),
+        });
+    }
+    level
 }
 
 fn bump_for(parsed: &ConventionalCommit) -> BumpLevel {
@@ -438,9 +442,15 @@ fn ensure_changelog_shape(root: &Path) -> Result<()> {
     if !changelog.is_file() {
         bail!("CHANGELOG.md missing at {}", changelog.display());
     }
-    let content = std::fs::read_to_string(&changelog)
-        .with_context(|| format!("read {}", changelog.display()))?;
-    if !content.lines().any(|line| line.trim() == "## [Unreleased]") {
+    let content = read_text(&changelog)?;
+    let mut has_unreleased = false;
+    for line in content.lines() {
+        if line.trim() == "## [Unreleased]" {
+            has_unreleased = true;
+            break;
+        }
+    }
+    if !has_unreleased {
         bail!("CHANGELOG.md must contain a ## [Unreleased] section");
     }
     Ok(())
@@ -448,11 +458,26 @@ fn ensure_changelog_shape(root: &Path) -> Result<()> {
 
 fn update_manifest_version(root: &Path, version: &Version) -> Result<()> {
     let manifest = root.join("harness.manifest.json");
-    let content = std::fs::read_to_string(&manifest)
-        .with_context(|| format!("read {}", manifest.display()))?;
-    let updated = replace_manifest_version_text(&content, version)
-        .with_context(|| format!("update {}", manifest.display()))?;
-    std::fs::write(&manifest, updated).with_context(|| format!("write {}", manifest.display()))?;
+    let content = read_text(&manifest)?;
+    let updated = match replace_manifest_version_text(&content, version) {
+        Ok(updated) => updated,
+        Err(error) => return Err(error.context(format!("update {}", manifest.display()))),
+    };
+    write_text(&manifest, &updated)?;
+    Ok(())
+}
+
+fn read_text(path: &Path) -> Result<String> {
+    match std::fs::read_to_string(path) {
+        Ok(content) => Ok(content),
+        Err(error) => Err(anyhow!("read {}: {error}", path.display())),
+    }
+}
+
+fn write_text(path: &Path, content: &str) -> Result<()> {
+    if let Err(error) = std::fs::write(path, content) {
+        return Err(anyhow!("write {}: {error}", path.display()));
+    }
     Ok(())
 }
 
@@ -476,10 +501,14 @@ fn replace_manifest_version_text(content: &str, version: &Version) -> Result<Str
         };
         let trimmed_start = line.trim_start();
         let indent_len = line.len() - trimmed_start.len();
-        let is_top_level_version = indent_len == 2
-            && trimmed_start
-                .strip_prefix("\"version\"")
-                .is_some_and(|rest| rest.trim_start().starts_with(':'));
+        let is_top_level_version = if indent_len == 2 {
+            match trimmed_start.strip_prefix("\"version\"") {
+                Some(rest) => rest.trim_start().starts_with(':'),
+                None => false,
+            }
+        } else {
+            false
+        };
 
         if !replaced && is_top_level_version {
             let trimmed_end = line.trim_end();
@@ -627,7 +656,7 @@ fn print_plan(plan: &ReleasePlan) {
 fn latest_release_tag(root: &Path, to: &str) -> Result<Option<String>> {
     let output = git_output(
         root,
-        [
+        &[
             "tag",
             "--merged",
             to,
@@ -655,7 +684,7 @@ fn ensure_tag_missing(root: &Path, tag: &str) -> Result<()> {
 }
 
 fn ensure_clean_tracked_worktree(root: &Path) -> Result<()> {
-    let status = git_output(root, ["status", "--porcelain", "--untracked-files=no"])?;
+    let status = git_output(root, &["status", "--porcelain", "--untracked-files=no"])?;
     if !status.trim().is_empty() {
         bail!("release requires a clean tracked worktree");
     }
@@ -663,19 +692,45 @@ fn ensure_clean_tracked_worktree(root: &Path) -> Result<()> {
 }
 
 fn release_date(root: &Path) -> Result<String> {
-    if let Ok(value) = std::env::var("HARNESS_RELEASE_DATE")
+    release_date_with(
+        root,
+        std::env::var("HARNESS_RELEASE_DATE").ok(),
+        DateCommand::System,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum DateCommand {
+    System,
+    #[cfg(test)]
+    Failing,
+}
+
+fn release_date_with(
+    root: &Path,
+    configured: Option<String>,
+    date_command: DateCommand,
+) -> Result<String> {
+    if let Some(value) = configured
         && !value.trim().is_empty()
     {
         return Ok(value);
     }
 
-    let output = Command::new("date")
+    let mut command = match date_command {
+        DateCommand::System => Command::new("date"),
+        #[cfg(test)]
+        DateCommand::Failing => Command::new("/bin/false"),
+    };
+    let output = command
         .arg("+%F")
         .current_dir(root)
         .output()
         .context("run date +%F")?;
     if output.status.success() {
-        return Ok(String::from_utf8(output.stdout)?.trim().to_string());
+        let stdout = String::from_utf8(output.stdout)?;
+        let date = stdout.trim().to_string();
+        return Ok(date);
     }
 
     bail!("date +%F failed")
@@ -685,10 +740,7 @@ fn normalize_root(root: PathBuf) -> PathBuf {
     root.canonicalize().unwrap_or(root)
 }
 
-fn git<const N: usize, S>(root: &Path, args: [S; N]) -> Result<()>
-where
-    S: AsRef<OsStr>,
-{
+fn git(root: &Path, args: &[&str]) -> Result<()> {
     let status = git_command(root).args(args).status().context("run git")?;
     if !status.success() {
         bail!("git command failed");
@@ -696,10 +748,7 @@ where
     Ok(())
 }
 
-fn git_output<const N: usize, S>(root: &Path, args: [S; N]) -> Result<String>
-where
-    S: AsRef<OsStr>,
-{
+fn git_output(root: &Path, args: &[&str]) -> Result<String> {
     let output = git_command(root).args(args).output().context("run git")?;
     if !output.status.success() {
         bail!(
@@ -778,6 +827,7 @@ impl std::fmt::Display for Version {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
 
     #[test]
     fn parses_conventional_commit_with_scope_and_breaking_marker() {
@@ -786,6 +836,13 @@ mod tests {
         assert_eq!(parsed.scope.as_deref(), Some("api"));
         assert_eq!(parsed.description, "add stable endpoint");
         assert!(parsed.breaking);
+    }
+
+    #[test]
+    fn breaking_footer_accepts_space_and_dash_forms() {
+        assert!(has_breaking_footer("BREAKING CHANGE: shape changed"));
+        assert!(has_breaking_footer("  BREAKING-CHANGE: shape changed"));
+        assert!(!has_breaking_footer("No breaking change"));
     }
 
     #[test]
@@ -883,5 +940,472 @@ mod tests {
                 "{expected_key} should be removed from git subprocesses"
             );
         }
+    }
+
+    fn sample_commit(subject: &str, body: &str) -> Commit {
+        Commit {
+            hash: "abcdef123456".to_string(),
+            parents: vec!["parent".to_string()],
+            subject: subject.to_string(),
+            body: body.to_string(),
+        }
+    }
+
+    fn sample_plan(commits: Vec<(Commit, ConventionalCommit)>) -> ReleasePlan {
+        ReleasePlan {
+            from: Some("v0.1.0".to_string()),
+            to: "HEAD".to_string(),
+            base_version: Version {
+                major: 0,
+                minor: 1,
+                patch: 0,
+            },
+            next_version: Version {
+                major: 0,
+                minor: 2,
+                patch: 0,
+            },
+            level: BumpLevel::Minor,
+            commits,
+        }
+    }
+
+    fn seed_git_repo(subject: &str) -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        git(tmp.path(), &["init"]).unwrap();
+        git(tmp.path(), &["config", "user.email", "test@example.com"]).unwrap();
+        git(tmp.path(), &["config", "user.name", "Harness Test"]).unwrap();
+        std::fs::write(
+            tmp.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [Unreleased]\n\n- (Add your first changelog entry here.)\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.path().join("harness.manifest.json"),
+            "{\n  \"name\": \"test-harness\",\n  \"version\": \"0.0.0\",\n  \"slots\": {}\n}\n",
+        )
+        .unwrap();
+        git(
+            tmp.path(),
+            &["add", "CHANGELOG.md", "harness.manifest.json"],
+        )
+        .unwrap();
+        git(tmp.path(), &["commit", "-m", subject]).unwrap();
+        tmp
+    }
+
+    #[test]
+    fn run_plan_branch_prints_a_plan() {
+        let tmp = seed_git_repo("feat: add planning");
+        let cli = Cli {
+            cmd: Cmd::Plan {
+                root: tmp.path().to_path_buf(),
+                from: None,
+                to: "HEAD".to_string(),
+            },
+        };
+
+        assert_eq!(run(cli).unwrap(), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_check_and_ci_check_branches() {
+        let check_repo = seed_git_repo("feat: add checked history");
+        let check_code = run(Cli {
+            cmd: Cmd::Check {
+                root: check_repo.path().to_path_buf(),
+                mode: Mode::WholeRepo,
+                from: None,
+                to: "HEAD".to_string(),
+            },
+        })
+        .unwrap();
+        assert_eq!(check_code, ExitCode::SUCCESS);
+
+        let ci_repo = seed_git_repo("fix: add ci checked history");
+        let head = git_output(ci_repo.path(), &["rev-parse", "HEAD"])
+            .unwrap()
+            .trim()
+            .to_string();
+        let ci_code = run(Cli {
+            cmd: Cmd::CiCheck {
+                root: ci_repo.path().to_path_buf(),
+                from: Some(head.clone()),
+                to: head,
+            },
+        })
+        .unwrap();
+        assert_eq!(ci_code, ExitCode::from(1));
+    }
+
+    #[test]
+    fn run_check_per_package_branch() {
+        let code = run(Cli {
+            cmd: Cmd::Check {
+                root: PathBuf::from("."),
+                mode: Mode::PerPackage,
+                from: None,
+                to: "HEAD".to_string(),
+            },
+        })
+        .unwrap();
+
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_release_dry_run_branch() {
+        let tmp = seed_git_repo("fix: repair dry run");
+        let code = run(Cli {
+            cmd: Cmd::Release {
+                root: tmp.path().to_path_buf(),
+                level: RequestedLevel::Auto,
+                from: None,
+                to: "HEAD".to_string(),
+                execute: false,
+            },
+        })
+        .unwrap();
+
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn check_accepts_empty_implicit_range_after_latest_tag() {
+        let tmp = seed_git_repo("fix: seed history");
+        git(tmp.path(), &["tag", "v0.0.1"]).unwrap();
+
+        let code = check_versioning(
+            tmp.path().to_path_buf(),
+            Mode::WholeRepo,
+            None,
+            "HEAD".to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn release_execute_rejects_empty_plan() {
+        let tmp = seed_git_repo("fix: seed history");
+        let head = git_output(tmp.path(), &["rev-parse", "HEAD"])
+            .unwrap()
+            .trim()
+            .to_string();
+
+        let code = release(
+            tmp.path().to_path_buf(),
+            RequestedLevel::Auto,
+            Some(head.clone()),
+            head,
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(code, ExitCode::from(1));
+    }
+
+    #[test]
+    fn release_execute_can_complete_from_library() {
+        let tmp = seed_git_repo("feat: release from library");
+
+        let code = release(
+            tmp.path().to_path_buf(),
+            RequestedLevel::Auto,
+            None,
+            "HEAD".to_string(),
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert!(tmp.path().join("CHANGELOG.md").is_file());
+        assert!(ensure_tag_missing(tmp.path(), "v0.1.0").is_err());
+    }
+
+    #[test]
+    fn requested_release_levels_override_auto() {
+        let tmp = seed_git_repo("feat: add feature");
+        let patch = build_release_plan(tmp.path(), None, "HEAD".to_string(), RequestedLevel::Patch)
+            .unwrap();
+        let minor = build_release_plan(tmp.path(), None, "HEAD".to_string(), RequestedLevel::Minor)
+            .unwrap();
+        let major = build_release_plan(tmp.path(), None, "HEAD".to_string(), RequestedLevel::Major)
+            .unwrap();
+
+        assert_eq!(patch.level, BumpLevel::Patch);
+        assert_eq!(patch.next_version.to_string(), "0.0.1");
+        assert_eq!(minor.level, BumpLevel::Minor);
+        assert_eq!(minor.next_version.to_string(), "0.1.0");
+        assert_eq!(major.level, BumpLevel::Major);
+        assert_eq!(major.next_version.to_string(), "1.0.0");
+    }
+
+    #[test]
+    fn parse_commits_skips_merge_commits() {
+        let commits = vec![
+            Commit {
+                hash: "1111111".to_string(),
+                parents: vec!["a".to_string(), "b".to_string()],
+                subject: "Merge branch main".to_string(),
+                body: String::new(),
+            },
+            Commit {
+                hash: "2222222".to_string(),
+                parents: vec!["a".to_string()],
+                subject: "Merge pull request".to_string(),
+                body: String::new(),
+            },
+        ];
+
+        assert!(parse_commits(commits).unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_commits_reports_invalid_subjects() {
+        let commits = vec![Commit {
+            hash: "123456789".to_string(),
+            parents: vec!["a".to_string()],
+            subject: "update release notes".to_string(),
+            body: String::new(),
+        }];
+
+        let err = parse_commits(commits).unwrap_err();
+
+        assert!(err.to_string().contains("non-conventional commits"));
+        assert!(err.to_string().contains("1234567 update release notes"));
+    }
+
+    #[test]
+    fn rejects_malformed_scope_headers() {
+        assert!(parse_conventional("feat(scope: missing close", "").is_none());
+        assert!(parse_conventional("feat(): empty scope", "").is_none());
+        assert!(parse_conventional("(scope): missing type", "").is_none());
+    }
+
+    #[test]
+    fn missing_changelog_file_is_an_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = ensure_changelog_shape(tmp.path()).unwrap_err();
+
+        assert!(err.to_string().contains("CHANGELOG.md missing"));
+    }
+
+    #[test]
+    fn manifest_version_update_reports_bad_inputs() {
+        assert!(
+            replace_manifest_version_text("{", &Version::zero())
+                .unwrap_err()
+                .to_string()
+                .contains("not valid JSON")
+        );
+        assert!(
+            replace_manifest_version_text("{}", &Version::zero())
+                .unwrap_err()
+                .to_string()
+                .contains("top-level string version")
+        );
+        assert!(
+            replace_manifest_version_text("{\n\"version\":\"0.0.0\"\n}\n", &Version::zero())
+                .unwrap_err()
+                .to_string()
+                .contains("could not find")
+        );
+
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("harness.manifest.json"), "{").unwrap();
+        assert!(
+            update_manifest_version(tmp.path(), &Version::zero())
+                .unwrap_err()
+                .to_string()
+                .contains("update")
+        );
+    }
+
+    #[test]
+    fn file_io_helpers_report_path_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(
+            read_text(&tmp.path().join("missing.txt"))
+                .unwrap_err()
+                .to_string()
+                .contains("read")
+        );
+        assert!(
+            write_text(tmp.path(), "content")
+                .unwrap_err()
+                .to_string()
+                .contains("write")
+        );
+    }
+
+    #[test]
+    fn manifest_version_update_handles_final_line_without_newline() {
+        let updated = replace_manifest_version_text(
+            "{\n  \"name\": \"x\",\n  \"version\": \"0.0.0\"\n}",
+            &Version {
+                major: 2,
+                minor: 0,
+                patch: 0,
+            },
+        )
+        .unwrap();
+
+        assert!(updated.ends_with("\"version\": \"2.0.0\"\n}"));
+    }
+
+    #[test]
+    fn changelog_release_preserves_existing_entries_and_previous_releases() {
+        let commits = vec![(
+            sample_commit("fix: repair parser", ""),
+            parse_conventional("fix: repair parser", "").unwrap(),
+        )];
+        let plan = sample_plan(commits);
+        let changelog = "# Changelog\n\n## [Unreleased]\n\n- Keep this entry.\n\n## [0.1.0] - 2026-05-01\n\n- Old.\n";
+
+        let updated = render_changelog_release(changelog, &plan, "2026-06-02").unwrap();
+
+        assert!(updated.contains("- Keep this entry.\n\n### Fixed"));
+        assert!(updated.contains("## [0.1.0] - 2026-05-01"));
+    }
+
+    #[test]
+    fn render_release_body_orders_all_known_sections() {
+        let specs = [
+            ("feat: add thing", ""),
+            ("fix: repair thing", ""),
+            ("refactor: reshape thing", ""),
+            ("perf: speed thing", ""),
+            ("docs: write thing", ""),
+            ("chore: maintain thing", ""),
+            ("experiments: probe thing", ""),
+            ("custom: classify thing", ""),
+            ("feat!: break thing", ""),
+        ];
+        let commits = specs
+            .iter()
+            .map(|(subject, body)| {
+                (
+                    sample_commit(subject, body),
+                    parse_conventional(subject, body).unwrap(),
+                )
+            })
+            .collect();
+        let body = render_release_body(&sample_plan(commits));
+
+        for heading in [
+            "### Breaking Changes",
+            "### Added",
+            "### Fixed",
+            "### Changed",
+            "### Performance",
+            "### Documentation",
+            "### Maintenance",
+            "### Harness Work",
+            "### Other",
+        ] {
+            assert!(body.contains(heading), "{heading}");
+        }
+    }
+
+    #[test]
+    fn print_plan_handles_from_and_empty_commits() {
+        let plan = sample_plan(Vec::new());
+
+        print_plan(&plan);
+    }
+
+    #[test]
+    fn latest_release_tag_picks_highest_valid_merged_tag() {
+        let tmp = seed_git_repo("fix: seed history");
+        git(tmp.path(), &["tag", "not-a-version"]).unwrap();
+        git(tmp.path(), &["tag", "v0.1.0"]).unwrap();
+        git(tmp.path(), &["tag", "v0.2.0"]).unwrap();
+
+        let tag = latest_release_tag(tmp.path(), "HEAD").unwrap();
+
+        assert_eq!(tag.as_deref(), Some("v0.2.0"));
+    }
+
+    #[test]
+    fn collect_and_latest_tag_report_git_errors() {
+        assert!(collect_commits(Path::new("."), None, "definitely-missing-rev").is_err());
+        assert!(latest_release_tag(Path::new("."), "definitely-missing-rev").is_err());
+    }
+
+    #[test]
+    fn tag_and_worktree_guards_report_errors() {
+        let tmp = seed_git_repo("fix: seed history");
+        git(tmp.path(), &["tag", "v0.0.1"]).unwrap();
+        assert!(
+            ensure_tag_missing(tmp.path(), "v0.0.1")
+                .unwrap_err()
+                .to_string()
+                .contains("already exists")
+        );
+
+        std::fs::write(tmp.path().join("CHANGELOG.md"), "dirty").unwrap();
+        assert!(
+            ensure_clean_tracked_worktree(tmp.path())
+                .unwrap_err()
+                .to_string()
+                .contains("clean tracked worktree")
+        );
+    }
+
+    #[test]
+    fn date_and_git_error_helpers_are_reported() {
+        let today = release_date(Path::new(".")).unwrap();
+        assert_eq!(today.len(), 10);
+        assert_eq!(
+            release_date_with(
+                Path::new("."),
+                Some("2026-06-03".to_string()),
+                DateCommand::System,
+            )
+            .unwrap(),
+            "2026-06-03"
+        );
+        assert!(
+            release_date_with(
+                Path::new("."),
+                Some("   ".to_string()),
+                DateCommand::Failing
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("date +%F failed")
+        );
+        assert!(
+            git(Path::new("."), &["definitely-not-a-git-subcommand"])
+                .unwrap_err()
+                .to_string()
+                .contains("git command failed")
+        );
+        assert!(
+            git_output(Path::new("."), &["definitely-not-a-git-subcommand"])
+                .unwrap_err()
+                .to_string()
+                .contains("git command failed")
+        );
+    }
+
+    #[test]
+    fn version_parsing_and_bumping_cover_edge_cases() {
+        assert!(Version::parse_tag("0.1.0").is_none());
+        assert!(Version::parse_tag("v0.1").is_none());
+        assert!(Version::parse_tag("v0.1.x").is_none());
+        assert!(Version::parse_tag("v0.1.0.1").is_none());
+        assert_eq!(
+            Version {
+                major: 0,
+                minor: 1,
+                patch: 2,
+            }
+            .bump(BumpLevel::Major)
+            .to_string(),
+            "1.0.0"
+        );
     }
 }
