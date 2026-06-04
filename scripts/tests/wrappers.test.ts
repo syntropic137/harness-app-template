@@ -248,6 +248,63 @@ describe('thin script wrappers', () => {
       ],
       ['pnpm', ['--dir', 'harness/stack', 'exec', 'vitest', 'run', '--coverage', '--run']],
       ['pnpm', ['--dir', 'harness/inspector', 'exec', 'vitest', 'run', '--coverage', '--run']],
+      [
+        'pnpm',
+        [
+          'exec',
+          'vitest',
+          'run',
+          'scripts/tests/sensors-adapters.test.ts',
+          'scripts/tests/sensors-apss-fitness.test.ts',
+          'scripts/tests/sensors-apss-topology.test.ts',
+          'scripts/tests/sensors-abstractness.test.ts',
+          'scripts/tests/sensors-aggregate.test.ts',
+          'scripts/tests/sensors-complexity.test.ts',
+          'scripts/tests/sensors-gate.test.ts',
+          'scripts/tests/sensors-license-scan.test.ts',
+          '--coverage',
+          '--coverage.include=harness/sensors/**/*.mjs',
+          '--coverage.exclude=harness/sensors/bin/**',
+          '--coverage.all=true',
+          '--coverage.thresholds.lines=84',
+          '--coverage.thresholds.functions=84',
+          '--coverage.thresholds.branches=83',
+          '--coverage.thresholds.statements=84',
+          '--run',
+        ],
+      ],
+    ]);
+  });
+
+  test('sensors-coverage runs sensor-focused coverage gate', async () => {
+    const main = await loadMain('sensors-coverage');
+    main(['--run']);
+    expect(calls).toEqual([
+      [
+        'pnpm',
+        [
+          'exec',
+          'vitest',
+          'run',
+          'scripts/tests/sensors-adapters.test.ts',
+          'scripts/tests/sensors-apss-fitness.test.ts',
+          'scripts/tests/sensors-apss-topology.test.ts',
+          'scripts/tests/sensors-abstractness.test.ts',
+          'scripts/tests/sensors-aggregate.test.ts',
+          'scripts/tests/sensors-complexity.test.ts',
+          'scripts/tests/sensors-gate.test.ts',
+          'scripts/tests/sensors-license-scan.test.ts',
+          '--coverage',
+          '--coverage.include=harness/sensors/**/*.mjs',
+          '--coverage.exclude=harness/sensors/bin/**',
+          '--coverage.all=true',
+          '--coverage.thresholds.lines=84',
+          '--coverage.thresholds.functions=84',
+          '--coverage.thresholds.branches=83',
+          '--coverage.thresholds.statements=84',
+          '--run',
+        ],
+      ],
     ]);
   });
 });

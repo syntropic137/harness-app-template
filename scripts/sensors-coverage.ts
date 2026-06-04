@@ -1,7 +1,7 @@
-import { PACKAGE_COVERAGE_TARGETS, runPnpmCoverageTargets } from './lib/coverage';
+import { runPnpmCoverageTargets, SENSORS_COVERAGE_TARGET } from './lib/coverage';
 
 export function main(argv: string[] = []): void {
-  runPnpmCoverageTargets(PACKAGE_COVERAGE_TARGETS, argv);
+  runPnpmCoverageTargets([SENSORS_COVERAGE_TARGET], argv);
 }
 
 /* v8 ignore next 3 */
