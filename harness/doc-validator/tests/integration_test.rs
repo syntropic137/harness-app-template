@@ -1,13 +1,6 @@
-use std::path::PathBuf;
 use std::process::Command;
 
-fn binary_path() -> PathBuf {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("target");
-    path.push("debug");
-    path.push("harness-doc-validator");
-    path
-}
+const BINARY_PATH: &str = env!("CARGO_BIN_EXE_harness-doc-validator");
 
 #[test]
 fn binary_exits_one_on_bad_manifest_cross_reference() {
@@ -44,7 +37,7 @@ fn binary_exits_one_on_bad_manifest_cross_reference() {
     )
     .unwrap();
 
-    let output = Command::new(binary_path())
+    let output = Command::new(BINARY_PATH)
         .arg(tmp.path())
         .output()
         .expect("spawn harness-doc-validator");

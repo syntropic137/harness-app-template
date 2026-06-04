@@ -68,3 +68,24 @@ cargo *args:
 
 uv *args:
     bun run scripts/uv.ts {{args}}
+
+# HARNESS-ENGINEERING PROTECTED CONFIG / DO NOT ADJUST.
+# Rust coverage gates. The root Cargo workspace intentionally contains only
+# ws_apps/example-rust; harness/doc-validator and harness/versioning are
+# self-contained slot workspaces, each with its own workspace block by design.
+# They are covered by explicit --manifest-path invocations so the root never
+# pulls slot stubs in transitively.
+# Thresholds pin at 100/100 to match the protected metadata in each crate's
+# Cargo.toml. main.rs files are excluded per the ADR-0013 opt-out table:
+# small CLI shells with no business logic; all logic lives in lib.rs.
+# Refactor production, never relax these thresholds.
+cov-rust: cov-example-rust cov-doc-validator cov-versioning
+
+cov-example-rust:
+    cargo llvm-cov --manifest-path ws_apps/example-rust/Cargo.toml --package example-rust --fail-under-lines 100 --fail-under-functions 100 --fail-under-regions 100
+
+cov-doc-validator:
+    cargo llvm-cov --manifest-path harness/doc-validator/Cargo.toml --package harness-doc-validator --ignore-filename-regex 'main\.rs' --fail-under-lines 100 --fail-under-functions 100
+
+cov-versioning:
+    cargo llvm-cov --manifest-path harness/versioning/Cargo.toml --package harness-versioning --ignore-filename-regex 'main\.rs' --fail-under-lines 100 --fail-under-functions 100

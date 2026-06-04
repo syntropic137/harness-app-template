@@ -2,12 +2,11 @@
 
 #![forbid(unsafe_code)]
 
-use clap::Parser;
-use harness_doc_validator::Cli;
+use harness_doc_validator::parse_cli;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = parse_cli();
     match harness_doc_validator::run(cli) {
         Ok(code) => code,
         Err(error) => {

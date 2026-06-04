@@ -33,11 +33,11 @@ unused = { level = "deny", priority = -1 }
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }
-# pedantic deliberately omitted — see apps/api-rust/Cargo.toml for rationale.
+# pedantic deliberately omitted. See apps/api-rust/Cargo.toml for rationale.
 
 # ── HARNESS-ENGINEERING PROTECTED COVERAGE TARGETS ──────────────────────────
 # DO NOT ADJUST THESE THRESHOLDS. They are enforced by harness engineering
-# via `cargo llvm-cov --fail-under-lines 90` in CI and encode the testing-
+# via `cargo llvm-cov --fail-under-lines 100` in CI and encode the testing-
 # pyramid contract from `docs/standard/v0.1.md` for the telemetry-sdk slot's
 # reference example.
 #
@@ -47,8 +47,14 @@ all = { level = "deny", priority = -1 }
 # (CLAUDE.md rule #0) backs llvm-cov as the canonical coverage tool.
 # ───────────────────────────────────────────────────────────────────────────
 [package.metadata.harness-engineering]
-unit_coverage_lines_min = 100       # PROTECTED — 100, not lower. Per user directive.
-unit_coverage_functions_min = 100   # PROTECTED — 100, not lower.
-unit_coverage_regions_min = 100     # PROTECTED — `cargo llvm-cov --fail-under-regions 100`
-strict_clippy = true                # PROTECTED — `cargo clippy -- -D warnings` MUST pass
-no_unsafe = true                    # PROTECTED — `#![forbid(unsafe_code)]` at crate root
+unit_coverage_lines_min = 100       # PROTECTED: 100, not lower. Per user directive.
+unit_coverage_functions_min = 100   # PROTECTED: 100, not lower.
+unit_coverage_regions_min = 100     # PROTECTED: `cargo llvm-cov --fail-under-regions 100`
+strict_clippy = true                # PROTECTED: `cargo clippy -- -D warnings` MUST pass
+no_unsafe = true                    # PROTECTED: `#![forbid(unsafe_code)]` at crate root
+
+[package.metadata.coverage]
+tool = "cargo-llvm-cov"
+lines_minimum = 100
+functions_minimum = 100
+regions_minimum = 100

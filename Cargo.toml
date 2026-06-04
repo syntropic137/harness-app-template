@@ -11,3 +11,16 @@ license = "MIT"
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
+
+[workspace.metadata.coverage]
+tool = "cargo-llvm-cov"
+rust_surfaces = [
+  "ws_apps/example-rust",
+  "harness/doc-validator",
+  "harness/versioning",
+]
+excluded_surfaces = [
+  "harness/stack/rust-stub",
+]
+lines_minimum = 100
+functions_minimum = 100

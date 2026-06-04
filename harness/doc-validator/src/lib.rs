@@ -1,4 +1,4 @@
-//! harness-doc-validator — doc-validator slot implementation.
+//! harness-doc-validator - doc-validator slot implementation.
 //!
 //! The lab engine provides Markdown cross-reference scanning. This template
 //! version keeps that core and adds APSS ADR01, manifest, and principle-doc
@@ -49,12 +49,18 @@ pub struct ValidationReport {
     pub findings: Vec<ValidationFinding>,
 }
 
+pub fn parse_cli() -> Cli {
+    Cli::parse()
+}
+
 pub fn run(cli: Cli) -> Result<ExitCode> {
     let root = cli.root.canonicalize().unwrap_or_else(|_| cli.root.clone());
     let report = validate(&root, &cli.exclude)?;
 
     if cli.json {
-        println!("{}", serde_json::to_string_pretty(&report)?);
+        let json =
+            serde_json::to_string_pretty(&report).expect("ValidationReport always serializes");
+        println!("{json}");
     } else {
         print_human_report(&report);
     }
@@ -248,5 +254,107 @@ mod tests {
         };
 
         assert_eq!(run(cli).unwrap(), ExitCode::from(1));
+    }
+
+    #[test]
+    fn run_returns_success_and_prints_human_report() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_valid_adr_tree(tmp.path());
+        write_valid_manifest(tmp.path());
+        write_valid_principles(tmp.path());
+
+        let cli = Cli {
+            root: tmp.path().to_path_buf(),
+            exclude: default_excludes(),
+            json: false,
+        };
+
+        assert_eq!(run(cli).unwrap(), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_human_report_lists_broken_links_without_findings() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_valid_adr_tree(tmp.path());
+        write_valid_manifest(tmp.path());
+        write_valid_principles(tmp.path());
+        fs::write(
+            tmp.path().join("a.md"),
+            "[bad](docs/adrs/ADR-0001-demo.md#missing)",
+        )
+        .unwrap();
+
+        let cli = Cli {
+            root: tmp.path().to_path_buf(),
+            exclude: default_excludes(),
+            json: false,
+        };
+
+        assert_eq!(run(cli).unwrap(), ExitCode::from(1));
+    }
+
+    #[test]
+    fn run_human_report_lists_findings_without_broken_links() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_valid_adr_tree(tmp.path());
+        write_valid_principles(tmp.path());
+
+        let cli = Cli {
+            root: tmp.path().to_path_buf(),
+            exclude: default_excludes(),
+            json: false,
+        };
+
+        assert_eq!(run(cli).unwrap(), ExitCode::from(1));
+    }
+
+    #[test]
+    fn run_returns_error_when_root_cannot_be_walked() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cli = Cli {
+            root: tmp.path().join("missing-root"),
+            exclude: default_excludes(),
+            json: false,
+        };
+
+        let error = run(cli).unwrap_err();
+
+        assert!(error.to_string().contains("walk docs"));
+    }
+
+    #[test]
+    fn validate_respects_exclude_patterns() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_valid_adr_tree(tmp.path());
+        write_valid_manifest(tmp.path());
+        write_valid_principles(tmp.path());
+        let skipped = tmp.path().join("skip-me");
+        fs::create_dir(&skipped).unwrap();
+        fs::write(skipped.join("broken.md"), "[bad](./missing.md)").unwrap();
+
+        let report = validate(tmp.path(), &["skip-me".to_string()]).unwrap();
+
+        assert!(report.links.broken.is_empty());
+        assert!(report.findings.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validate_reports_read_errors_with_path_context() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let locked = tmp.path().join("locked.md");
+        fs::write(&locked, "[link](./target.md)").unwrap();
+        let mut permissions = fs::metadata(&locked).unwrap().permissions();
+        permissions.set_mode(0o000);
+        fs::set_permissions(&locked, permissions).unwrap();
+
+        let error = validate(tmp.path(), &[]).unwrap_err();
+
+        let mut restored = fs::metadata(&locked).unwrap().permissions();
+        restored.set_mode(0o600);
+        fs::set_permissions(&locked, restored).unwrap();
+        assert!(error.to_string().contains("read"));
     }
 }

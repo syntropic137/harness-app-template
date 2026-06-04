@@ -130,4 +130,36 @@ mod tests {
         assert_eq!(broken.len(), 1);
         assert_eq!(broken[0].reason, "target file not found");
     }
+
+    #[test]
+    fn skips_external_and_anchor_only_links() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("a.md");
+        fs::write(&source, "# Top\n\n[web](https://example.com)\n[top](#top)").unwrap();
+
+        let content = fs::read_to_string(&source).unwrap();
+        let broken = check_links(&source, &extract_links(&content));
+
+        assert!(broken.is_empty());
+    }
+
+    #[test]
+    fn skips_anchors_for_non_markdown_targets_and_unreadable_markdown() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("a.md");
+        let text_target = tmp.path().join("note.txt");
+        let dir_target = tmp.path().join("directory.md");
+        fs::write(
+            &source,
+            "[text](./note.txt#ignored)\n[dir](./directory.md#ignored)",
+        )
+        .unwrap();
+        fs::write(&text_target, "plain").unwrap();
+        fs::create_dir(&dir_target).unwrap();
+
+        let content = fs::read_to_string(&source).unwrap();
+        let broken = check_links(&source, &extract_links(&content));
+
+        assert!(broken.is_empty());
+    }
 }

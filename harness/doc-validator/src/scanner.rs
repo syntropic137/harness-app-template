@@ -159,7 +159,11 @@ fn footnote_labels(line: &str) -> BTreeSet<String> {
             break;
         };
         let label = &line[label_start..label_start + end];
-        if !label.is_empty() && label.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-') {
+        if !label.is_empty()
+            && label
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+        {
             labels.insert(label.to_string());
         }
         cursor = label_start + end + 1;
@@ -204,5 +208,26 @@ mod tests {
     fn treats_site_root_links_as_external() {
         let links = extract_links("[home](/blog/post)");
         assert_eq!(links[0].kind, LinkKind::External);
+    }
+
+    #[test]
+    fn handles_unclosed_links_and_split_prose_spans() {
+        let links = extract_links("prefix `[no](./no.md)` [yes](./yes.md)\n[bad](./bad.md");
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target, "./yes.md");
+    }
+
+    #[test]
+    fn ignores_unsupported_empty_headings_and_unclosed_footnotes() {
+        let anchors = extract_anchors("#### Too deep\n#No space\n##   \nBroken [^note");
+        assert!(anchors.is_empty());
+    }
+
+    #[test]
+    fn classifies_all_external_protocols() {
+        let links = extract_links(
+            "[http](http://example.com)\n[mail](mailto:test@example.com)\n[ftp](ftp://example.com)\n[data](data:text/plain,hi)\n[file](file:///tmp/a)",
+        );
+        assert!(links.iter().all(|link| link.kind == LinkKind::External));
     }
 }

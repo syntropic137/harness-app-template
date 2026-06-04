@@ -6,7 +6,6 @@
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use std::collections::BTreeMap;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
@@ -179,7 +178,7 @@ fn check_versioning(
 
 fn check_whole_repo(root: &Path, from: Option<String>, to: String) -> Result<ExitCode> {
     ensure_changelog_shape(root)?;
-    let explicit_range = from.as_ref().is_some_and(|rev| !rev.trim().is_empty());
+    let explicit_range = matches!(from.as_deref(), Some(rev) if !rev.trim().is_empty());
     let plan = build_release_plan(root, from, to, RequestedLevel::Auto)?;
 
     if plan.commits.is_empty() {
@@ -207,7 +206,7 @@ fn release(
     execute: bool,
 ) -> Result<ExitCode> {
     let root = normalize_root(root);
-    ensure_changelog_shape(&root)?;
+    let current = ensure_changelog_shape(&root)?;
     let plan = build_release_plan(&root, from, to, requested_level)?;
     print_plan(&plan);
 
@@ -225,24 +224,17 @@ fn release(
     let tag = format!("v{}", plan.next_version);
     ensure_tag_missing(&root, &tag)?;
     let changelog_path = root.join("CHANGELOG.md");
-    let current = std::fs::read_to_string(&changelog_path)
-        .with_context(|| format!("read {}", changelog_path.display()))?;
-    let updated = render_changelog_release(&current, &plan, &release_date(&root)?)?;
+    let date = release_date(&root)?;
+    let updated = render_changelog_release(&current, &plan, &date)?;
     std::fs::write(&changelog_path, updated)
-        .with_context(|| format!("write {}", changelog_path.display()))?;
+        .context(format!("write {}", changelog_path.display()))?;
     update_manifest_version(&root, &plan.next_version)?;
 
-    git(&root, ["add", "CHANGELOG.md", "harness.manifest.json"])?;
-    git(
-        &root,
-        [
-            "commit",
-            "-m",
-            &format!("chore(release): {tag}"),
-            "--no-verify",
-        ],
-    )?;
-    git(&root, ["tag", "-a", &tag, "-m", &format!("Release {tag}")])?;
+    git(&root, &["add", "CHANGELOG.md", "harness.manifest.json"])?;
+    let commit_message = format!("chore(release): {tag}");
+    let commit_args = ["commit", "-m", commit_message.as_str(), "--no-verify"];
+    git(&root, &commit_args)?;
+    git(&root, &["tag", "-a", &tag, "-m", &format!("Release {tag}")])?;
     println!("versioning: created release commit and tag {tag}");
     Ok(ExitCode::SUCCESS)
 }
@@ -287,15 +279,13 @@ fn collect_commits(root: &Path, from: Option<&str>, to: &str) -> Result<Vec<Comm
         Some(from) => format!("{from}..{to}"),
         None => to.to_string(),
     };
-    let output = git_output(
-        root,
-        [
-            "log",
-            "--reverse",
-            "--format=%H%x1f%P%x1f%s%x1f%b%x1e",
-            &range,
-        ],
-    )?;
+    let args = [
+        "log",
+        "--reverse",
+        "--format=%H%x1f%P%x1f%s%x1f%b%x1e",
+        &range,
+    ];
+    let output = git_output(root, &args)?;
     let mut commits = Vec::new();
 
     for record in output.split('\u{1e}') {
@@ -341,14 +331,11 @@ fn parse_commits(commits: Vec<Commit>) -> Result<Vec<(Commit, ConventionalCommit
     }
 
     if !invalid.is_empty() {
-        bail!(
-            "non-conventional commits found:\n{}",
-            invalid
-                .into_iter()
-                .map(|line| format!("  - {line}"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
+        let mut lines = Vec::new();
+        for line in invalid {
+            lines.push(format!("  - {line}"));
+        }
+        bail!("non-conventional commits found:\n{}", lines.join("\n"));
     }
 
     Ok(parsed)
@@ -396,10 +383,13 @@ fn parse_conventional(subject: &str, body: &str) -> Option<ConventionalCommit> {
 }
 
 fn has_breaking_footer(body: &str) -> bool {
-    body.lines().any(|line| {
+    for line in body.lines() {
         let line = line.trim_start();
-        line.starts_with("BREAKING CHANGE:") || line.starts_with("BREAKING-CHANGE:")
-    })
+        if line.starts_with("BREAKING CHANGE:") || line.starts_with("BREAKING-CHANGE:") {
+            return true;
+        }
+    }
+    false
 }
 
 fn is_valid_type(value: &str) -> bool {
@@ -424,26 +414,26 @@ fn bump_for(parsed: &ConventionalCommit) -> BumpLevel {
     }
 }
 
-fn ensure_changelog_shape(root: &Path) -> Result<()> {
+fn ensure_changelog_shape(root: &Path) -> Result<String> {
     let changelog = root.join("CHANGELOG.md");
     if !changelog.is_file() {
         bail!("CHANGELOG.md missing at {}", changelog.display());
     }
-    let content = std::fs::read_to_string(&changelog)
-        .with_context(|| format!("read {}", changelog.display()))?;
+    let content =
+        std::fs::read_to_string(&changelog).context(format!("read {}", changelog.display()))?;
     if !content.lines().any(|line| line.trim() == "## [Unreleased]") {
         bail!("CHANGELOG.md must contain a ## [Unreleased] section");
     }
-    Ok(())
+    Ok(content)
 }
 
 fn update_manifest_version(root: &Path, version: &Version) -> Result<()> {
     let manifest = root.join("harness.manifest.json");
-    let content = std::fs::read_to_string(&manifest)
-        .with_context(|| format!("read {}", manifest.display()))?;
+    let content =
+        std::fs::read_to_string(&manifest).context(format!("read {}", manifest.display()))?;
     let updated = replace_manifest_version_text(&content, version)
-        .with_context(|| format!("update {}", manifest.display()))?;
-    std::fs::write(&manifest, updated).with_context(|| format!("write {}", manifest.display()))?;
+        .context(format!("update {}", manifest.display()))?;
+    std::fs::write(&manifest, updated).context(format!("write {}", manifest.display()))?;
     Ok(())
 }
 
@@ -467,10 +457,14 @@ fn replace_manifest_version_text(content: &str, version: &Version) -> Result<Str
         };
         let trimmed_start = line.trim_start();
         let indent_len = line.len() - trimmed_start.len();
-        let is_top_level_version = indent_len == 2
-            && trimmed_start
-                .strip_prefix("\"version\"")
-                .is_some_and(|rest| rest.trim_start().starts_with(':'));
+        let is_top_level_version = if indent_len == 2 {
+            match trimmed_start.strip_prefix("\"version\"") {
+                Some(rest) => rest.trim_start().starts_with(':'),
+                None => false,
+            }
+        } else {
+            false
+        };
 
         if !replaced && is_top_level_version {
             let trimmed_end = line.trim_end();
@@ -592,7 +586,10 @@ fn section_for_type(commit_type: &str) -> &'static str {
 }
 
 fn scope_prefix(scope: Option<&str>) -> String {
-    scope.map_or_else(String::new, |scope| format!("**{scope}:** "))
+    match scope {
+        Some(scope) => format!("**{scope}:** "),
+        None => String::new(),
+    }
 }
 
 fn changelog_text(value: &str) -> String {
@@ -616,22 +613,22 @@ fn print_plan(plan: &ReleasePlan) {
 }
 
 fn latest_release_tag(root: &Path, to: &str) -> Result<Option<String>> {
-    let output = git_output(
-        root,
-        [
-            "tag",
-            "--merged",
-            to,
-            "--list",
-            "v[0-9]*",
-            "--sort=-v:refname",
-        ],
-    )?;
-    Ok(output
-        .lines()
-        .map(str::trim)
-        .find(|line| Version::parse_tag(line).is_some())
-        .map(ToOwned::to_owned))
+    let args = [
+        "tag",
+        "--merged",
+        to,
+        "--list",
+        "v[0-9]*",
+        "--sort=-v:refname",
+    ];
+    let output = git_output(root, &args)?;
+    for line in output.lines() {
+        let line = line.trim();
+        if Version::parse_tag(line).is_some() {
+            return Ok(Some(line.to_string()));
+        }
+    }
+    Ok(None)
 }
 
 fn ensure_tag_missing(root: &Path, tag: &str) -> Result<()> {
@@ -647,7 +644,7 @@ fn ensure_tag_missing(root: &Path, tag: &str) -> Result<()> {
 }
 
 fn ensure_clean_tracked_worktree(root: &Path) -> Result<()> {
-    let status = git_output(root, ["status", "--porcelain", "--untracked-files=no"])?;
+    let status = git_output(root, &["status", "--porcelain", "--untracked-files=no"])?;
     if !status.trim().is_empty() {
         bail!("release requires a clean tracked worktree");
     }
@@ -655,21 +652,37 @@ fn ensure_clean_tracked_worktree(root: &Path) -> Result<()> {
 }
 
 fn release_date(root: &Path) -> Result<String> {
-    if let Ok(value) = std::env::var("HARNESS_RELEASE_DATE")
-        && !value.trim().is_empty()
-    {
+    let env_value = std::env::var("HARNESS_RELEASE_DATE").ok();
+    release_date_from_override(root, env_value.as_deref())
+}
+
+fn release_date_from_override(root: &Path, value: Option<&str>) -> Result<String> {
+    if let Some(value) = release_date_from_env(value) {
         return Ok(value);
     }
 
+    system_release_date(root)
+}
+
+fn release_date_from_env(value: Option<&str>) -> Option<String> {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn system_release_date(root: &Path) -> Result<String> {
     let output = Command::new("date")
         .arg("+%F")
         .current_dir(root)
         .output()
         .context("run date +%F")?;
-    if output.status.success() {
-        return Ok(String::from_utf8(output.stdout)?.trim().to_string());
-    }
+    date_from_output(output.status.success(), output.stdout)
+}
 
+fn date_from_output(success: bool, stdout: Vec<u8>) -> Result<String> {
+    if success {
+        return Ok(String::from_utf8(stdout)?.trim().to_string());
+    }
     bail!("date +%F failed")
 }
 
@@ -677,10 +690,7 @@ fn normalize_root(root: PathBuf) -> PathBuf {
     root.canonicalize().unwrap_or(root)
 }
 
-fn git<const N: usize, S>(root: &Path, args: [S; N]) -> Result<()>
-where
-    S: AsRef<OsStr>,
-{
+fn git(root: &Path, args: &[&str]) -> Result<()> {
     let status = Command::new("git")
         .args(args)
         .current_dir(root)
@@ -692,10 +702,7 @@ where
     Ok(())
 }
 
-fn git_output<const N: usize, S>(root: &Path, args: [S; N]) -> Result<String>
-where
-    S: AsRef<OsStr>,
-{
+fn git_output(root: &Path, args: &[&str]) -> Result<String> {
     let output = Command::new("git")
         .args(args)
         .current_dir(root)
@@ -707,7 +714,7 @@ where
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    Ok(String::from_utf8(output.stdout)?)
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn short_hash(hash: &str) -> String {
@@ -725,13 +732,19 @@ impl Version {
 
     fn parse_tag(tag: &str) -> Option<Self> {
         let tag = tag.strip_prefix('v')?;
-        let mut parts = tag.split('.');
-        let major = parts.next()?.parse().ok()?;
-        let minor = parts.next()?.parse().ok()?;
-        let patch = parts.next()?.parse().ok()?;
-        if parts.next().is_some() {
+        let parts = tag.split('.').collect::<Vec<_>>();
+        if parts.len() != 3 {
             return None;
         }
+        let Ok(major) = parts[0].parse() else {
+            return None;
+        };
+        let Ok(minor) = parts[1].parse() else {
+            return None;
+        };
+        let Ok(patch) = parts[2].parse() else {
+            return None;
+        };
         Some(Self {
             major,
             minor,
@@ -769,6 +782,69 @@ impl std::fmt::Display for Version {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
+    use std::path::Path;
+    use std::process::Command;
+
+    fn run_git<const N: usize, S>(root: &Path, args: [S; N])
+    where
+        S: AsRef<OsStr>,
+    {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .output()
+            .expect("spawn git");
+        assert!(output.status.success());
+    }
+
+    fn seed_repo(subject: &str) -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        run_git(tmp.path(), ["init"]);
+        run_git(tmp.path(), ["config", "user.email", "test@example.com"]);
+        run_git(tmp.path(), ["config", "user.name", "Harness Test"]);
+        std::fs::write(
+            tmp.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [Unreleased]\n\n- (Add your first changelog entry here.)\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.path().join("harness.manifest.json"),
+            "{\n  \"name\": \"test-harness\",\n  \"version\": \"0.0.0\",\n  \"slots\": {}\n}\n",
+        )
+        .unwrap();
+        run_git(tmp.path(), ["add", "CHANGELOG.md", "harness.manifest.json"]);
+        run_git(tmp.path(), ["commit", "-m", subject]);
+        tmp
+    }
+
+    fn parsed_pair(subject: &str, body: &str) -> (Commit, ConventionalCommit) {
+        let parsed = parse_conventional(subject, body).unwrap();
+        (
+            Commit {
+                hash: format!("{subject:0<12}"),
+                parents: vec!["parent".to_string()],
+                subject: subject.to_string(),
+                body: body.to_string(),
+            },
+            parsed,
+        )
+    }
+
+    fn plan_with(commits: Vec<(Commit, ConventionalCommit)>) -> ReleasePlan {
+        ReleasePlan {
+            from: None,
+            to: "HEAD".to_string(),
+            base_version: Version::zero(),
+            next_version: Version {
+                major: 1,
+                minor: 2,
+                patch: 3,
+            },
+            level: BumpLevel::Minor,
+            commits,
+        }
+    }
 
     #[test]
     fn parses_conventional_commit_with_scope_and_breaking_marker() {
@@ -777,6 +853,7 @@ mod tests {
         assert_eq!(parsed.scope.as_deref(), Some("api"));
         assert_eq!(parsed.description, "add stable endpoint");
         assert!(parsed.breaking);
+        assert!(has_breaking_footer("details\nBREAKING-CHANGE: renamed API"));
     }
 
     #[test]
@@ -861,5 +938,616 @@ mod tests {
         let updated = replace_manifest_version_text(manifest, &version).unwrap();
         assert!(updated.contains("  \"version\": \"1.2.3\","));
         assert!(updated.contains("      \"version\": \"0.1.0\""));
+    }
+
+    #[test]
+    fn run_plan_command_succeeds() {
+        let tmp = seed_repo("feat: seed release plan");
+        let code = run(Cli {
+            cmd: Cmd::Plan {
+                root: tmp.path().to_path_buf(),
+                from: None,
+                to: "HEAD".to_string(),
+            },
+        })
+        .unwrap();
+
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_dispatches_check_ci_and_release_paths() {
+        let tmp = seed_repo("feat: seed release dispatch");
+
+        let code = run(Cli {
+            cmd: Cmd::Check {
+                root: tmp.path().to_path_buf(),
+                mode: Mode::WholeRepo,
+                from: None,
+                to: "HEAD".to_string(),
+            },
+        })
+        .unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+
+        let code = run(Cli {
+            cmd: Cmd::Check {
+                root: tmp.path().to_path_buf(),
+                mode: Mode::PerPackage,
+                from: None,
+                to: "HEAD".to_string(),
+            },
+        })
+        .unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+
+        let code = run(Cli {
+            cmd: Cmd::CiCheck {
+                root: tmp.path().to_path_buf(),
+                from: None,
+                to: "HEAD".to_string(),
+            },
+        })
+        .unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+
+        let code = run(Cli {
+            cmd: Cmd::Release {
+                root: tmp.path().to_path_buf(),
+                level: RequestedLevel::Auto,
+                from: None,
+                to: "HEAD".to_string(),
+                execute: false,
+            },
+        })
+        .unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn implicit_empty_range_succeeds_after_latest_tag() {
+        let tmp = seed_repo("fix: seed release range");
+        run_git(tmp.path(), ["tag", "-a", "v0.0.1", "-m", "Release v0.0.1"]);
+
+        let code = check_whole_repo(tmp.path(), None, "HEAD".to_string()).unwrap();
+
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn check_whole_repo_explicit_range_without_commits_returns_error() {
+        let tmp = seed_repo("fix: seed explicit empty range");
+        let head = git_output(tmp.path(), &["rev-parse", "HEAD"]).unwrap();
+        let head = head.trim();
+
+        let code =
+            check_whole_repo(tmp.path(), Some(head.to_string()), "HEAD".to_string()).unwrap();
+
+        assert_eq!(code, ExitCode::from(1));
+    }
+
+    #[test]
+    fn check_versioning_direct_paths_succeed() {
+        let tmp = seed_repo("feat: seed direct check");
+
+        let whole_repo = check_versioning(
+            tmp.path().to_path_buf(),
+            Mode::WholeRepo,
+            None,
+            "HEAD".to_string(),
+        )
+        .unwrap();
+        let per_package = check_versioning(
+            tmp.path().to_path_buf(),
+            Mode::PerPackage,
+            None,
+            "HEAD".to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(whole_repo, ExitCode::SUCCESS);
+        assert_eq!(per_package, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn release_execute_rejects_empty_plan() {
+        let tmp = seed_repo("fix: seed release range");
+        run_git(tmp.path(), ["tag", "-a", "v0.0.1", "-m", "Release v0.0.1"]);
+
+        let code = release(
+            tmp.path().to_path_buf(),
+            RequestedLevel::Auto,
+            None,
+            "HEAD".to_string(),
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(code, ExitCode::from(1));
+    }
+
+    #[test]
+    fn release_execute_direct_path_updates_manifest_and_tags() {
+        let tmp = seed_repo("feat: direct release execution");
+
+        let code = release(
+            tmp.path().to_path_buf(),
+            RequestedLevel::Auto,
+            None,
+            "HEAD".to_string(),
+            true,
+        )
+        .unwrap();
+
+        let manifest = std::fs::read_to_string(tmp.path().join("harness.manifest.json")).unwrap();
+        let tags = git_output(tmp.path(), &["tag", "--list", "v0.1.0"]).unwrap();
+
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert!(manifest.contains("\"version\": \"0.1.0\""));
+        assert_eq!(tags.trim(), "v0.1.0");
+    }
+
+    #[test]
+    fn build_release_plan_honors_requested_levels() {
+        let tmp = seed_repo("fix: seed release range");
+        run_git(tmp.path(), ["tag", "-a", "v1.2.3", "-m", "Release v1.2.3"]);
+
+        let patch = build_release_plan(tmp.path(), None, "HEAD".to_string(), RequestedLevel::Patch)
+            .unwrap();
+        let minor = build_release_plan(tmp.path(), None, "HEAD".to_string(), RequestedLevel::Minor)
+            .unwrap();
+        let major = build_release_plan(tmp.path(), None, "HEAD".to_string(), RequestedLevel::Major)
+            .unwrap();
+
+        assert_eq!(patch.next_version.to_string(), "1.2.4");
+        assert_eq!(minor.next_version.to_string(), "1.3.0");
+        assert_eq!(major.next_version.to_string(), "2.0.0");
+    }
+
+    #[test]
+    fn parse_commits_skips_merge_commits_and_bad_scopes() {
+        let merge_parent_count = Commit {
+            hash: "abcdef123456".to_string(),
+            parents: vec!["one".to_string(), "two".to_string()],
+            subject: "feat: merge parent count".to_string(),
+            body: String::new(),
+        };
+        let merge_subject = Commit {
+            hash: "fedcba654321".to_string(),
+            parents: vec!["one".to_string()],
+            subject: "Merge branch main".to_string(),
+            body: String::new(),
+        };
+
+        let parsed = parse_commits(vec![merge_parent_count, merge_subject]).unwrap();
+
+        assert!(parsed.is_empty());
+        assert!(parse_conventional("feat(api: missing close", "").is_none());
+        assert!(parse_conventional("feat(): empty scope", "").is_none());
+    }
+
+    #[test]
+    fn parse_commits_reports_invalid_commit_lines() {
+        let invalid = Commit {
+            hash: "abcdef123456".to_string(),
+            parents: vec!["one".to_string()],
+            subject: "oops not conventional".to_string(),
+            body: String::new(),
+        };
+        let missing_description = Commit {
+            hash: "123456abcdef".to_string(),
+            parents: vec!["one".to_string()],
+            subject: "feat():".to_string(),
+            body: String::new(),
+        };
+
+        let err = parse_commits(vec![invalid, missing_description]).unwrap_err();
+
+        assert!(err.to_string().contains("non-conventional commits found"));
+        assert!(err.to_string().contains("abcdef1 oops not conventional"));
+        assert!(err.to_string().contains("123456a feat():"));
+    }
+
+    #[test]
+    fn ensure_changelog_shape_reports_missing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let error = ensure_changelog_shape(tmp.path()).unwrap_err();
+        assert!(error.to_string().contains("CHANGELOG.md missing"));
+    }
+
+    #[test]
+    fn manifest_version_update_handles_no_newline_and_missing_line() {
+        let version = Version {
+            major: 2,
+            minor: 0,
+            patch: 0,
+        };
+        let updated =
+            replace_manifest_version_text("{\n  \"version\": \"1.0.0\"\n}", &version).unwrap();
+        assert!(updated.contains("\"version\": \"2.0.0\""));
+
+        let error = replace_manifest_version_text("{\"version\":\"1.0.0\"}", &version).unwrap_err();
+        assert!(error.to_string().contains("top-level version field line"));
+    }
+
+    #[test]
+    fn changelog_release_preserves_existing_unreleased_and_history() {
+        let plan = plan_with(vec![parsed_pair("fix: repair release notes", "")]);
+        let changelog = "# Changelog\n\n## [Unreleased]\n\n- Keep manual note\n\n## [0.1.0] - 2026-01-01\n\n- Old note\n";
+
+        let updated = render_changelog_release(changelog, &plan, "2026-06-03").unwrap();
+
+        assert!(updated.contains("- Keep manual note\n\n### Fixed"));
+        assert!(updated.contains("## [0.1.0] - 2026-01-01"));
+    }
+
+    #[test]
+    fn render_release_body_covers_all_sections() {
+        let plan = plan_with(vec![
+            parsed_pair("feat!: break api", ""),
+            parsed_pair("feat: add thing", ""),
+            parsed_pair("fix: repair thing", ""),
+            parsed_pair("refactor: reshape thing", ""),
+            parsed_pair("perf: speed thing", ""),
+            parsed_pair("docs: explain thing", ""),
+            parsed_pair("chore: maintain thing", ""),
+            parsed_pair("plan: align harness", ""),
+            parsed_pair("deps: update thing", ""),
+        ]);
+
+        let rendered = render_release_body(&plan);
+
+        for heading in [
+            "Breaking Changes",
+            "Added",
+            "Fixed",
+            "Changed",
+            "Performance",
+            "Documentation",
+            "Maintenance",
+            "Harness Work",
+            "Other",
+        ] {
+            assert!(rendered.contains(&format!("### {heading}")));
+        }
+    }
+
+    #[test]
+    fn print_plan_handles_from_range_and_empty_commits() {
+        let mut plan = plan_with(Vec::new());
+        plan.from = Some("v1.2.2".to_string());
+
+        print_plan(&plan);
+    }
+
+    #[test]
+    fn latest_release_tag_ignores_invalid_tags() {
+        let tmp = seed_repo("fix: seed tagged release");
+        run_git(tmp.path(), ["tag", "v999"]);
+        run_git(tmp.path(), ["tag", "not-version"]);
+        run_git(tmp.path(), ["tag", "v1.2.3"]);
+
+        let tag = latest_release_tag(tmp.path(), "HEAD").unwrap();
+
+        assert_eq!(tag.as_deref(), Some("v1.2.3"));
+    }
+
+    #[test]
+    fn git_guards_report_existing_tag_and_dirty_worktree() {
+        let tmp = seed_repo("fix: seed guard checks");
+        run_git(tmp.path(), ["tag", "v0.0.1"]);
+
+        let tag_error = ensure_tag_missing(tmp.path(), "v0.0.1").unwrap_err();
+        assert!(tag_error.to_string().contains("already exists"));
+
+        std::fs::write(tmp.path().join("CHANGELOG.md"), "# changed\n").unwrap();
+        let dirty_error = ensure_clean_tracked_worktree(tmp.path()).unwrap_err();
+        assert!(dirty_error.to_string().contains("clean tracked worktree"));
+    }
+
+    #[test]
+    fn release_date_helpers_cover_env_output_and_system_date() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(
+            release_date_from_env(Some("2026-06-03")).as_deref(),
+            Some("2026-06-03")
+        );
+        assert_eq!(release_date_from_env(Some("   ")), None);
+        assert_eq!(release_date_from_env(None), None);
+
+        let date_via_public_path = release_date(tmp.path()).unwrap();
+        let date = system_release_date(tmp.path()).unwrap();
+        let parsed = date_from_output(true, b"2026-06-03\n".to_vec()).unwrap();
+        let error = date_from_output(false, Vec::new()).unwrap_err();
+
+        assert_eq!(date_via_public_path.len(), 10);
+        assert_eq!(date.len(), 10);
+        assert_eq!(parsed, "2026-06-03");
+        assert!(error.to_string().contains("date +%F failed"));
+
+        let env_date = release_date_from_override(tmp.path(), Some("2026-06-04")).unwrap();
+        assert_eq!(env_date, "2026-06-04");
+    }
+
+    #[test]
+    fn git_helpers_report_failed_commands() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let status_error = git(tmp.path(), &["not-a-real-command"]).unwrap_err();
+        let output_error = git_output(tmp.path(), &["not-a-real-command"]).unwrap_err();
+
+        assert!(status_error.to_string().contains("git command failed"));
+        assert!(output_error.to_string().contains("git command failed"));
+    }
+
+    #[test]
+    fn command_context_errors_are_reported() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("missing");
+
+        let tag_error = ensure_tag_missing(&missing, "v0.0.1").unwrap_err();
+        let clean_error = ensure_clean_tracked_worktree(tmp.path()).unwrap_err();
+        let date_error = system_release_date(&missing).unwrap_err();
+        let git_error = git(&missing, &["status"]).unwrap_err();
+        let git_output_error = git_output(&missing, &["status"]).unwrap_err();
+        let utf8_error = date_from_output(true, vec![0xff]).unwrap_err();
+
+        assert!(tag_error.to_string().contains("run git rev-parse"));
+        assert!(clean_error.to_string().contains("git command failed"));
+        assert!(date_error.to_string().contains("run date"));
+        assert!(git_error.to_string().contains("run git"));
+        assert!(git_output_error.to_string().contains("run git"));
+        assert!(utf8_error.to_string().contains("invalid utf-8"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_context_errors_are_reported() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let changelog = tmp.path().join("CHANGELOG.md");
+        std::fs::write(&changelog, "# Changelog\n\n## [Unreleased]\n").unwrap();
+        let mut locked = std::fs::metadata(&changelog).unwrap().permissions();
+        locked.set_mode(0o000);
+        std::fs::set_permissions(&changelog, locked).unwrap();
+
+        let changelog_error = ensure_changelog_shape(tmp.path()).unwrap_err();
+
+        let mut restored = std::fs::metadata(&changelog).unwrap().permissions();
+        restored.set_mode(0o600);
+        std::fs::set_permissions(&changelog, restored).unwrap();
+
+        let manifest_error = update_manifest_version(
+            tmp.path(),
+            &Version {
+                major: 1,
+                minor: 0,
+                patch: 0,
+            },
+        )
+        .unwrap_err();
+
+        assert!(changelog_error.to_string().contains("read"));
+        assert!(manifest_error.to_string().contains("read"));
+    }
+
+    #[test]
+    fn release_and_plan_error_paths_are_reported() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("missing");
+        let plan_error = run(Cli {
+            cmd: Cmd::Plan {
+                root: tmp.path().to_path_buf(),
+                from: None,
+                to: "HEAD".to_string(),
+            },
+        })
+        .unwrap_err();
+        let check_error = check_whole_repo(tmp.path(), None, "HEAD".to_string()).unwrap_err();
+        let release_shape_error = release(
+            tmp.path().to_path_buf(),
+            RequestedLevel::Auto,
+            None,
+            "HEAD".to_string(),
+            false,
+        )
+        .unwrap_err();
+
+        std::fs::write(
+            tmp.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [Unreleased]\n",
+        )
+        .unwrap();
+        let release_plan_error = release(
+            tmp.path().to_path_buf(),
+            RequestedLevel::Auto,
+            None,
+            "HEAD".to_string(),
+            false,
+        )
+        .unwrap_err();
+        let plan_to_error = build_release_plan(
+            tmp.path(),
+            None,
+            "missing-ref".to_string(),
+            RequestedLevel::Auto,
+        )
+        .unwrap_err();
+        let latest_error = latest_release_tag(&missing, "HEAD").unwrap_err();
+
+        assert!(plan_error.to_string().contains("git command failed"));
+        assert!(check_error.to_string().contains("CHANGELOG"));
+        assert!(release_shape_error.to_string().contains("CHANGELOG"));
+        assert!(
+            release_plan_error
+                .to_string()
+                .contains("git command failed")
+        );
+        assert!(plan_to_error.to_string().contains("git command failed"));
+        assert!(latest_error.to_string().contains("run git"));
+    }
+
+    #[test]
+    fn release_execute_reports_dirty_existing_tag_and_missing_manifest() {
+        let dirty = seed_repo("feat: dirty release execution");
+        std::fs::write(
+            dirty.path().join("CHANGELOG.md"),
+            "# Changelog\n\n## [Unreleased]\n\n- dirty\n",
+        )
+        .unwrap();
+        let dirty_error = release(
+            dirty.path().to_path_buf(),
+            RequestedLevel::Auto,
+            None,
+            "HEAD".to_string(),
+            true,
+        )
+        .unwrap_err();
+
+        let tagged = seed_repo("chore: initial release base");
+        let base = git_output(tagged.path(), &["rev-parse", "HEAD"])
+            .unwrap()
+            .trim()
+            .to_string();
+        std::fs::write(tagged.path().join("feature.txt"), "x").unwrap();
+        run_git(tagged.path(), ["add", "feature.txt"]);
+        run_git(
+            tagged.path(),
+            ["commit", "-m", "feat: tagged release execution"],
+        );
+        run_git(tagged.path(), ["tag", "v0.1.0"]);
+        let tag_error = release(
+            tagged.path().to_path_buf(),
+            RequestedLevel::Auto,
+            Some(base),
+            "HEAD".to_string(),
+            true,
+        )
+        .unwrap_err();
+
+        let missing_manifest = seed_repo("feat: missing manifest release");
+        run_git(missing_manifest.path(), ["rm", "harness.manifest.json"]);
+        run_git(
+            missing_manifest.path(),
+            ["commit", "-m", "chore: remove manifest"],
+        );
+        let manifest_error = release(
+            missing_manifest.path().to_path_buf(),
+            RequestedLevel::Auto,
+            None,
+            "HEAD".to_string(),
+            true,
+        )
+        .unwrap_err();
+
+        assert!(dirty_error.to_string().contains("clean tracked worktree"));
+        assert!(tag_error.to_string().contains("already exists"));
+        assert!(manifest_error.to_string().contains("harness.manifest.json"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_context_errors_are_reported() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let release_root = seed_repo("feat: readonly changelog release");
+        let changelog = release_root.path().join("CHANGELOG.md");
+        let mut changelog_permissions = std::fs::metadata(&changelog).unwrap().permissions();
+        changelog_permissions.set_mode(0o400);
+        std::fs::set_permissions(&changelog, changelog_permissions).unwrap();
+
+        let release_error = release(
+            release_root.path().to_path_buf(),
+            RequestedLevel::Auto,
+            None,
+            "HEAD".to_string(),
+            true,
+        )
+        .unwrap_err();
+
+        let mut restore_changelog = std::fs::metadata(&changelog).unwrap().permissions();
+        restore_changelog.set_mode(0o600);
+        std::fs::set_permissions(&changelog, restore_changelog).unwrap();
+
+        let manifest_root = tempfile::tempdir().unwrap();
+        let manifest = manifest_root.path().join("harness.manifest.json");
+        std::fs::write(&manifest, "{\n  \"version\": \"0.0.0\"\n}\n").unwrap();
+        let mut manifest_permissions = std::fs::metadata(&manifest).unwrap().permissions();
+        manifest_permissions.set_mode(0o400);
+        std::fs::set_permissions(&manifest, manifest_permissions).unwrap();
+
+        let manifest_error = update_manifest_version(
+            manifest_root.path(),
+            &Version {
+                major: 1,
+                minor: 0,
+                patch: 0,
+            },
+        )
+        .unwrap_err();
+
+        let mut restore_manifest = std::fs::metadata(&manifest).unwrap().permissions();
+        restore_manifest.set_mode(0o600);
+        std::fs::set_permissions(&manifest, restore_manifest).unwrap();
+
+        assert!(release_error.to_string().contains("write"));
+        assert!(manifest_error.to_string().contains("write"));
+    }
+
+    #[test]
+    fn manifest_and_changelog_render_errors_are_reported() {
+        let version = Version {
+            major: 1,
+            minor: 0,
+            patch: 0,
+        };
+        let invalid_json = replace_manifest_version_text("not json", &version).unwrap_err();
+        let missing_version =
+            replace_manifest_version_text("{\"name\":\"x\"}", &version).unwrap_err();
+        let changelog_error =
+            render_changelog_release("# Changelog\n", &plan_with(Vec::new()), "2026-06-03")
+                .unwrap_err();
+
+        assert!(invalid_json.to_string().contains("not valid JSON"));
+        assert!(
+            missing_version
+                .to_string()
+                .contains("top-level string version")
+        );
+        assert!(changelog_error.to_string().contains("Unreleased"));
+    }
+
+    #[test]
+    fn parses_tags_and_major_bumps() {
+        assert_eq!(
+            Version::parse_tag("v1.2.3"),
+            Some(Version {
+                major: 1,
+                minor: 2,
+                patch: 3,
+            })
+        );
+        assert_eq!(Version::parse_tag("1.2.3"), None);
+        assert_eq!(Version::parse_tag("v"), None);
+        assert_eq!(Version::parse_tag("v1"), None);
+        assert_eq!(Version::parse_tag("v1.2"), None);
+        assert_eq!(Version::parse_tag("vx.2.3"), None);
+        assert_eq!(Version::parse_tag("v1.two.3"), None);
+        assert_eq!(Version::parse_tag("v1.2.x"), None);
+        assert_eq!(Version::parse_tag("v1.2.3.4"), None);
+        assert_eq!(
+            Version {
+                major: 1,
+                minor: 2,
+                patch: 3,
+            }
+            .bump(BumpLevel::Major),
+            Version {
+                major: 2,
+                minor: 0,
+                patch: 0,
+            }
+        );
     }
 }
