@@ -30,6 +30,7 @@ Forks inherit these records as a baseline. Keep them, then add new numbered ADRs
 | [CHA Sync Source of Truth](ADR-0015-cha-sync-source-of-truth.md) | Treat the template as standalone canonical repo, not live-synced from the lab |
 | [Create Harness App Wrapper](ADR-0016-createapp-wrapper-design.md) | Design a future npx create-harness-app wrapper as an additive scaffolding path |
 | [Sensors v0.3 — APSS canonical, sentrux preserved](ADR-0017-sensors-v03-apss-canonical.md) | Promote APSS to canonical cross-language measurement; keep sentrux as an opt-in available adapter (deliberate both-vs-reduce decision, not a deletion) |
+| [Quality gates are compositional slots](ADR-0018-quality-gate-slot-composition.md) | Quality gates compose via slots that accept multiple provider inputs; portable standards and harness-native rules layer in the same slot rather than competing |
 
 ## Adding Records
 

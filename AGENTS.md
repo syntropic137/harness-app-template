@@ -197,6 +197,7 @@ no other slot depends on the MCP wiring.
 
 - `docs/standard/v<X.Y>.md`: the Standard this project targets
 - `docs/standard/decisions/<slot>.md`: per-slot tool picks (with experiment links)
+- `docs/adrs/`: numbered architecture decision records; the load-bearing shape that quality gates are compositional slots is recorded in [ADR-0018-quality-gate-slot-composition](./docs/adrs/ADR-0018-quality-gate-slot-composition.md), and the slot decisionAt backlinks in `harness.manifest.json` resolve here.
 - `experiments/<date>--<slug>/`: hypothesis-first probes
 - `docs/retrospectives/`: post-mortems per experiment
 - `docs/journal/`: context journals across sessions
