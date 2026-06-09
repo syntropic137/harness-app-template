@@ -30,13 +30,14 @@ Forks inherit these records as a baseline. Keep them, then add new numbered ADRs
 | [CHA Sync Source of Truth](ADR-0015-cha-sync-source-of-truth.md) | Treat the template as standalone canonical repo, not live-synced from the lab |
 | [Create Harness App Wrapper](ADR-0016-createapp-wrapper-design.md) | Design a future npx create-harness-app wrapper as an additive scaffolding path |
 | [Sensors v0.3 — APSS canonical, sentrux preserved](ADR-0017-sensors-v03-apss-canonical.md) | Promote APSS to canonical cross-language measurement; keep sentrux as an opt-in available adapter (deliberate both-vs-reduce decision, not a deletion) |
+| [APSS v1.1.0 integration — augment, never replace](ADR-0018-apss-v1-1-0-augmentation.md) | Augment the doc-validator slot with APS-V1-0003 (add, do not replace) and route fitness signals through the ADR-0017 apss_topology shim |
 
 ## Adding Records
 
 Use the next four-digit number and a kebab-case title:
 
 ```text
-docs/adrs/ADR-0018-my-decision.md
+docs/adrs/ADR-0019-my-decision.md
 ```
 
 The canonical shape lives at [`_template.md`](./_template.md) — **copy it as a starting point** rather than writing from scratch. The leading underscore keeps it sorted before the numbered records and signals "meta / not a record". The doc-validator skips files beginning with `_`, so the template doesn't have to pass its own rule.

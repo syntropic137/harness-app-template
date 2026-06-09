@@ -1,8 +1,20 @@
 ---
-name: "APSS EXP-V1-0004 documentation standard integration"
-description: "Research note mapping the template documentation tree to the APSS Documentation and Context Engineering standard from PR 61"
-status: proposed
+name: "APSS EXP-V1-0004 documentation standard integration (superseded)"
+description: "Original research note mapping the template documentation tree to the APSS Documentation and Context Engineering standard from PR 61. Superseded by APS-V1-0003 (packaged in apss v1.1.0); preserved verbatim for lineage."
+status: superseded
+superseded_by: doc-standard-APS-V1-0003.md
 ---
+
+> **Superseded.** The PR-branch identifier `EXP-V1-0004` was promoted to the
+> packaged standard `APS-V1-0003` in `apss` v1.1.0 (crates.io). The current
+> integration record is [`doc-standard-APS-V1-0003.md`](./doc-standard-APS-V1-0003.md),
+> bound by [ADR-0018](../adrs/ADR-0018-apss-v1-1-0-augmentation.md).
+>
+> This note is preserved verbatim because its gap analysis (G1–G9), worked
+> `docs/sensors/` example, and proposed adoption sequence remain the
+> rollout punch list under the packaged standard — only the *gate
+> identifier* changed. Do not edit the body of this note; record new
+> integration decisions in the successor file.
 
 # APSS EXP-V1-0004 Documentation Standard Integration
 

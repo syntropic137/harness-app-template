@@ -1,10 +1,31 @@
 # Fitness Functions: harness/sensors gate vs. APSS APS-V1-0002
 
-> **Status:** research and proposal. **Do not** change the working sensors
-> gate based on this document. Treat the recommendation below as the
-> opening position for an ADR (the next, separate, deliberate step).
+> **Status:** integration record. The opening-position ADR landed as
+> [ADR-0018](../adrs/ADR-0018-apss-v1-1-0-augmentation.md) (alongside
+> [ADR-0017](../adrs/ADR-0017-sensors-v03-apss-canonical.md)): adopt the
+> APSS vocabulary and artifact contracts; **route fitness signals through
+> the `harness/sensors/apss_topology.mjs` shim, not by direct `apss run
+> APS-V1-0002` invocation from `gate.mjs`**; hold the harness's enforcement
+> posture; file an R1 to R5 disclosure upstream for the four contested
+> dimensions (ST01, SC01, LG01, PF01). The analysis, gap list, and
+> roadmap below are preserved as the integration punch list.
 >
-> **Tracking bead:** `create-harness-app-q9w` (in_progress).
+> **Packaged release.** APS-V1-0002 is no longer a PR-63 branch; it ships
+> in [`apss` v1.1.0](https://crates.io/crates/apss) from the
+> [agent-paradise-standards-system repository](https://github.com/AgentParadise/agent-paradise-standards-system).
+> The standard is adopted via `cargo install apss` then
+> `apss add APS-V1-0002 && apss install` (writes `apss.lock`). The
+> normative spec, metrics catalog, and the three JSON Schemas
+> (`fitness-config`, `fitness-exceptions`, `fitness-report`) are
+> distributed with the packaged crate; the §1 source links below pointed
+> at the PR branch and should be re-resolved against the packaged crate's
+> `standards/v1/APS-V1-0002-architecture-fitness/` tree when fetching
+> sources. Producer artifacts (`functions.json`, `modules.json`,
+> `coupling.json`) remain owned by APS-V1-0001 and continue to flow into
+> `gate.mjs` through `apss_topology.mjs`.
+>
+> **Tracking bead:** `create-harness-app-q9w` (continuation, integration
+> phase).
 
 ## 0. TL;DR
 
@@ -35,10 +56,19 @@
   contracts; keep the harness enforcement posture; record the divergence
   in an ADR and upstream a promotion proposal for ST01/SC01/LG01/PF01
   via R1 to R5 (§3.3) backed by the harness adapters.** Tradeoffs in §6.
+* **Landed:** [ADR-0018](../adrs/ADR-0018-apss-v1-1-0-augmentation.md)
+  binds the routing seam. Fitness signals flow from packaged
+  APS-V1-0001 producer artifacts (`.topology/metrics/{modules,functions,coupling}.json`)
+  into `gate.mjs` via the existing [`harness/sensors/apss_topology.mjs`](../../harness/sensors/apss_topology.mjs)
+  shim (the ADR-0017 seam). `gate.mjs` does **not** shell out to
+  `apss run APS-V1-0002`. The §3.4 `INCUBATING_DIMENSION_ERROR_DOWNGRADED`
+  downgrade therefore stays controlled by the harness manifest, which
+  preserves the enforcement posture on ST01/SC01/LG01/PF01 until the
+  R1 to R5 disclosure closes upstream.
 
 ## 1. Sources
 
-Primary (the standard, branch `apss_fitness-standard` on PR 63):
+Primary — the standard, now packaged as `APS-V1-0002` in [`apss` v1.1.0](https://crates.io/crates/apss). The URLs below pointed at the original PR-63 branch (`apss_fitness-standard`) and remain accurate for lineage; for the canonical text, prefer the packaged crate's `standards/v1/APS-V1-0002-architecture-fitness/` tree at the locked APSS version (`apss.lock`).
 
 * [`docs/01_spec.md`](https://github.com/AgentParadise/agent-paradise-standards-system/blob/apss_fitness-standard/standards/v1/APS-V1-0002-architecture-fitness/docs/01_spec.md)
   (1063 lines, normative).
@@ -453,6 +483,12 @@ Out of scope for this proposal:
   measurement layer is APS-V1-0001 and is its own decision.
 
 ## 6. Roadmap to formal conformance (proposed)
+
+> Step 4 (the divergence ADR) landed as
+> [ADR-0018](../adrs/ADR-0018-apss-v1-1-0-augmentation.md). The other
+> steps remain the integration punch list; their bead suggestions are
+> unchanged. Step 5 (R1 to R5 upstream disclosure) is now filed against
+> the packaged `apss` repo rather than the PR-63 branch.
 
 The order below is the shortest path that never demotes the working
 gate.
