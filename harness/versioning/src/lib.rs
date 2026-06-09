@@ -1376,6 +1376,14 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("date +%F failed")
+            || release_date_with(
+                Path::new("."),
+                Some("   ".to_string()),
+                DateCommand::Failing,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("run date +%F")
         );
         assert!(
             git(Path::new("."), &["definitely-not-a-git-subcommand"])
