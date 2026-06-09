@@ -36,6 +36,16 @@ pre-commit:
       # See pre-push doc-validator for the --exclude rationale.
       run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ .
 
+    doc-validator-apss:
+      run: |
+        sh -eu -c '
+          if ! command -v node >/dev/null 2>&1; then
+            printf "%s\n" "warning: node not found; skipping APSS documentation gate" >&2
+            exit 0
+          fi
+          node scripts/doc-validator.mjs --apss
+        '
+
     python-ruff:
       glob: "ws_apps/example-python/**/*.py"
       run: |
@@ -155,6 +165,16 @@ pre-push:
       #     intentionally verbatim, so scope the gate around it rather
       #     than rewriting the vendored material.
       run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ .
+
+    doc-validator-apss:
+      run: |
+        sh -eu -c '
+          if ! command -v node >/dev/null 2>&1; then
+            printf "%s\n" "warning: node not found; skipping APSS documentation gate" >&2
+            exit 0
+          fi
+          node scripts/doc-validator.mjs --apss
+        '
 
     perf-gate:
       # Startup-time fitness function (bead create-harness-app-n48.13).

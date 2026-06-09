@@ -83,7 +83,7 @@
         "entrypoint": "harness/sensors/bin/sensors",
         "commands": ["report", "gate"]
       },
-      "implementation": "TypeScript adapter pair: dependency-cruiser 17.4.0 (Ca/Ce/I) + ts-morph 23.0.0 (Abstractness A), merged by a Node aggregator that emits per-folder and per-module Martin Ca/Ce/I/A/D where D = |A + I - 1|. Report-only; policy gate deferred until consumer forks have >= 50 workspace modules. Polyglot adapters (grimp/cargo-modules/go-arch-lint, sentrux overlay) land in later increments.",
+      "implementation": "TypeScript adapter pair: dependency-cruiser 17.4.0 (Ca/Ce/I) + ts-morph 23.0.0 (Abstractness A), merged by a Node aggregator that emits per-folder and per-module Martin Ca/Ce/I/A/D where D = |A + I - 1|. APS-V1-0001 topology shards are now merged through `apss_topology.mjs` and consumed by the baseline gate as the canonical fitness signal under ADR-0017.",
       "decisionAt": "docs/adrs/ADR-0006-sensors.md"
     },
     "agent-plugins": {
@@ -133,10 +133,10 @@
       "swappable": true,
       "interface": {
         "type": "cli",
-        "entrypoint": "harness/doc-validator/bin/doc-validator",
+        "entrypoint": "scripts/doc-validator.mjs",
         "commands": ["check"]
       },
-      "implementation": "Stubbed bin entrypoint; replace with the Rust validator when the real plugin lands.",
+      "implementation": "Primary Rust validator is retained in-harness (`harness/doc-validator`). APSS documentation validation (APS-V1-0003 via `apss.mjs`) is wired as an additional gate, not a replacement.",
       "decisionAt": "docs/adrs/ADR-0010-doc-validator.md"
     },
     "versioning": {
