@@ -254,12 +254,12 @@ mod tests {
         .unwrap();
         fs::write(
             adr_dir.join("CLAUDE.md"),
-            "Add backlink comments like ADR-0001-demo.",
+            "# ADR Context\n\nADR backlink references like ADR-0001-demo establish traceability.",
         )
         .unwrap();
         fs::write(
             adr_dir.join("AGENTS.md"),
-            "Add backlink comments like ADR-0001-demo.",
+            "# ADR Guidance\n\nAgents should understand ADR- backlink references for decisions.",
         )
         .unwrap();
         fs::write(
@@ -331,8 +331,8 @@ mod tests {
             "## Index\n\n| Document | Description |\n|---|---|\n",
         )
         .unwrap();
-        fs::write(adr_dir.join("CLAUDE.md"), "ADR-0001-demo backlink.").unwrap();
-        fs::write(adr_dir.join("AGENTS.md"), "ADR-0001-demo backlink.").unwrap();
+        fs::write(adr_dir.join("CLAUDE.md"), "# ADR Context\n\nADR backlink references establish traceability.").unwrap();
+        fs::write(adr_dir.join("AGENTS.md"), "# ADR Guidance\n\nAgents should understand ADR- backlink references.").unwrap();
         fs::write(adr_dir.join("_template.md"), "not an ADR").unwrap();
         fs::write(adr_dir.join("notes.txt"), "not markdown").unwrap();
         fs::write(
@@ -369,8 +369,8 @@ mod tests {
         let adr_dir = tmp.path().join("docs/adrs");
         fs::create_dir_all(&adr_dir).unwrap();
         fs::create_dir(adr_dir.join("README.md")).unwrap();
-        fs::write(adr_dir.join("CLAUDE.md"), "ADR-0001-demo backlink.").unwrap();
-        fs::write(adr_dir.join("AGENTS.md"), "ADR-0001-demo backlink.").unwrap();
+        fs::write(adr_dir.join("CLAUDE.md"), "# ADR Context\n\nADR backlink references establish traceability.").unwrap();
+        fs::write(adr_dir.join("AGENTS.md"), "# ADR Guidance\n\nAgents should understand ADR- backlink references.").unwrap();
 
         let findings = validate_adr_directory(tmp.path());
 
@@ -394,8 +394,8 @@ mod tests {
             "## Index\n\n| Document | Description |\n|---|---|\n",
         )
         .unwrap();
-        fs::write(adr_dir.join("CLAUDE.md"), "ADR-0001-demo backlink.").unwrap();
-        fs::write(adr_dir.join("AGENTS.md"), "ADR-0001-demo backlink.").unwrap();
+        fs::write(adr_dir.join("CLAUDE.md"), "# ADR Context\n\nADR backlink references establish traceability.").unwrap();
+        fs::write(adr_dir.join("AGENTS.md"), "# ADR Guidance\n\nAgents should understand ADR- backlink references.").unwrap();
         let original = fs::metadata(&adr_dir).unwrap().permissions();
         let mut locked = original.clone();
         locked.set_mode(0o0);

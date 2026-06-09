@@ -74,6 +74,23 @@ jobs:
         working-directory: ws_apps/example-python
       - run: just cov-py
 
+  documentation:
+    # APSS APS-V1-0003 documentation gate. Validates documentation
+    # against APSS standard (topology standard contract, ADRs, front-matter,
+    # README/Index per-directory requirements). Hard-enforcing gate.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.1
+      - run: pnpm install --no-frozen-lockfile
+      - name: Run APSS documentation validator
+        run: node scripts/doc-validator.mjs --apss
+
   fitness:
     # APSS 8-dimension architectural fitness gate (bead
     # create-harness-app-2zz). Mirrors the lefthook pre-push sensors-gate

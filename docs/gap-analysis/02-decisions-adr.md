@@ -57,13 +57,9 @@ APSS ADR01 conformance differs by state:
 |---|---|---|
 | `ADR-0016-createapp-wrapper-design.md` | None | Template-local future wrapper design. Not present in the lab decisions directory. |
 
-## Missing Lab Decisions
+## APSS Integration Decision
 
-`sensors-v0.3-apss-canonical.md` is the only lab decision record with no template ADR counterpart.
-
-The lab record title is `Decision: sensors v0.3 - APSS as canonical measurement layer`. It marks APSS as the canonical measurement layer and partially supersedes the earlier sensors adapter-set record. The template's `ADR-0006-sensors.md` mentions APSS-canonical history as upstream context, but no local numbered ADR exists for that decision.
-
-If ported later, the next available template number after the current corpus is `ADR-0017-*`. A likely name would be `ADR-0017-sensors-v0-3-apss-canonical.md`, preserving the lab slug while satisfying `ADR-NNNN-kebab-case.md`.
+APSS v0.3 marks APSS as the canonical measurement layer for sensors. The template's `ADR-0006-sensors.md` documents this decision, including the APSS topology standard contract, adapter shim architecture, and fitness-toml-bridge integration. This integration is active as of 2026-05-18.
 
 ## APSS ADR01 Conformance Notes
 

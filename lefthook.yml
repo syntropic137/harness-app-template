@@ -38,22 +38,14 @@ pre-commit:
 
     doc-validator-apss:
       # APSS APS-V1-0003 documentation gate (ADR-0018: augment, never
-      # replace). Opt-in by default until the staged migration in
-      # docs/standards-integration/doc-standard-APS-V1-0003.md §4 brings
-      # the docs tree into front-matter / README-Index / per-dir-context
-      # conformance. Without the gate, the in-tree Rust doc-validator
-      # still enforces ADR shape + internal links + manifest cross-refs.
-      # Set HARNESS_APSS_DOC_GATE=1 to enable the second gate locally;
-      # CI does not run lefthook, so this knob only affects the local
-      # commit experience.
+      # replace). Hard-enforcing gate that validates documentation
+      # against APSS standard (topology standard contract, front-matter,
+      # README/Index per-directory requirements).
       run: |
         sh -eu -c '
-          if [ "${HARNESS_APSS_DOC_GATE:-0}" != "1" ]; then
-            exit 0
-          fi
           if ! command -v node >/dev/null 2>&1; then
-            printf "%s\n" "warning: node not found; skipping APSS documentation gate" >&2
-            exit 0
+            printf "%s\n" "error: node not found; APSS documentation gate requires node" >&2
+            exit 1
           fi
           node scripts/doc-validator.mjs --apss
         '
@@ -180,22 +172,14 @@ pre-push:
 
     doc-validator-apss:
       # APSS APS-V1-0003 documentation gate (ADR-0018: augment, never
-      # replace). Opt-in by default until the staged migration in
-      # docs/standards-integration/doc-standard-APS-V1-0003.md §4 brings
-      # the docs tree into front-matter / README-Index / per-dir-context
-      # conformance. Without the gate, the in-tree Rust doc-validator
-      # still enforces ADR shape + internal links + manifest cross-refs.
-      # Set HARNESS_APSS_DOC_GATE=1 to enable the second gate locally;
-      # CI does not run lefthook, so this knob only affects the local
-      # commit experience.
+      # replace). Hard-enforcing gate that validates documentation
+      # against APSS standard (topology standard contract, front-matter,
+      # README/Index per-directory requirements).
       run: |
         sh -eu -c '
-          if [ "${HARNESS_APSS_DOC_GATE:-0}" != "1" ]; then
-            exit 0
-          fi
           if ! command -v node >/dev/null 2>&1; then
-            printf "%s\n" "warning: node not found; skipping APSS documentation gate" >&2
-            exit 0
+            printf "%s\n" "error: node not found; APSS documentation gate requires node" >&2
+            exit 1
           fi
           node scripts/doc-validator.mjs --apss
         '
