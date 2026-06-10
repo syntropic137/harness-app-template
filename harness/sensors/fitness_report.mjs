@@ -97,6 +97,13 @@ export function classifyMetric({ direction, current, floor }) {
   if (floor === 0 && current === 0) {
     return { status: 'PASS', headroom: h };
   }
+  // Symmetric case for percentage-style direction=min metrics whose
+  // theoretical maximum is 100 (CV01 coverage percentages): current
+  // sitting at the 100 percent ceiling cannot tighten further, so
+  // PASS rather than the noisy AT-RISK every commit.
+  if (direction === 'min' && floor === 100 && current === 100) {
+    return { status: 'PASS', headroom: h };
+  }
   const band = Math.max(AT_RISK_MIN_ABS, AT_RISK_FRACTION * Math.abs(floor));
   if (h < band) {
     return { status: 'AT-RISK', headroom: h };
