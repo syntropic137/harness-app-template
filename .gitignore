@@ -24,6 +24,7 @@
 !harness/.harness/**
 .worktrees/
 .sentrux/
+.apss/
 
 # Agent-plugin vendor symlinks are now COMMITTED so they exist the instant
 # the repo is cloned (per WS1 fork-readiness spec, dogfood F-001). The

@@ -181,8 +181,8 @@ mod tests {
             "## Index\n\n| Document | Description |\n|---|---|\n",
         )
         .unwrap();
-        fs::write(adr_dir.join("CLAUDE.md"), "Use ADR-0001-demo backlinks.").unwrap();
-        fs::write(adr_dir.join("AGENTS.md"), "Use ADR-0001-demo backlinks.").unwrap();
+        fs::write(adr_dir.join("CLAUDE.md"), "# ADR Context\n\nADR backlink references like ADR-0001-demo establish traceability.").unwrap();
+        fs::write(adr_dir.join("AGENTS.md"), "# ADR Guidance\n\nAgents should understand ADR- backlink references for decisions.").unwrap();
         fs::write(
             adr_dir.join("ADR-0001-demo.md"),
             "---\nname: Demo\ndescription: Demo\nstatus: accepted\n---\n\n# ADR-0001: Demo\n\n**Date:** 2026-05-30\n**Category:** Test\n\n## Context\n\n## Decision\n\n## Consequences\n",

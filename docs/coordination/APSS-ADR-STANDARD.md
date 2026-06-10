@@ -35,7 +35,7 @@ backlinking = true
 
 ADR files MUST be named `ADR-NNNN-kebab-case-title.md`.
 
-- Use four zero-padded digits: `ADR-0001-stack-manager.md`, not `0001-stack-manager.md` and not `ADR-001-stack-manager.md`.
+- Use four zero-padded digits: `ADR-0001-stack-manager.md`, not `0001-stack-manager.md` and not `ADR-001-*.md`. The APSS validator strictly enforces this pattern.
 - Preserve existing decision order during migration: legacy `0001-*.md` becomes `ADR-0001-*.md`, through `ADR-0016-*.md`.
 - Allocate new ADRs with the next unused number. Never renumber, reuse, or rename an accepted ADR to change history.
 - The ADR identifier is the filename stem, for example `ADR-0006-sensors`; code and docs backlinks must use that exact identifier.

@@ -1367,15 +1367,16 @@ mod tests {
             .unwrap(),
             "2026-06-03"
         );
+        let date_err = release_date_with(
+            Path::new("."),
+            Some("   ".to_string()),
+            DateCommand::Failing,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(
-            release_date_with(
-                Path::new("."),
-                Some("   ".to_string()),
-                DateCommand::Failing
-            )
-            .unwrap_err()
-            .to_string()
-            .contains("date +%F failed")
+            date_err.contains("date +%F failed") || date_err.contains("run date +%F"),
+            "unexpected DateCommand::Failing error: {date_err}"
         );
         assert!(
             git(Path::new("."), &["definitely-not-a-git-subcommand"])

@@ -8,6 +8,18 @@
 # that enforces a baseline-snapshot fitness floor on every pre-push.
 set -euo pipefail
 
+# v8's default old-space limit on CI runners with node 22 lands near 2 GB
+# (smaller than node 20's ~4 GB), which is not enough headroom for
+# dependency-cruiser's resolver to walk this template's fumadocs / shiki
+# / react transitive graph at workspace scope — npx dep-cruiser hits
+# FATAL ERROR: Reached heap limit. Pin a 4 GB ceiling here so every node
+# child the gate spawns runs with a deterministic, large-enough heap
+# regardless of the runner's node-version defaults. Skip when the caller
+# already pinned the heap (testing or a constrained operator override).
+if [[ "${NODE_OPTIONS:-}" != *"max-old-space-size"* ]]; then
+  export NODE_OPTIONS="--max-old-space-size=4096 ${NODE_OPTIONS:-}"
+fi
+
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 DEPCRUISER_VERSION="17.4.0"

@@ -3,6 +3,11 @@ resolver = "3"
 members = [
   "ws_apps/example-rust",
 ]
+# The APSS-composed CLI is generated into .apss/build by `apss install`;
+# it must build standalone, not as a member of this workspace.
+exclude = [
+  ".apss/build",
+]
 
 [workspace.package]
 edition = "2024"
