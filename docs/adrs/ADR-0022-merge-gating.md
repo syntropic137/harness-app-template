@@ -61,6 +61,7 @@ Three related decisions, all accepted:
    - `documentation` (test workflow — APSS APS-V1-0003 doc validator)
    - `fitness` (test workflow — APSS fitness + perf gate + ratchet)
    - `fork-check` (test workflow — fresh-fork E2E onboarding)
+   - `dep-audit` (security workflow — polyglot supply-chain audit per [ADR-0023-dependency-audit.md](./ADR-0023-dependency-audit.md))
 
    `release` is intentionally excluded: it runs only on `push` to `main`
    and on `workflow_dispatch`, so it shows as SKIPPED on every PR. Requiring
