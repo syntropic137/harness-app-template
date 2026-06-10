@@ -234,6 +234,20 @@ pre-push:
           sh scripts/with-uv.sh uv run pytest
         '
 
+    cov-sensors:
+      # Sensors slot node:test coverage gate at the measured floor pinned in
+      # scripts/lib/coverage.ts (ADR-0013). Soft-skips when bun is missing so
+      # first-clone pushes fail only once the toolchain is present; CI runs
+      # the same `just cov-sensors` recipe as the hard gate.
+      run: |
+        sh -eu -c '
+          if ! command -v bun >/dev/null 2>&1; then
+            printf "%s\n" "warning: bun not found; skipping sensors coverage hook" >&2
+            exit 0
+          fi
+          bun run scripts/coverage.ts sensors
+        '
+
     doc-validator:
       # Excludes (re-listing the validator defaults explicitly because
       # passing --exclude REPLACES the default list rather than adding
