@@ -88,6 +88,16 @@ jobs:
         with:
           version: 11.5.1
       - run: pnpm install --no-frozen-lockfile
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache APSS binary
+        id: cache-apss
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/apss
+          key: apss-1.1.0-${{ runner.os }}
+      - name: Install APSS
+        if: steps.cache-apss.outputs.cache-hit != 'true'
+        run: cargo install apss --version 1.1.0
       - name: Run APSS documentation validator
         run: node scripts/doc-validator.mjs --apss
 
