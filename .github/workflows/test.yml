@@ -180,11 +180,16 @@ jobs:
       - name: Install root deps for vitest coverage
         run: pnpm install --no-frozen-lockfile
       - name: Prepare CV01 Python coverage envelope (pytest --cov-report=json)
+        # `with-uv.sh` lives at ws_apps/example-python/scripts/, NOT at
+        # the repo root. After `cd ws_apps/example-python` the correct
+        # relative path is `scripts/with-uv.sh`, matching the existing
+        # python-coverage job (working-directory ws_apps/example-python +
+        # `sh scripts/with-uv.sh ...`) and the `just cov-py` recipe.
         run: |
           mkdir -p /tmp/cov
           uv sync --project ws_apps/example-python
           cd ws_apps/example-python
-          sh ../../scripts/with-uv.sh uv run pytest \
+          sh scripts/with-uv.sh uv run pytest \
             --cov=example_python \
             --cov-report=json:/tmp/cov/python.json \
             --cov-fail-under=100 \
