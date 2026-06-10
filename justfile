@@ -82,6 +82,17 @@ inspector *args:
 sensors *args:
     bun run scripts/sensors.ts {{args}}
 
+# Agent-facing architectural-health report. Read-only view over the
+# same baseline + readings pipeline `just sensors gate` uses; prints
+# current value, ratchet floor, headroom, and PASS / AT-RISK / FAIL for
+# every fitness dimension (MT01 / MD01 / ST01 / SC01 / LG01 / PF01 plus
+# advisory AC01 / AV01). Never rewrites the floor and never fails the
+# gate - this is the FEEDBACK surface coding agents consult between
+# commits. Pass `--quick` for a floors-only view that skips the full
+# ~108 s sensors pipeline (used by the pre-commit one-liner).
+fitness *args:
+    harness/sensors/bin/sensors fitness {{args}}
+
 # APSS code-topology producer. Emits `.topology/metrics/*.json` (the data
 # the architectural fitness gate consumes via
 # `harness/sensors/apss_topology.mjs`). Re-run on demand; `bin/sensors gate`

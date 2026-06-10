@@ -31,6 +31,16 @@ harness sensors - workspace architecture-quality metrics
 Subcommands:
   report [--format json|md]   Run dependency-cruiser against ws_apps & ws_packages
                               and print Martin Ca/Ce/I/A/D per folder & per module.
+  fitness [--quick] [--format text|json|summary]
+                              Read-only architectural-health report for coding
+                              agents: prints current value + ratchet floor +
+                              headroom + PASS/AT-RISK/FAIL per fitness
+                              dimension and overall. Reuses gate.mjs and
+                              baseline.json; never mutates the floor. Default
+                              runs the full pipeline (slow ~108s). --quick
+                              renders a floor-only view from baseline.json
+                              without re-running sensors (fast; used by the
+                              pre-commit one-liner).
   gate [--update-baseline]    Enforce the baseline-snapshot fitness floor at
                               harness/sensors/baseline.json and the governance
                               TOML policy at harness/.harness/governance.toml.
@@ -359,6 +369,116 @@ case "${1:-}" in
       fi
     fi
     node "$HERE/gate.mjs" "${gate_args[@]+"${gate_args[@]}"}" < "$report_tmp"
+    ;;
+  fitness)
+    shift
+    # Read-only fitness report (bead create-harness-app-feat-fitness-feedback-report).
+    # Reuses the same readings pipeline as `gate` so the report sees the
+    # exact values the gate would compare against the floor, but never
+    # writes to harness/sensors/baseline.json. `--quick` skips the
+    # readings pipeline entirely and renders the floor-only view from
+    # baseline.json (used by the pre-commit one-liner).
+    fitness_args=()
+    quick=0
+    workspace_root="$REPO_ROOT"
+    skip_tier=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --quick|--floors-only)
+          quick=1
+          fitness_args+=("--quick")
+          shift
+          ;;
+        --format)
+          fitness_args+=("--format=${2:-text}")
+          shift 2 || true
+          ;;
+        --format=*)
+          fitness_args+=("$1")
+          shift
+          ;;
+        --json|--summary|--text)
+          fitness_args+=("$1")
+          shift
+          ;;
+        --baseline=*|--readings-from=*|--perf-baseline=*|--security=*|--licenses=*|--sentrux=*)
+          fitness_args+=("$1")
+          shift
+          ;;
+        --baseline|--readings-from|--perf-baseline|--security|--licenses|--sentrux)
+          fitness_args+=("$1" "${2:-}")
+          shift 2 || true
+          ;;
+        --workspace-root)
+          workspace_root="${2:-$workspace_root}"
+          shift 2 || true
+          ;;
+        --workspace-root=*)
+          workspace_root="${1#--workspace-root=}"
+          shift
+          ;;
+        --skip-tier)
+          skip_tier="$(append_skip_tier "$skip_tier" "${2:-}")"
+          shift 2 || true
+          ;;
+        --skip-tier=*)
+          skip_tier="$(append_skip_tier "$skip_tier" "${1#--skip-tier=}")"
+          shift
+          ;;
+        --help|-h)
+          fitness_args+=("$1")
+          shift
+          ;;
+        *)
+          echo "error: unknown fitness flag: $1" >&2
+          exit 2
+          ;;
+      esac
+    done
+    workspace_root="$(cd "$workspace_root" && pwd)"
+    if [ "$quick" -eq 1 ]; then
+      node "$HERE/fitness_report.mjs" "${fitness_args[@]+"${fitness_args[@]}"}"
+    else
+      cruiser_tmp=""
+      abs_tmp=""
+      cplx_tmp=""
+      apss_tmp=""
+      sec_tmp=""
+      lic_tmp=""
+      sentrux_tmp=""
+      report_tmp="$(mktemp -t harness-sensors-fitness-XXXXXX.json)"
+      trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$report_tmp"' EXIT
+      build_report "json" "$report_tmp" "$workspace_root" "$skip_tier"
+      # Mirror the gate's optional adapter wiring so fitness sees the
+      # same SC01/LG01/sentrux/perf readings the gate would.
+      if command -v ubs >/dev/null 2>&1; then
+        sec_tmp="$(mktemp -t harness-sensors-fitness-security-XXXXXX.json)"
+        ubs --quiet --report-json="$sec_tmp" \
+          --files="scripts/lib/git.ts,scripts/lib/fs.ts,scripts/lib/slots.ts,harness/sensors/aggregate.mjs,harness/sensors/gate.mjs,harness/sensors/abstractness.mjs,harness/sensors/complexity.mjs,harness/sensors/cx_gate.mjs,harness/sensors/apss_topology.mjs,harness/sensors/license_scan.mjs,harness/perf/gate.mjs,harness/perf/bench.sh,harness/sensors/bin/sensors,harness/sensors/fitness_report.mjs" \
+          >/dev/null 2>/dev/null || true
+        if [ -s "$sec_tmp" ]; then
+          fitness_args+=("--security=$sec_tmp")
+        fi
+      fi
+      lic_tmp="$(mktemp -t harness-sensors-fitness-licenses-XXXXXX.json)"
+      node "$HERE/license_scan.mjs" > "$lic_tmp" 2>/dev/null || true
+      if [ -s "$lic_tmp" ]; then
+        fitness_args+=("--licenses=$lic_tmp")
+      fi
+      sentrux_skip=0
+      case ",${skip_tier}," in
+        *,sentrux,*|*,sentrux@optional,*) sentrux_skip=1 ;;
+      esac
+      if [ "$sentrux_skip" -eq 0 ]; then
+        sentrux_tmp="$(mktemp -t harness-sensors-fitness-sentrux-XXXXXX.json)"
+        node "$HERE/sentrux_scan.mjs" --workspace-root="$workspace_root" \
+          > "$sentrux_tmp" 2>/dev/null || true
+        if [ -s "$sentrux_tmp" ]; then
+          fitness_args+=("--sentrux=$sentrux_tmp")
+        fi
+      fi
+      node "$HERE/fitness_report.mjs" "${fitness_args[@]+"${fitness_args[@]}"}" < "$report_tmp"
+    fi
     ;;
   adapters)
     shift

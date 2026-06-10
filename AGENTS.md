@@ -21,7 +21,58 @@ just stack boot       # boot the isolated observability stack
 just stack ports      # print eval-safe per-worktree ports
 just stack --help     # stack-manager slot entrypoint
 just inspector --help # evidence-capture utilities (screenshot, record, keyframes)
+just fitness          # READ-ONLY architectural-health report (see below)
 ```
+
+## Architectural fitness feedback (read this before changing code)
+
+This template measures architectural fitness on every commit and ratchets
+the floor upward — so a regression on complexity, coupling, cycles,
+security findings, or licensing fails the gate. The ratchet is
+implemented in `harness/sensors/gate.mjs` and the floors live in
+`harness/sensors/baseline.json`.
+
+The agent-facing feedback surface is `just fitness`:
+
+```sh
+just fitness                      # full live report (slow, ~108 s); runs the
+                                  #   full sensors pipeline read-only
+just fitness --quick              # floor-only view, instant; reads baseline.json
+                                  #   without re-scanning
+just fitness --quick --format=summary  # one-line summary (used by pre-commit)
+just fitness --format=json        # structured payload for automation
+```
+
+Read the report before changing code that touches:
+
+- function complexity (MT01 `max-cognitive`, `max-cyclomatic`, `high-cognitive-fn-count`)
+- module coupling and main-sequence distance (MD01)
+- circular dependencies (ST01)
+- security findings (SC01) and license allowlist (LG01)
+- startup-time benchmarks (PF01)
+
+Status taxonomy:
+
+- `[ OK ] PASS` — comfortable headroom against the floor; safe to ship.
+- `[NEAR] AT-RISK` — at or within ~10% of the floor; the next regression
+  on that metric will trip the ratchet. Refactor before committing if
+  you are about to add complexity or coupling on this axis.
+- `[FAIL]` — already below the floor; `just sensors gate` will reject
+  the commit. Fix the code so the metric returns at or below the floor,
+  or, if the change is intentional, run `just sensors gate
+  --update-baseline` to relax the floor as a reviewable audit-trailed
+  edit to `harness/sensors/baseline.json`.
+- `[ -- ] SKIP` — no reading or no floor for that metric (typically
+  because `--quick` skipped the live scan or the adapter is not present
+  in this environment).
+
+The pre-commit hook always prints the one-line summary so you do not
+need to remember to run the command — but `just fitness` is the
+canonical surface when you want the full per-metric headroom table.
+The report is READ-ONLY: it never mutates `baseline.json` or changes
+gating behavior. The ratchet authority remains `just sensors gate`
+(local single-shot) and the `fitness` GitHub Actions job (canonical CI
+ratchet).
 
 ## Skills available in this project
 

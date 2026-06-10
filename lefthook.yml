@@ -69,6 +69,25 @@ pre-commit:
     ubs-staged:
       run: mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
 
+    fitness-summary:
+      # Agent-facing fitness one-liner (bead
+      # create-harness-app-feat-fitness-feedback-report). Reads
+      # harness/sensors/baseline.json (no scan, no full pipeline) and
+      # prints a one-line floor summary so any coding agent sees the
+      # ratchet targets in pre-commit output. Always exits 0 - this is
+      # a READ-ONLY surface; the cx-gate / sensors-gate own the actual
+      # gating decision. Soft-skips when node is absent so first-clone
+      # commits still go through.
+      run: |
+        sh -eu -c '
+          if ! command -v node >/dev/null 2>&1; then
+            printf "%s\n" "warning: node not found; skipping fitness-summary hook" >&2
+            exit 0
+          fi
+          node harness/sensors/fitness_report.mjs --quick --format=summary || true
+          printf "%s\n" "(run \`just fitness\` for the full live report; AT-RISK metrics are one regression from failing the ratchet)"
+        '
+
     cx-gate:
       # Fast complexity-only ratchet (bead create-harness-app-cxgate).
       # Stripped-down sibling of the full sensors-gate: just
