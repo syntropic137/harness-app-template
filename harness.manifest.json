@@ -133,10 +133,10 @@
       "swappable": true,
       "interface": {
         "type": "cli",
-        "entrypoint": "scripts/doc-validator.mjs",
+        "entrypoint": "harness/doc-validator/bin/doc-validator",
         "commands": ["check"]
       },
-      "implementation": "Primary Rust validator is retained in-harness (`harness/doc-validator`). APSS documentation validation (APS-V1-0003 via `apss.mjs`) is wired as an additional gate, not a replacement.",
+      "implementation": "Primary Rust validator is retained in-harness at `harness/doc-validator` and remains the slot's canonical entrypoint. APSS documentation validation (APS-V1-0003, dispatched via the `scripts/doc-validator.mjs --apss` wrapper that lefthook invokes from a separate hook entry) is wired as an ADDITIONAL pre-commit gate, not a replacement. See ADR-0018 for the augment-not-replace contract; the wrapper layer is intentionally outside the slot interface so the slot stays a single Rust binary with no language-runtime dependency.",
       "decisionAt": "docs/adrs/ADR-0010-doc-validator.md"
     },
     "versioning": {

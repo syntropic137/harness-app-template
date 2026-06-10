@@ -5,7 +5,12 @@
 // existing dep-cruiser / ts-morph / complexity adapters.
 //
 // Closes bead create-harness-app-n48.3 (P1).  Decision context lives in
-// ADR-0017 ("Sensors v0.3 — APSS canonical, sentrux preserved").
+// ADR-0017 ("Sensors v0.3 - APSS canonical, sentrux preserved") and
+// ADR-0018 ("APSS v1.1.0 integration: augment, never replace"), which
+// reaffirms this shim as the single integration point through which
+// APSS-canonical fitness signals reach harness/sensors/gate.mjs.
+// See `docs/adrs/ADR-0017-sensors-v03-apss-canonical.md` and
+// `docs/adrs/ADR-0018-apss-v1-1-0-augmentation.md`.
 //
 // Preservation-first: this adapter is ADDITIVE.  It does NOT replace or
 // silently override the existing adapters' values.  When APSS is
