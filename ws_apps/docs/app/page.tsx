@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { BookOpen, Boxes, GitBranch, ShieldCheck } from 'lucide-react';
+import { HelloButton } from './_components/hello-button';
 
 const features = [
   {
@@ -48,7 +49,7 @@ export default function HomePage() {
             Agentic engineering harness
           </p>
           <h1 className="text-4xl font-semibold tracking-normal text-fd-foreground md:text-6xl">
-            Documentation for the forkable harness app template.
+            Fast-feedback-loop probe banner.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-fd-muted-foreground">
             A compact guide to the template workflow, harness slots, workspace layout,
@@ -68,6 +69,7 @@ export default function HomePage() {
               View repository
             </Link>
           </div>
+          <HelloButton />
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
