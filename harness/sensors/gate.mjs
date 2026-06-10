@@ -215,6 +215,17 @@ const FITNESS_METRICS = {
       fail_on_regression: true,
       value: (_report, options) => sentruxMetricValue(options, 'complex_fn_count'),
     },
+    {
+      id: 'unused-export-count',
+      name: 'Unused Export Count',
+      objective:
+        'Count of named exports declared under ws_apps/<app>/src/ and ws_packages/<pkg>/src/ that have zero whole-word references elsewhere in the workspace. Detector is a deterministic scoped grep (no node_modules / npx / network dependency), so the same input produces the same count locally and on every CI lane. The "no broken windows" rot ratchet: orphaned exports AI coding agents create when they refactor without cleanup. Direction max (smaller-is-better); ratchet tightens toward 0. Soft-skip when no workspace package exists yields a null reading so a broken scanner cannot silently pass. See ADR-0024-dead-code-ratchet.md.',
+      source: 'harness/sensors/deadcode_scan.mjs (pure-source scoped grep)',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: (_report, options) => deadcodeMetricValue(options, 'total_unused'),
+    },
   ],
   MD01: [
     {
@@ -491,6 +502,38 @@ function sentruxMetricValue(options, field) {
     if (options.io.fileExists?.(options.sentruxPath)) {
       try {
         envelope = JSON.parse(options.io.readFile(options.sentruxPath));
+      } catch {
+        envelope = null;
+      }
+    }
+  }
+  if (!envelope || envelope.available === false) {
+    return null;
+  }
+  const value = envelope?.metrics?.[field];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
+}
+
+/**
+ * Read the deterministic dead-code envelope the MT01 dimension
+ * watches. Accepts a pre-parsed envelope on options.deadcode or a
+ * filesystem reader pair on options.io pointing at
+ * options.deadcodePath. Returns the named numeric metric (or null
+ * when the envelope is absent, the adapter reported unavailable, or
+ * the metric is missing). null degrades the gate to "no reading"
+ * rather than a false zero — same shape as the SC01/LG01/sentrux
+ * readers above. Produced by harness/sensors/deadcode_scan.mjs
+ * (ADR-0024-dead-code-ratchet.md).
+ */
+function deadcodeMetricValue(options, field) {
+  let envelope = options?.deadcode;
+  if (!envelope && options?.io && options?.deadcodePath) {
+    if (options.io.fileExists?.(options.deadcodePath)) {
+      try {
+        envelope = JSON.parse(options.io.readFile(options.deadcodePath));
       } catch {
         envelope = null;
       }
@@ -1549,6 +1592,13 @@ function jsonPayload(base, policy) {
  *                          cycle_count, etc.) read from this file.
  *                          Activates sentrux as the 2nd architectural
  *                          lens alongside APSS topology (ADR-0017).
+ *   --deadcode=<path>      Optional deterministic dead-code adapter
+ *                          envelope (produced by
+ *                          harness/sensors/deadcode_scan.mjs).
+ *                          When present, the MT01 unused-export-count
+ *                          metric reads total_unused from this file.
+ *                          Soft-skip yields no-reading rather than a
+ *                          false zero. See ADR-0024-dead-code-ratchet.md.
  *   --policy=<path>        governance TOML policy. Defaults to
  *                          `harness/.harness/governance.toml`.
  *   --readings-from=<path> replay policy readings from JSON instead of
@@ -1578,6 +1628,7 @@ export async function main(
   let securityPath = null;
   let licensesPath = null;
   let sentruxPath = null;
+  let deadcodePath = null;
   let policyPath = DEFAULT_POLICY_PATH;
   let explicitPolicy = false;
   let readingsFromPath = null;
@@ -1602,6 +1653,11 @@ export async function main(
       sentruxPath = a.slice('--sentrux='.length);
     } else if (a === '--sentrux') {
       sentruxPath = argv[i + 1] ?? sentruxPath;
+      i += 1;
+    } else if (a.startsWith('--deadcode=')) {
+      deadcodePath = a.slice('--deadcode='.length);
+    } else if (a === '--deadcode') {
+      deadcodePath = argv[i + 1] ?? deadcodePath;
       i += 1;
     } else if (a.startsWith('--policy=')) {
       policyPath = a.slice('--policy='.length);
@@ -1641,7 +1697,14 @@ export async function main(
     return 2;
   }
 
-  const fitnessOptions = { perfPath, securityPath, licensesPath, sentruxPath, io };
+  const fitnessOptions = {
+    perfPath,
+    securityPath,
+    licensesPath,
+    sentruxPath,
+    deadcodePath,
+    io,
+  };
   let policy;
   try {
     policy = policyState(policyPath, explicitPolicy, io);

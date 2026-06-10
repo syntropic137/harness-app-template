@@ -48,6 +48,14 @@ Subcommands:
                               --format json for replay and CI envelopes.
                               Wired into lefthook pre-push.
   adapters                    Print adapter precheck and package fanout JSON.
+  deadcode                    Deterministic dead-code adapter — walks
+                              ws_apps/<app>/src/ and ws_packages/<pkg>/src/,
+                              parses named exports with a fixed regex, counts
+                              identifiers with no whole-word references in any
+                              other workspace file. Feeds the MT01
+                              unused-export-count ratchet. No node_modules /
+                              network / npx dependency
+                              (ADR-0024-dead-code-ratchet.md).
   sentrux                     Sentrux adapter precheck (manifest envelope).
                               The actual scan runs inside `gate` via
                               harness/sensors/sentrux_scan.mjs and feeds the
@@ -314,8 +322,9 @@ case "${1:-}" in
     sec_tmp=""
     lic_tmp=""
     sentrux_tmp=""
+    deadcode_tmp=""
     report_tmp="$(mktemp -t harness-sensors-report-XXXXXX.json)"
-    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$report_tmp"' EXIT
+    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$report_tmp"' EXIT
     if [ -z "$readings_from" ]; then
       build_report "json" "$report_tmp" "$workspace_root" "$skip_tier"
     else
@@ -368,6 +377,30 @@ case "${1:-}" in
         gate_args+=("--sentrux=$sentrux_tmp")
       fi
     fi
+    # Deterministic dead-code adapter (ADR-0024-dead-code-ratchet.md).
+    # The 3rd composition lens after dep-cruiser/ts-morph and sentrux:
+    # catches orphaned named exports under ws_apps/<app>/src/ and
+    # ws_packages/<pkg>/src/ via a pure-source scoped grep (no
+    # node_modules / network / npx dependency). The deterministic
+    # design replaced an earlier knip-spawn revision that produced
+    # different counts on developer machines vs CI runners. Soft-skips
+    # cleanly when no workspace package exists (envelope sets
+    # available=false; gate.mjs degrades the MT01 unused-export-count
+    # metric to no-reading — same shape as the SC01/LG01/sentrux
+    # wiring above). Skipped via --skip-tier=deadcode and on replay
+    # (--readings-from).
+    deadcode_skip=0
+    case ",${skip_tier}," in
+      *,deadcode,*) deadcode_skip=1 ;;
+    esac
+    if [ -z "$readings_from" ] && [ "$deadcode_skip" -eq 0 ]; then
+      deadcode_tmp="$(mktemp -t harness-sensors-deadcode-XXXXXX.json)"
+      node "$HERE/deadcode_scan.mjs" --workspace-root="$workspace_root" \
+        > "$deadcode_tmp" 2>/dev/null || true
+      if [ -s "$deadcode_tmp" ]; then
+        gate_args+=("--deadcode=$deadcode_tmp")
+      fi
+    fi
     node "$HERE/gate.mjs" "${gate_args[@]+"${gate_args[@]}"}" < "$report_tmp"
     ;;
   fitness)
@@ -401,11 +434,11 @@ case "${1:-}" in
           fitness_args+=("$1")
           shift
           ;;
-        --baseline=*|--readings-from=*|--perf-baseline=*|--security=*|--licenses=*|--sentrux=*)
+        --baseline=*|--readings-from=*|--perf-baseline=*|--security=*|--licenses=*|--sentrux=*|--deadcode=*)
           fitness_args+=("$1")
           shift
           ;;
-        --baseline|--readings-from|--perf-baseline|--security|--licenses|--sentrux)
+        --baseline|--readings-from|--perf-baseline|--security|--licenses|--sentrux|--deadcode)
           fitness_args+=("$1" "${2:-}")
           shift 2 || true
           ;;
@@ -446,8 +479,9 @@ case "${1:-}" in
       sec_tmp=""
       lic_tmp=""
       sentrux_tmp=""
+      deadcode_tmp=""
       report_tmp="$(mktemp -t harness-sensors-fitness-XXXXXX.json)"
-      trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$report_tmp"' EXIT
+      trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$report_tmp"' EXIT
       build_report "json" "$report_tmp" "$workspace_root" "$skip_tier"
       # Mirror the gate's optional adapter wiring so fitness sees the
       # same SC01/LG01/sentrux/perf readings the gate would.
@@ -477,6 +511,20 @@ case "${1:-}" in
           fitness_args+=("--sentrux=$sentrux_tmp")
         fi
       fi
+      # Mirror the deterministic dead-code wiring from the gate path
+      # (see above).
+      deadcode_skip=0
+      case ",${skip_tier}," in
+        *,deadcode,*) deadcode_skip=1 ;;
+      esac
+      if [ "$deadcode_skip" -eq 0 ]; then
+        deadcode_tmp="$(mktemp -t harness-sensors-fitness-deadcode-XXXXXX.json)"
+        node "$HERE/deadcode_scan.mjs" --workspace-root="$workspace_root" \
+          > "$deadcode_tmp" 2>/dev/null || true
+        if [ -s "$deadcode_tmp" ]; then
+          fitness_args+=("--deadcode=$deadcode_tmp")
+        fi
+      fi
       node "$HERE/fitness_report.mjs" "${fitness_args[@]+"${fitness_args[@]}"}" < "$report_tmp"
     fi
     ;;
@@ -487,6 +535,28 @@ case "${1:-}" in
   sentrux)
     shift
     node "$HERE/adapters.mjs" run-sentrux "$@"
+    ;;
+  deadcode)
+    shift
+    workspace_root="$REPO_ROOT"
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --workspace-root)
+          workspace_root="${2:-$workspace_root}"
+          shift 2 || true
+          ;;
+        --workspace-root=*)
+          workspace_root="${1#--workspace-root=}"
+          shift
+          ;;
+        *)
+          echo "error: unknown deadcode flag: $1" >&2
+          exit 2
+          ;;
+      esac
+    done
+    workspace_root="$(cd "$workspace_root" && pwd)"
+    node "$HERE/deadcode_scan.mjs" --workspace-root="$workspace_root"
     ;;
   grimp)
     shift

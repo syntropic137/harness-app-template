@@ -35,7 +35,10 @@ import {
   renderText,
 } from '../fitness_report.mjs';
 
-const MT01_METRIC_COUNT = 8;
+// MT01 metrics: max-cognitive, max-cyclomatic, max-halstead-volume,
+// high-cognitive-fn-count, sentrux-quality-signal, sentrux-god-file-count,
+// sentrux-hotspot-count, sentrux-complex-fn-count, unused-export-count.
+const MT01_METRIC_COUNT = 9;
 
 function baselineWithMt01Cognitive(value) {
   // Minimal baseline shape - only what the comparator needs. The real
