@@ -19,7 +19,13 @@ const APP_ROOT = resolve(__dirname, '..', '..');
 const MAIN = resolve(APP_ROOT, 'src/main.ts');
 const TELEMETRY = resolve(APP_ROOT, 'src/telemetry.ts');
 
-const WALL_CLOCK_BUDGET_MS = 4000;
+// Cold-cache budget: a fresh `pnpm install` + first `pnpm test` run
+// pays a ~2-3× tsx/esbuild module-graph warmup tax (~7-9 s on slower
+// disks vs ~2 s warm). The fork-check E2E hits this every run because
+// it works in a clean `/tmp` snapshot. 15 s still catches an
+// order-of-magnitude startup regression while not false-alarming a
+// real consumer's first `pnpm test`.
+const WALL_CLOCK_BUDGET_MS = 15_000;
 
 interface CliResult {
   code: number | null;
