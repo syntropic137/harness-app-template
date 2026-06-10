@@ -33,6 +33,7 @@
 //             total_cognitive, total_cyclomatic, avg_cognitive, avg_cyclomatic
 //   - Function (3 extra): cognitive, cyclomatic, loc
 
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -123,10 +124,18 @@ export function parseModulesJson(doc) {
     if (!source) {
       continue;
     }
+    // Real APSS code-topology output nests module-level aggregates under
+    // `metrics.*` (file_count, function_count, lines_of_code, avg_*,
+    // total_*) and Martin metrics under `metrics.martin.*`.  The flat
+    // shape (m.ca, m.file_count, etc.) is also accepted for older fixtures
+    // and tests.  Spread `metrics` first so flat keys still win when both
+    // exist, and resolve the Martin fields explicitly via the precedence
+    // ladder.
     out.push({
       source,
       ...extractMetrics(
         {
+          ...metrics,
           ...m,
           ca: m?.ca ?? metrics?.ca ?? martin?.ca ?? m?.afferent_coupling,
           ce: m?.ce ?? metrics?.ce ?? martin?.ce ?? m?.efferent_coupling,
@@ -183,7 +192,8 @@ export function parseFunctionsJson(doc) {
       continue;
     }
     const metrics = extractFunctionMetrics(f);
-    const name = typeof f?.name === 'string' ? f.name : typeof f?.id === 'string' ? f.id : '<anonymous>';
+    const name =
+      typeof f?.name === 'string' ? f.name : typeof f?.id === 'string' ? f.id : '<anonymous>';
     const line = typeof f?.line === 'number' ? f.line : null;
     if (!byModule.has(source)) {
       byModule.set(source, []);
@@ -235,6 +245,72 @@ export function joinModulesAndFunctions(modules, functionsByModule) {
 }
 
 /**
+ * Locate the APSS composed binary for a workspace root.  Prefers the
+ * project-composed `.apss/bin/apss` (the binary `apss install` materialises
+ * with every project standard wired in) and falls back to whatever `apss`
+ * is on PATH so a global install also works.  Returns null when no binary
+ * is reachable — the producer then becomes a best-effort no-op and the
+ * adapter degrades to `available: false`.
+ */
+export function findApssBinary(root = '.', opts = {}) {
+  const fs = opts.fs ?? { existsSync };
+  const composed = join(root, '.apss', 'bin', 'apss');
+  if (fs.existsSync(composed)) {
+    return composed;
+  }
+  const spawn = opts.spawn ?? spawnSync;
+  const probe = spawn('apss', ['--help'], { stdio: 'ignore' });
+  if (probe && probe.status === 0) {
+    return 'apss';
+  }
+  return null;
+}
+
+/**
+ * Run the APSS code-topology producer (`apss run code-topology analyze .`)
+ * from the workspace root so the consumer side of this adapter has fresh
+ * `.topology/metrics/*.json` to read.  Returns a small status envelope —
+ * never throws — so callers can wire it into the sensors pipeline without
+ * worrying about a missing/broken APSS install bricking the gate.
+ *
+ * `opts.cwd`        override the workspace root (default: process.cwd()).
+ * `opts.bin`        explicit path/name of the apss binary.
+ * `opts.spawn`      injectable spawn for tests.
+ * `opts.timeoutMs`  hard cap (default 120s; topology of small repos is sub-second).
+ * `opts.argv`       override the producer argv (default: ['run','code-topology','analyze','.']).
+ */
+export function produceTopology(opts = {}) {
+  const cwd = opts.cwd ?? process.cwd();
+  const bin = opts.bin ?? findApssBinary(cwd, opts);
+  if (!bin) {
+    return { ran: false, reason: 'apss-binary-not-found' };
+  }
+  const spawn = opts.spawn ?? spawnSync;
+  const argv = opts.argv ?? ['run', 'code-topology', 'analyze', '.'];
+  const timeoutMs = opts.timeoutMs ?? 120_000;
+  const result = spawn(bin, argv, {
+    cwd,
+    timeout: timeoutMs,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (!result) {
+    return { ran: false, reason: 'spawn-returned-null' };
+  }
+  if (result.error) {
+    return { ran: false, reason: `spawn-error:${result.error.code ?? result.error.message}` };
+  }
+  if (typeof result.status === 'number' && result.status !== 0) {
+    return {
+      ran: false,
+      reason: `apss-exit-${result.status}`,
+      stderr: result.stderr?.slice(0, 2000) ?? '',
+    };
+  }
+  return { ran: true, bin, stdout: result.stdout?.slice(0, 2000) ?? '' };
+}
+
+/**
  * Locate APSS topology files for a workspace root.  Looks at the
  * canonical `.topology/metrics/{modules,functions}.json` path that
  * APSS's `aps` binary emits.  Override via opts.topologyDir for tests
@@ -251,7 +327,8 @@ export function findTopologyFiles(root, opts = {}) {
     modulesPath,
     functionsPath,
     couplingPath,
-    available: fs.existsSync(modulesPath) || fs.existsSync(couplingPath) || fs.existsSync(functionsPath),
+    available:
+      fs.existsSync(modulesPath) || fs.existsSync(couplingPath) || fs.existsSync(functionsPath),
     fs,
   };
 }
@@ -283,7 +360,9 @@ export function analyzeFromTopology(root = '.', opts = {}) {
   }
   if (found.fs.existsSync(found.couplingPath)) {
     try {
-      const coupling = parseCouplingJson(JSON.parse(found.fs.readFileSync(found.couplingPath, 'utf8')));
+      const coupling = parseCouplingJson(
+        JSON.parse(found.fs.readFileSync(found.couplingPath, 'utf8')),
+      );
       const bySource = new Map(modules.map((m) => [m.source, m]));
       for (const c of coupling) {
         bySource.set(c.source, { ...(bySource.get(c.source) ?? {}), ...c });
@@ -329,16 +408,39 @@ export function analyzeFromTopology(root = '.', opts = {}) {
  * Flags:
  *   --root=<path>            workspace root (default: cwd)
  *   --topology-dir=<path>    override the `.topology/metrics/` location
+ *   --produce                run the APSS code-topology producer first
+ *                            (closed-loop mode for `bin/sensors`).  When
+ *                            apss is not installed the producer is a
+ *                            no-op; the adapter still emits the readings
+ *                            from any pre-existing `.topology/` files or
+ *                            falls back to `{ available: false }`.
+ *   --no-produce             explicitly disable the producer even if
+ *                            APSS_SENSORS_PRODUCE=1 is set in the env.
+ *
+ * Env:
+ *   APSS_SENSORS_PRODUCE=1   same as passing --produce.
  */
-export async function main(argv = process.argv.slice(2), io = { write: (s) => process.stdout.write(s) }) {
+export async function main(
+  argv = process.argv.slice(2),
+  io = { write: (s) => process.stdout.write(s) },
+  env = process.env,
+) {
   let root = '.';
   let topologyDir;
+  let produce = env.APSS_SENSORS_PRODUCE === '1';
   for (const a of argv) {
     if (a.startsWith('--root=')) {
       root = a.slice('--root='.length);
     } else if (a.startsWith('--topology-dir=')) {
       topologyDir = a.slice('--topology-dir='.length);
+    } else if (a === '--produce') {
+      produce = true;
+    } else if (a === '--no-produce') {
+      produce = false;
     }
+  }
+  if (produce) {
+    produceTopology({ cwd: root });
   }
   const opts = topologyDir ? { topologyDir } : {};
   const result = analyzeFromTopology(root, opts);

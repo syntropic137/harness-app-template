@@ -82,6 +82,22 @@ inspector *args:
 sensors *args:
     bun run scripts/sensors.ts {{args}}
 
+# APSS code-topology producer. Emits `.topology/metrics/*.json` (the data
+# the architectural fitness gate consumes via
+# `harness/sensors/apss_topology.mjs`). Re-run on demand; `bin/sensors gate`
+# calls the same producer automatically every cycle when
+# APSS_SENSORS_PRODUCE is unset/1 (the default).
+topology-analyze *args:
+    .apss/bin/apss run code-topology analyze . {{args}}
+
+# Regenerate the architectural diagrams from the current `.topology/`
+# snapshot. Emits the 3D coupling graph, CodeCity, cluster map, VSA
+# matrix, and the all-in-one dashboard HTML. Run `just topology-analyze`
+# first if `.topology/` is missing or stale.
+# Output path (default): `.topology/visualizations/`
+topology-viz *args:
+    .apss/bin/apss run code-topology viz .topology --type all {{args}}
+
 doc-validator *args:
     harness/doc-validator/bin/doc-validator {{args}}
 

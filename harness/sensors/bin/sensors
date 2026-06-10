@@ -118,13 +118,21 @@ build_report() {
     node "$HERE/complexity.mjs" < "$cruiser_tmp" > "$cplx_tmp"
   fi
   # APSS topology adapter (bead n48.3 / ADR-0017): reads .topology/metrics/
-  # if present. No-op when the APSS `aps` binary has not been run - emits
-  # `{available: false, readings: []}` which aggregate.mjs treats as absent.
+  # if present. Closed-loop mode (default): invoke the APSS code-topology
+  # producer first so the gate consumes fresh data every cycle. The
+  # adapter degrades gracefully when no APSS binary is installed —
+  # emits `{available: false, readings: []}` which aggregate.mjs treats
+  # as absent. Opt out via APSS_SENSORS_PRODUCE=0 for replay scenarios
+  # that need to read a frozen .topology/ snapshot.
   apss_tmp="$(mktemp -t harness-sensors-apss-XXXXXX.json)"
   if should_skip "apss-topology"; then
     printf '{"tool":"apss-topology","available":false,"readings":[],"skipped":true}\n' > "$apss_tmp"
   else
-    node "$HERE/apss_topology.mjs" --root="$workspace_root" > "$apss_tmp"
+    apss_produce_flag="--produce"
+    if [ "${APSS_SENSORS_PRODUCE:-1}" = "0" ]; then
+      apss_produce_flag="--no-produce"
+    fi
+    node "$HERE/apss_topology.mjs" --root="$workspace_root" "$apss_produce_flag" > "$apss_tmp"
   fi
   if [ "$out_path" = "-" ]; then
     node "$HERE/aggregate.mjs" "--format=$out_format" "--abstractness=$abs_tmp" "--complexity=$cplx_tmp" "--apss=$apss_tmp" < "$cruiser_tmp"
