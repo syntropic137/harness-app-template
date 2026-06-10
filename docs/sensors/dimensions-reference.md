@@ -73,7 +73,7 @@ the table below is the mapping for an agent.
 | Tier        | Budget          | Where it fires                       | What runs there                                              |
 |-------------|-----------------|--------------------------------------|--------------------------------------------------------------|
 | pre-commit  | < 2 s per gate  | `lefthook` `pre-commit` (parallel)   | `cx-gate` (MT01 fast subset), `fitness-summary` (READ-ONLY), `doc-validator`, `doc-validator-apss`, `secret-scan`, formatters, UBS staged scan. |
-| pre-push    | 2 - 30 s        | `lefthook` `pre-push` (parallel)     | `perf-gate` (PF01 startup-benchmark-mean authority), `cov-ts` / `cov-rust` / `cov-py`, `typecheck-affected`, `test-affected`, `dep-audit-lockfile`, `versioning-release-check`, `doc-validator` (full). |
+| pre-push    | 2 - 30 s        | `lefthook` `pre-push` (parallel)     | `perf-gate` (PF01 startup-benchmark-mean authority), `cov-ts` / `cov-rust` / `cov-py` / `cov-sensors`, `typecheck-affected`, `test-affected`, `dep-audit-lockfile`, `versioning-release-check`, `doc-validator` (full). |
 | CI ONLY     | > 30 s          | `.github/workflows/test.yml`         | Full `harness/sensors/bin/sensors gate` (~108 s; the canonical ratchet authority for every dimension). `dep-audit` CVE audit. |
 
 The full ratchet was moved to CI-only in ADR-0020 because the
