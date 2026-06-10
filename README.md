@@ -14,8 +14,53 @@
 > **A canonical, forkable agentic-engineering harness monorepo.** The repo IS the artifact. You start by clicking GitHub's **"Use this template"** button (or `git clone` + fork) and running a one-shot `just init <your-project-name>`.
 
 <!-- TEMPLATE-DOC-START -->
-This block is the template's "first read" introduction. **`scripts/init.ts` removes the entire `<!-- TEMPLATE-DOC-START/END -->` block on `just init`** so your fork's README opens directly at "What this is" below.
+This block is the template's "first read" introduction. **`scripts/init.ts` removes the entire `<!-- TEMPLATE-DOC-START/END -->` block on `just init`** so your fork's README opens directly at "Quickstart" below.
 <!-- TEMPLATE-DOC-END -->
+
+## Quickstart
+
+Clone-to-green in under five minutes. Every command here is a `just` recipe; type `just` with no arguments to see the full menu, grouped by phase.
+
+```sh
+# 1. Clone your fork (or the template repo directly, if you are evaluating).
+git clone https://github.com/<you>/<your-repo>.git
+cd <your-repo>
+
+# 2. One-time: point `just update` at the canonical template for future pulls.
+git remote add upstream https://github.com/syntropic137/harness-app-template
+
+# 3. Verify your machine: bun, pnpm, git, cargo, uv, just, docker|podman.
+#    Failed rows print the exact install command. Re-run until all-green.
+just doctor
+
+# 4. Rename seeds + write .harness-provenance.json. Idempotent.
+#    (Skip this if you are evaluating the template repo in-place.)
+just init <your-project-name>
+
+# 5. Install JS, Rust, and Python toolchains.
+just bootstrap
+
+# 6. Run the full polyglot test suite + the architectural-fitness report.
+just test
+just fitness            # READ-ONLY per-dimension health table
+```
+
+If any of those fail, the failure message tells you which gate tripped and how to fix it. The most common first-run trip is `just doctor` flagging a missing tool; the second is `just bootstrap` (the JS lockfile / pnpm-store install). Once both pass, every other gate is downstream.
+
+**Optional follow-ups once you are green:**
+
+```sh
+just stack boot         # boot the isolated observability stack (containers)
+just inspector --help   # evidence-capture utilities (screenshot, record, keyframes)
+just review             # multi-agent harness review of the current tree
+just fork-check         # end-to-end fork-readiness check (snapshots HEAD, re-runs init + gates)
+```
+
+**When a gate fails later in development:**
+
+- `just fitness` shows the per-dimension architectural health table (MT01 / MD01 / ST01 / SC01 / LG01 / PF01); each row prints PASS / AT-RISK / FAIL with the current value, the ratchet floor, and the headroom. AT-RISK means the next regression on that axis will fail the gate.
+- `just sensors gate --update-baseline` is the only way to relax a fitness floor; the diff is reviewed as a code change to `harness/sensors/baseline.json`.
+- `just doc-validator --help` and `just dep-audit --help` scope the docs / supply-chain gates.
 
 ## What this is
 
