@@ -72,6 +72,20 @@ lint-fix *args:
 
 # --- gates (pre-commit / pre-PR) -------------------------------------------
 
+# Profiling slot front door (bead create-harness-app-z41). ADVISORY by
+# default: regressions vs harness/profiling/baseline.json are reported but
+# never fail the run until harness/profiling/budgets.toml opts a signal
+# into hard gating. Subcommands: startup (hyperfine bench), api (latency
+# p50/p95/p99 + traceparent OTEL correlation + --cpu-prof-dir flamegraph
+# inputs), ui (Playwright + CDP performance trace per the
+# chrome-devtools-deep skill, Core Web Vitals, bundle size), summary,
+# gate (signals JSON on stdin).
+
+# Profiling slot: backend/frontend/startup profiles, advisory perf gate (see harness/profiling/README.md).
+[group('gates')]
+profile *args:
+    bun run scripts/profiling.ts {{args}}
+
 # Agent-facing architectural-health report. Read-only view over the
 # same baseline + readings pipeline `just sensors gate` uses; prints
 # current value, ratchet floor, headroom, and PASS / AT-RISK / FAIL for

@@ -153,6 +153,56 @@ export function provenanceIssues(
   return issues;
 }
 
+// Profiling-slot probe (bead create-harness-app-z41): the slot is
+// advisory at runtime, but its wiring must be intact, so doctor checks
+// that the manifest entry, the bin entrypoint, and the committed baseline
+// agree. A deliberate `plugin: none` swap silences the probe entirely.
+export function profilingIssues(
+  cwd = process.cwd(),
+  exists: (path: string) => boolean = existsSync,
+  readText: (path: string) => string = (path) => readFileSync(path, 'utf8'),
+): string[] {
+  const manifestPath = join(cwd, 'harness.manifest.json');
+  if (!exists(manifestPath)) {
+    // provenanceIssues already reports the missing manifest; do not double up.
+    return [];
+  }
+  const manifest = parseJsonObject(manifestPath, readText);
+  if (typeof manifest === 'string') {
+    return [];
+  }
+  const slots = manifest['slots'];
+  if (!isRecord(slots) || !isRecord(slots['profiling'])) {
+    return ['harness.manifest.json has no profiling slot; restore it or run just update'];
+  }
+  const slot = slots['profiling'];
+  if (slot['plugin'] === 'none') {
+    return [];
+  }
+  const issues: string[] = [];
+  const slotInterface = slot['interface'];
+  const entrypoint = isRecord(slotInterface) ? stringField(slotInterface, 'entrypoint') : undefined;
+  if (!entrypoint) {
+    issues.push('profiling slot does not declare interface.entrypoint');
+  } else if (!exists(join(cwd, entrypoint))) {
+    issues.push(`profiling entrypoint ${entrypoint} is missing`);
+  }
+  const baselinePath = join(cwd, 'harness/profiling/baseline.json');
+  if (!exists(baselinePath)) {
+    issues.push(
+      'harness/profiling/baseline.json is missing; restore it or re-run a profile with --update-baseline',
+    );
+  } else {
+    const baseline = parseJsonObject(baselinePath, readText);
+    if (typeof baseline === 'string') {
+      issues.push(baseline);
+    } else if (!isRecord(baseline['signals'])) {
+      issues.push('harness/profiling/baseline.json must contain a signals object');
+    }
+  }
+  return issues;
+}
+
 export interface RuntimeCheck {
   name: string;
   ok: boolean;
@@ -259,13 +309,19 @@ function reportRuntime(sink: Sink, runtime: RuntimeCheck[], width: number): numb
   return failed;
 }
 
-function reportProvenance(sink: Sink, provenance: string[], width: number): number {
-  const [head, ...rest] = provenance;
+function reportIssues(
+  sink: Sink,
+  name: string,
+  okDetail: string,
+  issues: string[],
+  width: number,
+): number {
+  const [head, ...rest] = issues;
   if (head === undefined) {
-    emitRow(sink, '[ OK ]', 'provenance', 'valid', width);
+    emitRow(sink, '[ OK ]', name, okDetail, width);
     return 0;
   }
-  emitRow(sink, '[FAIL]', 'provenance', head, width);
+  emitRow(sink, '[FAIL]', name, head, width);
   for (const extra of rest) {
     sink.log(`         ${' '.repeat(width)}  ${extra}`);
   }
@@ -277,6 +333,7 @@ export function printReport(
   runtime: RuntimeCheck[],
   provenance: string[],
   log: (line: string) => void,
+  profiling: string[] = [],
 ): { passed: number; failed: number; total: number } {
   const sink: Sink = { log };
   const width = Math.max(
@@ -289,9 +346,10 @@ export function printReport(
   const failed =
     reportTools(sink, tools, width) +
     reportRuntime(sink, runtime, width) +
-    reportProvenance(sink, provenance, width);
+    reportIssues(sink, 'provenance', 'valid', provenance, width) +
+    reportIssues(sink, 'profiling', 'slot wired', profiling, width);
   sink.log('');
-  const total = tools.length + runtime.length + 1;
+  const total = tools.length + runtime.length + 2;
   return { passed: total - failed, failed, total };
 }
 
@@ -301,8 +359,13 @@ export function main(deps: DoctorDeps): void {
   const tools = toolChecks(deps.spawn);
   const runtime = runtimeChecks(deps.cwd, exists);
   const provenance = provenanceIssues(deps.cwd, exists, readText);
-  const { passed, failed, total } = printReport(tools, runtime, provenance, (line) =>
-    deps.stdout.log(line),
+  const profiling = profilingIssues(deps.cwd, exists, readText);
+  const { passed, failed, total } = printReport(
+    tools,
+    runtime,
+    provenance,
+    (line) => deps.stdout.log(line),
+    profiling,
   );
   if (failed > 0) {
     deps.stderr.error(

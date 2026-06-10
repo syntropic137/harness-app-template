@@ -3,6 +3,7 @@ import {
   main,
   missingTools,
   printReport,
+  profilingIssues,
   provenanceIssues,
   runtimeChecks,
   toolChecks,
@@ -47,6 +48,15 @@ const validManifest = {
   name: 'polyglot-monorepo',
   version: '0.4.0',
   standard: '0.2',
+  slots: {
+    profiling: {
+      contract: 'profiling',
+      plugin: 'harness-profiling',
+      required: false,
+      swappable: true,
+      interface: { type: 'cli', entrypoint: 'harness/profiling/bin/profile' },
+    },
+  },
 };
 
 function fakeFs(files: Record<string, string>, dirs: string[] = []) {
@@ -67,6 +77,8 @@ function validFiles(cwd: string): Record<string, string> {
   return {
     [`${cwd}/.harness-provenance.json`]: `${JSON.stringify(validProvenance)}\n`,
     [`${cwd}/harness.manifest.json`]: `${JSON.stringify(validManifest)}\n`,
+    [`${cwd}/harness/profiling/bin/profile`]: '#!/usr/bin/env bash\n',
+    [`${cwd}/harness/profiling/baseline.json`]: '{"signals":{}}\n',
   };
 }
 
@@ -234,6 +246,7 @@ describe('doctor', () => {
     expect(logs[0]).toBe('preflight checks:');
     expect(logs[logs.length - 1]).toMatch(/doctor: all \d+ checks passed\./);
     expect(logs.some((l) => l.includes('[ OK ]') && l.includes('provenance'))).toBe(true);
+    expect(logs.some((l) => l.includes('[ OK ]') && l.includes('profiling'))).toBe(true);
   });
 
   test('main uses real filesystem defaults when deps omit exists/readText', () => {
@@ -319,6 +332,8 @@ describe('doctor', () => {
     const missing = fakeFs(
       {
         [`${cwd}/harness.manifest.json`]: `${JSON.stringify(validManifest)}\n`,
+        [`${cwd}/harness/profiling/bin/profile`]: '#!/usr/bin/env bash\n',
+        [`${cwd}/harness/profiling/baseline.json`]: '{"signals":{}}\n',
       },
       [`${cwd}/node_modules`],
     );
@@ -405,5 +420,136 @@ describe('doctor', () => {
       '.harness-provenance.json schemaVersion must be 1.0',
       '.harness-provenance.json upstream_pulls must be an array when present',
     ]);
+  });
+
+  test('profiling probe passes on the valid fixture and uses real defaults safely', () => {
+    const cwd = '/repo';
+    const fs = fakeFs(validFiles(cwd));
+    expect(profilingIssues(cwd, fs.exists, fs.readText)).toEqual([]);
+    // Default-arg invocation runs against the actual repo, which has the
+    // slot wired; this also covers the default readText/exists paths.
+    expect(profilingIssues()).toEqual([]);
+  });
+
+  test('profiling probe stays quiet when the manifest is absent, malformed, or the slot is swapped to none', () => {
+    const cwd = '/repo';
+    const absent = fakeFs({});
+    expect(profilingIssues(cwd, absent.exists, absent.readText)).toEqual([]);
+
+    const malformed = fakeFs({ [`${cwd}/harness.manifest.json`]: '{' });
+    expect(profilingIssues(cwd, malformed.exists, malformed.readText)).toEqual([]);
+
+    const swappedOff = fakeFs({
+      [`${cwd}/harness.manifest.json`]: JSON.stringify({
+        ...validManifest,
+        slots: { profiling: { ...validManifest.slots.profiling, plugin: 'none' } },
+      }),
+    });
+    expect(profilingIssues(cwd, swappedOff.exists, swappedOff.readText)).toEqual([]);
+  });
+
+  test('profiling probe flags a missing slot, entrypoint, or baseline', () => {
+    const cwd = '/repo';
+    const noSlot = fakeFs({
+      [`${cwd}/harness.manifest.json`]: JSON.stringify({ ...validManifest, slots: {} }),
+    });
+    expect(profilingIssues(cwd, noSlot.exists, noSlot.readText)).toEqual([
+      'harness.manifest.json has no profiling slot; restore it or run just update',
+    ]);
+
+    const noEntrypoint = fakeFs({
+      [`${cwd}/harness.manifest.json`]: JSON.stringify({
+        ...validManifest,
+        slots: { profiling: { ...validManifest.slots.profiling, interface: { type: 'cli' } } },
+      }),
+      [`${cwd}/harness/profiling/baseline.json`]: '{"signals":{}}\n',
+    });
+    expect(profilingIssues(cwd, noEntrypoint.exists, noEntrypoint.readText)).toEqual([
+      'profiling slot does not declare interface.entrypoint',
+    ]);
+
+    const noInterface = fakeFs({
+      [`${cwd}/harness.manifest.json`]: JSON.stringify({
+        ...validManifest,
+        slots: { profiling: { contract: 'profiling', plugin: 'harness-profiling' } },
+      }),
+      [`${cwd}/harness/profiling/baseline.json`]: '{"signals":{}}\n',
+    });
+    expect(profilingIssues(cwd, noInterface.exists, noInterface.readText)).toEqual([
+      'profiling slot does not declare interface.entrypoint',
+    ]);
+
+    const files = validFiles(cwd);
+    delete files[`${cwd}/harness/profiling/bin/profile`];
+    delete files[`${cwd}/harness/profiling/baseline.json`];
+    const broken = fakeFs(files);
+    expect(profilingIssues(cwd, broken.exists, broken.readText)).toEqual([
+      'profiling entrypoint harness/profiling/bin/profile is missing',
+      'harness/profiling/baseline.json is missing; restore it or re-run a profile with --update-baseline',
+    ]);
+  });
+
+  test('profiling probe validates the baseline document shape', () => {
+    const cwd = '/repo';
+    const badJson = fakeFs({
+      ...validFiles(cwd),
+      [`${cwd}/harness/profiling/baseline.json`]: '{',
+    });
+    const issues = profilingIssues(cwd, badJson.exists, badJson.readText);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain('is not valid JSON');
+
+    const noSignals = fakeFs({
+      ...validFiles(cwd),
+      [`${cwd}/harness/profiling/baseline.json`]: '{"benchmarks":{}}',
+    });
+    expect(profilingIssues(cwd, noSignals.exists, noSignals.readText)).toEqual([
+      'harness/profiling/baseline.json must contain a signals object',
+    ]);
+  });
+
+  test('main surfaces profiling failures in the structured report', () => {
+    const cwd = '/repo';
+    const files = validFiles(cwd);
+    delete files[`${cwd}/harness/profiling/baseline.json`];
+    const fs = fakeFs(files, [`${cwd}/node_modules`]);
+    const errors: string[] = [];
+    const logs: string[] = [];
+    expect(() =>
+      main({
+        spawn: spawnWith(DEFAULT_VERSIONS) as never,
+        stdout: { log: (message: string) => logs.push(message) },
+        stderr: { error: (message: string) => errors.push(message) },
+        exit: (code: number): never => {
+          throw new Error(`exit ${code}`);
+        },
+        cwd,
+        exists: fs.exists,
+        readText: fs.readText,
+      }),
+    ).toThrow('exit 1');
+    expect(errors[0]).toMatch(/doctor: 1 of \d+ checks failed/);
+    expect(
+      logs.some(
+        (l) =>
+          l.includes('[FAIL]') &&
+          l.includes('profiling') &&
+          l.includes('harness/profiling/baseline.json is missing'),
+      ),
+    ).toBe(true);
+  });
+
+  test('printReport renders an OK profiling row when no issues are passed', () => {
+    const lines: string[] = [];
+    const { failed, total } = printReport(
+      toolChecks(spawnWith(DEFAULT_VERSIONS) as never),
+      runtimeChecks('/repo', () => true),
+      [],
+      (line) => lines.push(line),
+      [],
+    );
+    expect(failed).toBe(0);
+    expect(total).toBeGreaterThan(0);
+    expect(lines.some((l) => l.includes('[ OK ]') && l.includes('profiling'))).toBe(true);
   });
 });
