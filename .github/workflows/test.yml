@@ -164,6 +164,35 @@ jobs:
       - name: Run perf fitness gate
         run: harness/perf/bench.sh | node harness/perf/gate.mjs
 
+  dep-audit:
+    # Polyglot dependency / supply-chain CVE audit (ADR-0023). Mirrors
+    # the local `just dep-audit` recipe, with the tooling required for
+    # each lane installed inline (pnpm + node, cargo + cargo-audit, uv).
+    # Fails CLOSED: a missing tool means no scan, which means a known
+    # vulnerable dep could slip through. Tier: CI only — the round-trip
+    # to the npm / RustSec / PyPA advisory DBs dominates wall clock and
+    # is not worth blocking the inner loop on.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.1
+      - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - run: pnpm install --no-frozen-lockfile
+      - run: just dep-audit
+
   fork-check:
     # End-to-end fork-readiness check. Snapshots HEAD into a clean temp
     # workspace, runs the documented `just init <name>` + `just bootstrap`
