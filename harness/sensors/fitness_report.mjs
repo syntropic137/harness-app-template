@@ -37,7 +37,7 @@ const EPSILON = 1e-6;
 const AT_RISK_FRACTION = 0.1; // headroom < 10% of |floor| -> AT-RISK
 const AT_RISK_MIN_ABS = 1; // integer-typed counts: 1 step from the floor is AT-RISK
 
-const DIMENSION_ORDER = ['MT01', 'MD01', 'ST01', 'SC01', 'LG01', 'AC01', 'PF01', 'AV01'];
+const DIMENSION_ORDER = ['MT01', 'MD01', 'ST01', 'SC01', 'LG01', 'AC01', 'PF01', 'AV01', 'CV01'];
 
 const STATUS_RANK = {
   PASS: 0,
@@ -319,6 +319,7 @@ function parseArgs(argv) {
     licensesPath: null,
     sentruxPath: null,
     deadcodePath: null,
+    coveragePath: null,
     format: 'text',
     quick: false,
     help: false,
@@ -345,6 +346,10 @@ function parseArgs(argv) {
     else if (a === '--deadcode') {
       opts.deadcodePath = argv[i + 1] ?? opts.deadcodePath;
       i += 1;
+    } else if (a.startsWith('--coverage=')) opts.coveragePath = a.slice('--coverage='.length);
+    else if (a === '--coverage') {
+      opts.coveragePath = argv[i + 1] ?? opts.coveragePath;
+      i += 1;
     } else if (a.startsWith('--format=')) opts.format = a.slice('--format='.length);
     else if (a === '--format') {
       opts.format = argv[i + 1] ?? opts.format;
@@ -370,6 +375,7 @@ Options:
   --licenses=PATH        License scan JSON (feeds LG01).
   --sentrux=PATH         Sentrux adapter envelope (feeds MT01/MD01/ST01 sentrux metrics).
   --deadcode=PATH        Deterministic dead-code adapter envelope (feeds MT01 unused-export-count).
+  --coverage=PATH        Deterministic test-coverage adapter envelope (feeds CV01 rust/python/javascript coverage percentages).
   --format=FMT           text (default), json, or summary (one-liner for hooks).
   --json / --summary     Aliases for --format.
   --quick                Skip stdin; render the floor-only view from baseline.json.
@@ -453,6 +459,7 @@ export async function main(argv = process.argv.slice(2), io = defaultIo()) {
     licensesPath: opts.licensesPath,
     sentruxPath: opts.sentruxPath,
     deadcodePath: opts.deadcodePath,
+    coveragePath: opts.coveragePath,
     io,
   };
 

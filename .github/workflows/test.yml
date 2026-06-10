@@ -122,19 +122,40 @@ jobs:
         run: node scripts/doc-validator.mjs --apss
 
   fitness:
-    # APSS 8-dimension architectural fitness gate (bead
-    # create-harness-app-2zz). Mirrors the lefthook pre-push sensors-gate
-    # so a fork that bypasses local hooks still gets blocked on regression
-    # at PR time. Installs the APSS code-topology producer so the gate
-    # consumes real .topology/metrics/*.json (closed loop) instead of
-    # silently degrading to apss-topology: available=false.
+    # APSS 9-dimension architectural fitness gate (bead
+    # create-harness-app-2zz, extended by ADR-0025 for CV01 coverage).
+    # Mirrors the lefthook pre-push sensors-gate so a fork that bypasses
+    # local hooks still gets blocked on regression at PR time. Installs
+    # the APSS code-topology producer so the gate consumes real
+    # .topology/metrics/*.json (closed loop) instead of silently
+    # degrading to apss-topology: available=false. Also produces the
+    # three coverage envelopes that feed the CV01 ratchet by running
+    # cargo-llvm-cov, pytest-cov, and vitest with json/json-summary
+    # reporters BEFORE the gate; the gate reads them via the
+    # SENSORS_COVERAGE_*_JSON env contract. Coverage is byte-identical
+    # local vs CI because CARGO_TARGET_DIR is pinned to a workspace-
+    # relative path (worktree isolation) and the same flags drive the
+    # adapter on both sides.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.1
+      - uses: astral-sh/setup-uv@v5
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
       - name: Cache APSS binary
         id: cache-apss
         uses: actions/cache@v4
@@ -156,10 +177,42 @@ jobs:
       - name: Install sensors slot deps (ts-morph)
         working-directory: harness/sensors
         run: npm install --no-package-lock --no-audit --no-fund --silent
-      - name: Run APSS fitness gate
-        # bin/sensors gate runs `apss run code-topology analyze` itself
-        # via the --produce path in apss_topology.mjs, so no separate
-        # producer step is needed here.
+      - name: Install root deps for vitest coverage
+        run: pnpm install --no-frozen-lockfile
+      - name: Prepare CV01 Python coverage envelope (pytest --cov-report=json)
+        run: |
+          mkdir -p /tmp/cov
+          uv sync --project ws_apps/example-python
+          cd ws_apps/example-python
+          sh ../../scripts/with-uv.sh uv run pytest \
+            --cov=example_python \
+            --cov-report=json:/tmp/cov/python.json \
+            --cov-fail-under=100 \
+            --ignore=tests/integration -q
+      - name: Prepare CV01 JavaScript coverage envelope (vitest --coverage.reporter=json-summary)
+        run: |
+          pnpm exec vitest run scripts/tests \
+            --coverage \
+            --coverage.reporter=json-summary \
+            --coverage.reportsDirectory=/tmp/cov/js
+      - name: Run APSS fitness gate (with CV01 coverage envelope)
+        # The gate's coverage_scan invocation aggregates three lanes:
+        #   - Rust: live run via SENSORS_COVERAGE_RUST_RUN=1; the
+        #     adapter shells out to cargo-llvm-cov per crate with the
+        #     SAME flags `just cov-rust` uses (RUST_LANES table), and
+        #     pins CARGO_TARGET_DIR to a worktree-local isolated path
+        #     so concurrent runs cannot corrupt profraw files.
+        #   - Python: pre-rendered pytest-cov JSON from the step above.
+        #   - JavaScript: pre-rendered vitest coverage-summary.json
+        #     from the step above (root scripts/ project; per-app
+        #     vitest configs already enforce 100 percent thresholds in
+        #     the scripts CI job).
+        env:
+          SENSORS_COVERAGE: '1'
+          SENSORS_COVERAGE_RUST_RUN: '1'
+          SENSORS_COVERAGE_PYTHON_JSON: /tmp/cov/python.json
+          SENSORS_COVERAGE_JS_JSON: /tmp/cov/js/coverage-summary.json
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target/coverage-isolated-ci
         run: harness/sensors/bin/sensors gate
       - name: Run perf fitness gate
         run: harness/perf/bench.sh | node harness/perf/gate.mjs
