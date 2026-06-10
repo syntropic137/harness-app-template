@@ -41,8 +41,64 @@ the agent INVOKING the observability-queries skill, not on AGENTS.md alone.
   documented endpoints.
 - `find . -path ./node_modules -prune -o -name "openapi*.yaml" -o -name "openapi*.json" -print` to test 4.
 
-## Reusable empirical claims (to be filled in verdict)
-- TBD with N=1 evidence count.
+## Observed (probes run 2026-06-10 01:50 UTC)
 
-## Friction items (append to FRICTION.md on conclusion)
-- TBD.
+### P1 no app-level HTTP API
+- `grep -rEi "express|fastify|hono|koa|axum|actix|fastapi|flask|gin|net/http|warp|rocket" ws_apps/example-*/` returned ZERO real matches (only false-positive substring hits in protected-config comments and the word "honors").
+- All three example apps are one-shot emit-and-exit, confirmed in their package.json/pyproject.toml/Cargo.toml. No HTTP server framework imported anywhere.
+
+### P2 observability surface responds
+- VictoriaTraces Jaeger API: `GET /select/jaeger/api/services` -> `{"data":["example-typescript"], ...}` (structured JSON).
+- VictoriaMetrics: `GET /api/v1/query?query=up` -> `{"status":"success","data":{"resultType":"vector","result":[]}, ...}` (Prometheus-shaped JSON).
+- OTEL Collector OTLP HTTP: `POST /v1/traces` with `{}` -> `{"partialSuccess":{}}` (structured JSON).
+- VictoriaLogs LogsQL malformed query: empty body (no structured error). Matches the EXP-03 log path opacity.
+
+### P3 AGENTS.md vs skill body
+- AGENTS.md line 31 references the `observability-queries` skill by name but contains ZERO actual endpoint URIs.
+- `.claude/skills/observability-queries/SKILL.md` is the real surface; lines 23-25 declare the VL_PORT/VM_PORT/VT_PORT env-var convention and the curl examples for `/select/logsql/query`, `/api/v1/query`, `/select/jaeger/api/traces`, `/select/jaeger/api/services` start at lines 52-150.
+- A fresh agent that does NOT invoke the skill cannot get to the endpoints from AGENTS.md alone.
+
+### P4 no OpenAPI / Swagger surface
+- `find . -name openapi.* -o -name swagger.*` returned zero results.
+- OTEL Collector HTTP root returns plain 404 with `Content-Type: text/plain`, no introspection.
+
+## Verdict against frozen prediction: CONFIRMED
+
+| Sub-prediction | Predicted | Observed | Result |
+|---|---|---|---|
+| P1 no app HTTP API | PASS | confirmed | CONFIRMED |
+| P2 obs stack responds | PASS | confirmed (3/4 endpoints return structured JSON; LogsQL is silent) | CONFIRMED, with LogsQL note |
+| P3 skill carries the surface | PASS | confirmed | CONFIRMED |
+| P4 no OpenAPI | PASS | confirmed | CONFIRMED |
+
+Composite verdict: CONFIRMED. The "backend feedback" axis today IS the
+observability surface, and an agent without the `observability-queries`
+skill in scope has no way to discover endpoints from AGENTS.md alone. The
+template ships no application HTTP API.
+
+## Reusable empirical claims
+- The bare polyglot template ships ZERO application-level HTTP servers
+  across TS/Py/Rust example apps; the only "backend" is the observability
+  stack. (N=1, low.)
+- VictoriaMetrics + VictoriaTraces emit Prometheus / Jaeger structured JSON
+  even on empty queries; VictoriaLogs returns empty body on malformed
+  queries, providing no structured error feedback to an agent. (N=1, low.)
+- AGENTS.md mentions the `observability-queries` skill by name only; the
+  endpoint surface (urls, ports, query shapes) lives EXCLUSIVELY in
+  `.claude/skills/observability-queries/SKILL.md`. (N=1, low.)
+
+## Friction items (appended to FRICTION.md)
+- [EXP-05] [docs-gap] AGENTS.md mentions the observability-queries skill
+  by name but never inlines a single endpoint URI. Agents that never invoke
+  the skill cannot discover the backend surface. Consider promoting one
+  canonical curl example into AGENTS.md.
+  (CobaltCoast, 2026-06-10.)
+- [EXP-05] [tooling-bug] VictoriaLogs returns empty body for malformed
+  LogsQL; no structured error makes it hard for an agent to self-correct.
+  (CobaltCoast, 2026-06-10.)
+- [EXP-05] [workaround-found] Shared working tree + shared git index means
+  an agent's `git commit` can sweep up ANOTHER agent's staged-but-uncommitted
+  files. Per-agent worktrees or a coordination convention (always use
+  `git add <explicit>` plus pre-commit `git diff --staged --name-only`
+  check) is needed to keep sole-editor clean.
+  (CobaltCoast, 2026-06-10.)
