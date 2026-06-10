@@ -194,6 +194,60 @@ fn release_execute_reports_date_failure() {
 }
 
 #[test]
+fn check_pr_title_accepts_conventional_subject() {
+    let out = harness_command()
+        .args(["check-pr-title", "feat(versioning): add pr-title gate"])
+        .output()
+        .expect("spawn");
+    assert!(
+        out.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains("PR title is conventional"));
+}
+
+#[test]
+fn check_pr_title_rejects_non_conventional_subject() {
+    let out = harness_command()
+        .args([
+            "check-pr-title",
+            "fork-readiness E2E + fixes for fresh-consumer gaps",
+        ])
+        .output()
+        .expect("spawn");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("not a Conventional Commit"));
+}
+
+#[test]
+fn check_pr_title_reads_from_stdin_when_dash() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = harness_command()
+        .args(["check-pr-title", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn");
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"feat: from stdin\n")
+        .unwrap();
+    let out = child.wait_with_output().expect("wait");
+    assert!(
+        out.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
 fn check_per_package_mode_warns_but_succeeds() {
     let tmp = tempfile::tempdir().unwrap();
     let out = harness_command()
