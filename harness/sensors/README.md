@@ -14,12 +14,12 @@ The slot currently runs:
   `quality_signal`, `coupling_score`, `cycle_count`, `god_file_count`,
   `hotspot_count`, `complex_fn_count`, and `max_depth` into MT01 /
   MD01 / ST01. Soft-skips when the `sentrux` binary is absent.
-- `deadcode_scan.mjs`: knip-based unused-export / unused-file /
-  unused-type adapter (`ADR-0024-dead-code-ratchet.md`). Feeds the
-  MT01 `unused-export-count` ratchet from a scan of every package
-  under `ws_apps/*` and `ws_packages/*`. Soft-skips cleanly when
-  `npx` cannot reach the knip package; the gate then degrades the
-  metric to no-reading rather than a false zero.
+- `deadcode_scan.mjs`: deterministic scoped-grep unused-export
+  adapter (`ADR-0024-dead-code-ratchet.md`). Feeds the MT01
+  `unused-export-count` ratchet by reading source files under
+  `ws_apps/<app>/src/` and `ws_packages/<pkg>/src/` directly. No
+  network, no node_modules dependency, no npx; same input
+  produces the same count locally and on every CI lane.
 
 The gate keeps the legacy folder `I` and `D` regression check and adds an APSS
 baseline layer for all eight APS-V1-0002 dimensions. It also loads the lab-style
@@ -138,11 +138,13 @@ Node sensors remain available as fallback signals.
   `.sentrux/baseline.json`, emits an envelope `gate.mjs` reads via
   `--sentrux=<path>`. Activated as the 2nd architectural lens per
   ADR-0017.
-- `deadcode_scan.mjs`: knip dead-code adapter — spawns
-  `npx knip --reporter json` scoped to every `ws_apps/*` and
-  `ws_packages/*` workspace, sums unused files + exports + types
-  into `total_unused`, emits an envelope `gate.mjs` reads via
-  `--deadcode=<path>`. See [`ADR-0024`](../../docs/adrs/ADR-0024-dead-code-ratchet.md).
+- `deadcode_scan.mjs`: deterministic dead-code adapter — walks
+  `ws_apps/<app>/src/**` and `ws_packages/<pkg>/src/**` directly,
+  parses named exports with a fixed regex, counts identifiers with
+  no whole-word references elsewhere in the workspace, emits an
+  envelope `gate.mjs` reads via `--deadcode=<path>`. No network /
+  no node_modules dependency / no npx. See
+  [`ADR-0024`](../../docs/adrs/ADR-0024-dead-code-ratchet.md).
 - `adapters.mjs`: adapter seam, precheck, skip-tier, and fanout utilities.
 - `gate.mjs`: baseline and APSS fitness gate.
 - `baseline.json`: committed regression floor.

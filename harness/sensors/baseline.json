@@ -132,12 +132,12 @@
           "fail_on_regression": true
         },
         "unused-export-count": {
-          "name": "Unused Export and Dead Code Count",
-          "objective": "Total count of unused workspace files plus unused exports plus unused types in ws_apps/* and ws_packages/* detected by knip. The 'no broken windows' rot ratchet: orphaned code that AI coding agents create when they refactor without cleanup. Direction max (smaller-is-better); ratchet tightens toward 0. Soft-skip when knip cannot run yields a null reading so a broken scanner cannot silently pass. See ADR-0024-dead-code-ratchet.md.",
-          "source": "knip --reporter=json over ws_apps + ws_packages (via harness/sensors/deadcode_scan.mjs)",
+          "name": "Unused Export Count",
+          "objective": "Count of named exports declared under ws_apps/<app>/src/ and ws_packages/<pkg>/src/ that have zero whole-word references in any other workspace file. The 'no broken windows' rot ratchet: orphaned exports that AI coding agents create when they refactor without cleanup. Direction max (smaller-is-better); ratchet tightens toward 0. Detector is a deterministic scoped grep with a fixed source-file regex and no node_modules dependency, so the same input produces the same count locally and on every CI lane. Soft-skips with no-reading when no workspace package exists. See ADR-0024-dead-code-ratchet.md.",
+          "source": "harness/sensors/deadcode_scan.mjs (pure-source scoped grep)",
           "direction": "max",
           "default_threshold": 0,
-          "baseline": 2,
+          "baseline": 14,
           "fail_on_regression": true
         }
       }

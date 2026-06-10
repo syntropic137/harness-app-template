@@ -1,30 +1,40 @@
-// Tests for the knip dead-code adapter wired through harness/sensors/gate.mjs
-// as the 3rd composition lens after dep-cruiser/ts-morph and sentrux. Mirrors
-// sentrux.test.mjs in shape: same stubIo + same end-to-end main() drive,
-// because the contract is identical (envelope-on-disk, soft-skip on
-// available=false, direction=max ratchet under MT01).
+// Tests for the deterministic dead-code adapter wired through
+// harness/sensors/gate.mjs as the 3rd composition lens after
+// dep-cruiser/ts-morph and sentrux. Mirrors sentrux.test.mjs in shape:
+// same stubIo + same end-to-end main() drive, because the gate-side
+// contract is identical (envelope-on-disk, soft-skip on available=false,
+// direction=max ratchet under MT01).
 //
 // The contract under test (ADR-0024-dead-code-ratchet.md):
-//   - Knip metrics flow in through the --deadcode=<path> CLI flag and the
-//     unused-export-count metric is wired to FITNESS_METRICS.MT01.
-//   - The ratchet tightens on improvement (smaller-is-better for the
-//     count metric; direction max).
-//   - Regressions fail the gate WITHOUT moving the floor — same
-//     no-broken-windows rule as the APSS dimensions.
+//   - The detector reads source files only — no node_modules, no
+//     network — so the same input produces the same count on every
+//     environment. That property is regression-tested below with an
+//     in-memory filesystem stub.
+//   - Metrics flow in through the --deadcode=<path> CLI flag; the
+//     gate's unused-export-count metric reads `total_unused`.
+//   - The ratchet tightens on improvement (smaller-is-better; direction=max).
+//   - Regressions fail the gate WITHOUT moving the floor.
 //   - When the adapter envelope reports `available: false`, the metric
-//     degrades to "no reading" rather than a false zero, so a missing
-//     binary does not silently pass.
+//     degrades to "no reading" rather than a false zero.
 //
-// Also unit-tests the adapter helpers (summarizeKnipPayload,
-// discoverWorkspaces, runDeadcodeScan with stubbed spawn) so a broken
-// knip output shape regresses on a fast unit run rather than only at
-// CI gate time.
+// Adapter-level tests exercise findExports, countReferences,
+// isFrameworkConvention, walkSourceTree, listExportSources, and
+// runDeadcodeScan with an in-memory FS so a determinism regression
+// fails on a fast unit run rather than only at CI gate time.
 //
 // Run via: node --test harness/sensors/tests/deadcode.test.mjs
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { discoverWorkspaces, runDeadcodeScan, summarizeKnipPayload } from '../deadcode_scan.mjs';
+import {
+  countReferences,
+  findExports,
+  isFrameworkConvention,
+  listExportSources,
+  listReferenceCorpus,
+  runDeadcodeScan,
+  walkSourceTree,
+} from '../deadcode_scan.mjs';
 import { compareBaseline, extractApssFitnessBaseline, main, ratchetBaseline } from '../gate.mjs';
 
 function emptyReport() {
@@ -35,9 +45,9 @@ function emptyReport() {
 
 function envelope(metrics) {
   return {
-    tool: 'knip',
+    tool: 'deadcode-grep',
     available: true,
-    version: '6.16.1',
+    version: '1.0.0',
     scanned_workspaces: ['ws_apps/example-typescript', 'ws_packages/telemetry'],
     metrics,
   };
@@ -76,115 +86,222 @@ function stubIo({ stdin = '{}', files = {} } = {}) {
   };
 }
 
+// In-memory filesystem fixture used by the adapter-level tests. The
+// fixture is deliberately small (one workspace package with three
+// source files plus one test file) so the expected unused-export count
+// is hand-derivable.
+function inMemoryFs(layout) {
+  // layout: { '/r/path/to/file.ts': 'contents', '/r/ws_apps': null  }
+  const dirs = new Set();
+  for (const path of Object.keys(layout)) {
+    const segments = path.split('/');
+    for (let i = 1; i < segments.length; i += 1) {
+      dirs.add(segments.slice(0, i).join('/') || '/');
+    }
+  }
+  return {
+    existsSync: (p) => p in layout || dirs.has(p),
+    readdirSync: (p) => {
+      const out = new Set();
+      const prefix = `${p}/`;
+      for (const key of Object.keys(layout)) {
+        if (key.startsWith(prefix)) {
+          const tail = key.slice(prefix.length);
+          out.add(tail.includes('/') ? tail.slice(0, tail.indexOf('/')) : tail);
+        }
+      }
+      for (const d of dirs) {
+        if (d.startsWith(prefix)) {
+          const tail = d.slice(prefix.length);
+          out.add(tail.includes('/') ? tail.slice(0, tail.indexOf('/')) : tail);
+        }
+      }
+      return [...out];
+    },
+    statSync: (p) => {
+      if (p in layout) {
+        return { isDirectory: () => false };
+      }
+      if (dirs.has(p)) {
+        return { isDirectory: () => true };
+      }
+      throw new Error(`stub: ENOENT ${p}`);
+    },
+    readFileSync: (p) => {
+      if (p in layout) {
+        return layout[p];
+      }
+      throw new Error(`stub: ENOENT ${p}`);
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Adapter unit tests
 // ---------------------------------------------------------------------------
 
-test('summarizeKnipPayload sums files + exports + types and ignores other fields', () => {
-  const payload = {
-    issues: [
-      { files: [{ name: 'a.ts' }], exports: [], types: [], unlisted: [{ name: 'noise' }] },
-      { files: [], exports: [{ name: 'foo' }, { name: 'bar' }], types: [{ name: 'T' }] },
-      { files: [{ name: 'b.ts' }], exports: [{ name: 'baz' }], types: [] },
-    ],
-  };
-  const m = summarizeKnipPayload(payload);
-  assert.equal(m.unused_files, 2);
-  assert.equal(m.unused_exports, 3);
-  assert.equal(m.unused_types, 1);
-  assert.equal(m.total_unused, 6);
+test('findExports captures named const / function / class / interface / type / enum / let / var', () => {
+  const src = [
+    'export const x = 1;',
+    'export function foo() {}',
+    'export async function bar() {}',
+    'export class Baz {}',
+    'export interface Qux {}',
+    'export type Quux = number;',
+    'export enum Color { Red }',
+    'export let mutable = 0;',
+    'export var legacy = "y";',
+    'const internal = 2;', // not exported
+    'export default 42;', // intentionally not captured
+    'export { renamed } from "./other";', // re-export, not captured
+  ].join('\n');
+  const names = findExports(src).map((e) => e.name);
+  assert.deepEqual(names, ['x', 'foo', 'bar', 'Baz', 'Qux', 'Quux', 'Color', 'mutable', 'legacy']);
 });
 
-test('summarizeKnipPayload returns zeros for empty / malformed payloads', () => {
-  for (const p of [null, {}, { issues: null }, { issues: [] }, { issues: [{}] }]) {
-    const m = summarizeKnipPayload(p);
-    assert.equal(m.total_unused, 0);
-    assert.equal(m.unused_files, 0);
-    assert.equal(m.unused_exports, 0);
-    assert.equal(m.unused_types, 0);
-  }
+test('findExports records 1-indexed line numbers', () => {
+  const src = 'line1\nexport const target = 1;\nline3\n';
+  const out = findExports(src);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].name, 'target');
+  assert.equal(out[0].line, 2);
 });
 
-test('discoverWorkspaces returns sorted ws_apps + ws_packages roots with package.json', () => {
-  const fs = {
-    existsSync: (p) =>
-      [
-        '/r/ws_apps',
-        '/r/ws_packages',
-        '/r/ws_apps/example-typescript/package.json',
-        '/r/ws_packages/telemetry/package.json',
-        '/r/ws_apps/docs/package.json',
-      ].includes(p),
-    readdirSync: (p) => {
-      if (p === '/r/ws_apps') return ['example-typescript', 'docs', '.cache'];
-      if (p === '/r/ws_packages') return ['telemetry'];
-      return [];
-    },
-    statSync: () => ({ isDirectory: () => true }),
-  };
-  const found = discoverWorkspaces('/r', ['ws_apps', 'ws_packages'], fs);
-  assert.deepEqual(found, ['ws_apps/docs', 'ws_apps/example-typescript', 'ws_packages/telemetry']);
+test('countReferences uses whole-word matches', () => {
+  // `_` is a word char so foo_bar is one token; `.` and `,` and `;` are
+  // non-word so they are word boundaries. `foo` matches: foo (1),
+  // foo. (2), foo, (3), foo; (4). `bar` matches every `.bar` form too
+  // (the `.` is a non-word boundary), so foo.bar contributes a `bar`
+  // hit. Tokens like `foobar` and `foo_bar` do not match `foo` or
+  // `bar` because both sides need to be word boundaries.
+  const text = 'foo foobar foo_bar foo.bar foo, foo;';
+  assert.equal(countReferences('foo', text), 4);
+  assert.equal(countReferences('bar', text), 1); // only from foo.bar
+  assert.equal(countReferences('foobar', text), 1);
+  assert.equal(countReferences('missing', text), 0);
 });
 
-test('runDeadcodeScan surfaces unavailable when no workspace package exists', () => {
-  const envelope = runDeadcodeScan({
-    workspaceRoot: '/empty',
-    fs: {
-      existsSync: () => false,
-      readdirSync: () => [],
-      statSync: () => ({ isDirectory: () => false }),
-    },
-    spawn: () => {
-      throw new Error('spawn should not be called when there are no workspaces');
-    },
+test('isFrameworkConvention filters Next.js / fumadocs file conventions', () => {
+  assert.equal(isFrameworkConvention('ws_apps/docs/mdx-components.tsx'), true);
+  assert.equal(isFrameworkConvention('ws_apps/docs/source.config.ts'), true);
+  assert.equal(isFrameworkConvention('ws_apps/docs/app/layout.tsx'), true);
+  assert.equal(isFrameworkConvention('ws_apps/docs/app/docs/[[...slug]]/page.tsx'), true);
+  assert.equal(isFrameworkConvention('ws_packages/telemetry/src/index.ts'), false);
+  assert.equal(isFrameworkConvention('ws_apps/example-typescript/src/main.ts'), false);
+});
+
+test('walkSourceTree skips node_modules, .next, target, dist, and dotfiles', () => {
+  const fs = inMemoryFs({
+    '/r/src/a.ts': '',
+    '/r/src/b.tsx': '',
+    '/r/src/nested/c.ts': '',
+    '/r/src/node_modules/dep/index.ts': '',
+    '/r/src/.next/cache/x.ts': '',
+    '/r/src/target/bin.ts': '',
+    '/r/src/dist/out.ts': '',
+    '/r/src/README.md': '',
   });
-  assert.equal(envelope.available, false);
-  assert.match(envelope.reason, /no ws_apps/);
-  assert.deepEqual(envelope.scanned_workspaces, []);
+  const files = walkSourceTree('/r/src', fs);
+  assert.deepEqual(files, ['/r/src/a.ts', '/r/src/b.tsx', '/r/src/nested/c.ts']);
 });
 
-test('runDeadcodeScan parses knip JSON via stubbed spawn and rolls up the metric', () => {
-  const knipJson = JSON.stringify({
-    issues: [{ files: [{ name: 'x.ts' }], exports: [{ name: 'foo' }], types: [] }],
+test('walkSourceTree returns sorted output for determinism', () => {
+  const fs = inMemoryFs({
+    '/r/z.ts': '',
+    '/r/a.ts': '',
+    '/r/m.ts': '',
   });
-  const envelope = runDeadcodeScan({
-    workspaceRoot: '/r',
-    workspaces: ['ws_apps/example-typescript'],
-    spawn: (cmd, args) => {
-      assert.equal(cmd, 'npx');
-      assert.ok(args.includes('--yes'));
-      assert.ok(args.some((a) => a.startsWith('knip@')));
-      assert.ok(args.includes('--workspace'));
-      assert.ok(args.includes('ws_apps/example-typescript'));
-      return { status: 1, stdout: knipJson, stderr: '' };
-    },
-  });
-  assert.equal(envelope.available, true);
-  assert.equal(envelope.metrics.unused_files, 1);
-  assert.equal(envelope.metrics.unused_exports, 1);
-  assert.equal(envelope.metrics.total_unused, 2);
+  const files = walkSourceTree('/r', fs);
+  assert.deepEqual(files, ['/r/a.ts', '/r/m.ts', '/r/z.ts']);
 });
 
-test('runDeadcodeScan returns unavailable when stdout is not JSON', () => {
-  const envelope = runDeadcodeScan({
-    workspaceRoot: '/r',
-    workspaces: ['ws_apps/example-typescript'],
-    spawn: () => ({ status: 1, stdout: 'oops not json', stderr: '' }),
+test('listExportSources scopes to ws_apps/<pkg>/src and ws_packages/<pkg>/src only', () => {
+  const fs = inMemoryFs({
+    '/r/ws_apps/a/package.json': '{}',
+    '/r/ws_apps/a/src/main.ts': 'export const a = 1;',
+    '/r/ws_apps/a/tests/main.test.ts': 'import {a} from "../src/main";',
+    '/r/ws_apps/a/vitest.config.ts': 'export default {};',
+    '/r/ws_packages/b/package.json': '{}',
+    '/r/ws_packages/b/src/index.ts': 'export const b = 2;',
   });
-  assert.equal(envelope.available, false);
-  assert.match(envelope.reason, /did not emit JSON/);
+  const sources = listExportSources('/r', ['ws_apps/a', 'ws_packages/b'], fs);
+  assert.deepEqual(sources, ['/r/ws_apps/a/src/main.ts', '/r/ws_packages/b/src/index.ts']);
 });
 
-test('runDeadcodeScan returns unavailable when spawn throws', () => {
-  const envelope = runDeadcodeScan({
-    workspaceRoot: '/r',
-    workspaces: ['ws_apps/example-typescript'],
-    spawn: () => {
-      throw new Error('ENOENT npx');
-    },
+test('listReferenceCorpus includes tests and configs (referrer side)', () => {
+  const fs = inMemoryFs({
+    '/r/ws_apps/a/src/main.ts': '',
+    '/r/ws_apps/a/tests/main.test.ts': '',
+    '/r/ws_apps/a/vitest.config.ts': '',
+    '/r/ws_packages/b/src/index.ts': '',
+    '/r/ws_packages/b/tests/index.test.ts': '',
   });
-  assert.equal(envelope.available, false);
-  assert.match(envelope.reason, /spawn failed/);
+  const corpus = listReferenceCorpus('/r', ['ws_apps', 'ws_packages'], fs);
+  assert.ok(corpus.includes('/r/ws_apps/a/tests/main.test.ts'));
+  assert.ok(corpus.includes('/r/ws_apps/a/vitest.config.ts'));
+  assert.ok(corpus.includes('/r/ws_packages/b/tests/index.test.ts'));
+});
+
+test('runDeadcodeScan: zero unused when every export has at least one external referrer', () => {
+  const fs = inMemoryFs({
+    '/r/ws_packages/a/package.json': '{}',
+    '/r/ws_packages/a/src/lib.ts': 'export const used = 1;\nexport function alsoUsed() {}',
+    '/r/ws_packages/a/tests/lib.test.ts':
+      'import {used, alsoUsed} from "../src/lib";\nconsole.log(used);\nalsoUsed();',
+  });
+  const env = runDeadcodeScan({ workspaceRoot: '/r', fs });
+  assert.equal(env.available, true);
+  assert.equal(env.metrics.total_unused, 0);
+});
+
+test('runDeadcodeScan: counts every export with no external referrer', () => {
+  const fs = inMemoryFs({
+    '/r/ws_packages/a/package.json': '{}',
+    '/r/ws_packages/a/src/lib.ts':
+      'export const orphan = 1;\nexport function alsoOrphan() {}\nexport const used = 2;',
+    '/r/ws_packages/a/tests/lib.test.ts': 'import {used} from "../src/lib";\nconsole.log(used);',
+  });
+  const env = runDeadcodeScan({ workspaceRoot: '/r', fs });
+  assert.equal(env.available, true);
+  assert.equal(env.metrics.total_unused, 2);
+  assert.equal(env.metrics.unused_exports, 2);
+  assert.equal(env.metrics.unused_files, 0);
+  assert.equal(env.metrics.unused_types, 0);
+});
+
+test('runDeadcodeScan: deterministic across repeated runs over the same in-memory FS', () => {
+  const fs = inMemoryFs({
+    '/r/ws_packages/a/package.json': '{}',
+    '/r/ws_packages/a/src/lib.ts':
+      'export const x = 1;\nexport const y = 2;\nexport const used = 3;',
+    '/r/ws_packages/a/tests/lib.test.ts': 'import {used} from "../src/lib"; console.log(used);',
+  });
+  const a = runDeadcodeScan({ workspaceRoot: '/r', fs });
+  const b = runDeadcodeScan({ workspaceRoot: '/r', fs });
+  const c = runDeadcodeScan({ workspaceRoot: '/r', fs });
+  assert.equal(a.metrics.total_unused, b.metrics.total_unused);
+  assert.equal(b.metrics.total_unused, c.metrics.total_unused);
+});
+
+test('runDeadcodeScan: framework-convention files do not contribute to the source list', () => {
+  const fs = inMemoryFs({
+    '/r/ws_apps/docs/package.json': '{}',
+    '/r/ws_apps/docs/src/mdx-components.tsx': 'export function useMDXComponents() {}',
+    '/r/ws_apps/docs/src/app/layout.tsx': 'export default function Layout() {}',
+    '/r/ws_apps/docs/src/regular.ts': 'export const orphan = 1;',
+  });
+  // useMDXComponents and Layout are intentionally not counted even
+  // though they have no external referrer; regular.ts:orphan is.
+  const env = runDeadcodeScan({ workspaceRoot: '/r', fs });
+  assert.equal(env.metrics.total_unused, 1);
+});
+
+test('runDeadcodeScan: unavailable when no workspace package exists', () => {
+  const fs = inMemoryFs({ '/r/README.md': '' });
+  const env = runDeadcodeScan({ workspaceRoot: '/r', fs });
+  assert.equal(env.available, false);
+  assert.match(env.reason, /no ws_apps/);
+  assert.deepEqual(env.scanned_workspaces, []);
 });
 
 // ---------------------------------------------------------------------------
@@ -219,7 +336,7 @@ test('deadcode: regression is flagged without moving the floor', () => {
 test('deadcode: absent envelope (available=false) degrades to no-reading, not a false zero', () => {
   const baseline = baselineWithDeadcode({ total_unused: 3 });
   const cmp = compareBaseline(baseline, emptyReport(), {
-    deadcode: { tool: 'knip', available: false, reason: 'npx missing' },
+    deadcode: { tool: 'deadcode-grep', available: false, reason: 'no workspace' },
   });
   // No regression — when the adapter is unavailable the metric reads as null
   // so worsened() returns false. Same shape as the SC01/LG01/sentrux

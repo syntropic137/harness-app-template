@@ -48,11 +48,13 @@ Subcommands:
                               --format json for replay and CI envelopes.
                               Wired into lefthook pre-push.
   adapters                    Print adapter precheck and package fanout JSON.
-  deadcode                    Knip dead-code adapter — emits an envelope with
-                              total_unused, unused_files, unused_exports, and
-                              unused_types across ws_apps and ws_packages. Feeds
-                              the MT01 unused-export-count ratchet. Soft-skips
-                              cleanly when npx is unavailable
+  deadcode                    Deterministic dead-code adapter — walks
+                              ws_apps/<app>/src/ and ws_packages/<pkg>/src/,
+                              parses named exports with a fixed regex, counts
+                              identifiers with no whole-word references in any
+                              other workspace file. Feeds the MT01
+                              unused-export-count ratchet. No node_modules /
+                              network / npx dependency
                               (ADR-0024-dead-code-ratchet.md).
   sentrux                     Sentrux adapter precheck (manifest envelope).
                               The actual scan runs inside `gate` via
@@ -375,18 +377,21 @@ case "${1:-}" in
         gate_args+=("--sentrux=$sentrux_tmp")
       fi
     fi
-    # Knip dead-code adapter (ADR-0024-dead-code-ratchet.md). The 3rd
-    # composition lens after dep-cruiser/ts-morph and sentrux: catches
-    # unused exports, unused files, and unused types across ws_apps and
-    # ws_packages. Soft-skips cleanly when npx or the network is
-    # unavailable (envelope sets available=false; gate.mjs degrades the
-    # MT01 unused-export-count metric to no-reading — same shape as the
-    # SC01/LG01/sentrux wiring above). Skipped via --skip-tier=knip,
-    # and on replay (--readings-from) because the gate is replaying
-    # canned readings rather than re-scanning the workspace.
+    # Deterministic dead-code adapter (ADR-0024-dead-code-ratchet.md).
+    # The 3rd composition lens after dep-cruiser/ts-morph and sentrux:
+    # catches orphaned named exports under ws_apps/<app>/src/ and
+    # ws_packages/<pkg>/src/ via a pure-source scoped grep (no
+    # node_modules / network / npx dependency). The deterministic
+    # design replaced an earlier knip-spawn revision that produced
+    # different counts on developer machines vs CI runners. Soft-skips
+    # cleanly when no workspace package exists (envelope sets
+    # available=false; gate.mjs degrades the MT01 unused-export-count
+    # metric to no-reading — same shape as the SC01/LG01/sentrux
+    # wiring above). Skipped via --skip-tier=deadcode and on replay
+    # (--readings-from).
     deadcode_skip=0
     case ",${skip_tier}," in
-      *,knip,*|*,knip@*,*|*,deadcode,*) deadcode_skip=1 ;;
+      *,deadcode,*) deadcode_skip=1 ;;
     esac
     if [ -z "$readings_from" ] && [ "$deadcode_skip" -eq 0 ]; then
       deadcode_tmp="$(mktemp -t harness-sensors-deadcode-XXXXXX.json)"
@@ -506,10 +511,11 @@ case "${1:-}" in
           fitness_args+=("--sentrux=$sentrux_tmp")
         fi
       fi
-      # Mirror the knip dead-code wiring from the gate path (see above).
+      # Mirror the deterministic dead-code wiring from the gate path
+      # (see above).
       deadcode_skip=0
       case ",${skip_tier}," in
-        *,knip,*|*,knip@*,*|*,deadcode,*) deadcode_skip=1 ;;
+        *,deadcode,*) deadcode_skip=1 ;;
       esac
       if [ "$deadcode_skip" -eq 0 ]; then
         deadcode_tmp="$(mktemp -t harness-sensors-fitness-deadcode-XXXXXX.json)"

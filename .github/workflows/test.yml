@@ -128,24 +128,12 @@ jobs:
     # at PR time. Installs the APSS code-topology producer so the gate
     # consumes real .topology/metrics/*.json (closed loop) instead of
     # silently degrading to apss-topology: available=false.
-    #
-    # `pnpm install` is also required so the workspace-package
-    # node_modules trees exist before knip (the dead-code sensor,
-    # ADR-0024) and license_scan (LG01) run. Without it knip cannot
-    # resolve cross-package imports and reports phantom "unused"
-    # workspace files; license_scan returns no-reading. Install once
-    # at the top of the job and the rest of the gates see the real
-    # workspace state.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.5.1
-      - run: pnpm install --no-frozen-lockfile
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache APSS binary
         id: cache-apss

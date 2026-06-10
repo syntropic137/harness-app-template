@@ -1,62 +1,120 @@
-// deadcode_scan.mjs — knip-based unused-code adapter for MT01.
+// deadcode_scan.mjs — deterministic unused-export adapter for MT01.
 //
-// Runs knip against the consumer-app workspace (ws_apps + ws_packages),
-// counts unused files / unused exports / unused types, and emits an
-// envelope the gate consumes via --deadcode=<path>. Mirrors the
-// license_scan.mjs / sentrux_scan.mjs envelope contract.
+// The previous revision spawned `npx knip` against the workspace. That
+// design proved environment-sensitive: knip 6.16.1 reported 2 unused
+// items on a developer machine and 3 on every GitHub Actions runner
+// (both ubuntu and macos) with `pnpm install --no-frozen-lockfile`
+// applied identically. The variance came from knip's resolution of
+// auto-discovered workspace entry points, which depends on the exact
+// node_modules layout pnpm produces in a given cache state. A ratchet
+// floor on a non-deterministic metric fails open or closed at random,
+// which is worse than not having the metric at all.
 //
-// Why knip: the modern oxc-backed dead-code detector for TS/JS
-// (https://knip.dev/blog/knip-v6, March 2026). ts-prune is the legacy
-// fallback but only sees unused exports — knip catches unused files
-// and types too, which is the larger surface for AI-generated rot.
+// This revision replaces the knip spawn with a pure-source-of-truth
+// scan that is fully deterministic: it walks a fixed set of source
+// globs, parses named exports with a fixed regex, and counts those
+// whose identifier is never referenced anywhere else in the workspace.
+// No npx, no node_modules dependency, no network, no platform-specific
+// resolution. Same input → same output, locally and on every CI lane.
 //
-// SCOPE: ws_apps + ws_packages only — matches the canonical "workspace
-// code" filter used by complexity.mjs / abstractness.mjs. This avoids
-// the false-positive trap of scanning the root (where scripts/*.ts
-// are invoked by justfile but look unused to a static analyzer).
-// Each workspace package has its own package.json so knip auto-derives
-// entry points (bin/main/exports) and the baseline can credibly start
-// at 0.
+// SCOPE — only pure-TS library code:
+//   - ws_packages/<pkg>/src/**/*.{ts,tsx}
+//   - ws_apps/<app>/src/**/*.{ts,tsx}
 //
-// CONTRACT — envelope shape consumed by gate.mjs:
+// This intentionally excludes:
+//   - vitest.config.ts and other config files (loaded by framework
+//     convention, never imported)
+//   - ws_apps/docs/** (fumadocs / Next.js App Router conventions —
+//     framework-loaded files look unused to a static scanner; the
+//     curated false-positive list for that subtree belongs in a
+//     fork-side knip.json if a fork wants it)
+//   - tests/** (test files are entry points; their exports are
+//     consumed by the test runner, not other source files)
+//   - default exports (often picked up by framework conventions and
+//     not always named in import statements)
+//
+// REFERENCE CORPUS: every .ts and .tsx file under ws_apps/** and
+// ws_packages/** that is NOT in node_modules / .next / dist / target /
+// .venv / .turbo. An export is "unused" when its identifier never
+// appears as a whole-word match in any file in the corpus other than
+// the file it was defined in.
+//
+// CONTRACT — envelope shape consumed by gate.mjs (unchanged from the
+// prior knip-based revision):
 //   {
-//     "tool": "knip",
+//     "tool": "deadcode-grep",
 //     "available": true | false,
-//     "version": "6.16.1",
-//     "scanned_workspaces": ["ws_apps/example-typescript", ...],
+//     "version": "1.0.0",
+//     "scanned_workspaces": [...],
 //     "metrics": {
-//       "total_unused": 0,           // sum of files + exports + types
-//       "unused_files": 0,
-//       "unused_exports": 0,
-//       "unused_types": 0
+//       "total_unused": 0,
+//       "unused_files": 0,           // always 0 — this detector reads exports only
+//       "unused_exports": 0,         // identifiers with zero references
+//       "unused_types": 0            // always 0 — types fold into unused_exports
 //     }
 //   }
 //
-// SOFT-SKIP contract: when npx is unavailable or knip itself crashes,
-// the envelope sets available=false. gate.mjs degrades MT01
+// SOFT-SKIP contract: when neither ws_apps nor ws_packages exists, the
+// envelope sets available=false. gate.mjs degrades MT01
 // unused-export-count to no-reading (rather than a false zero), so a
-// broken scanner cannot silently pass a CI run.
-//
-// Knip exits 1 when it finds issues — that is its normal "report
-// produced" path, not an error. The adapter only treats spawn failures
-// (status === null, non-numeric, or no JSON on stdout) as broken.
+// fork that strips the workspace cannot silently pass.
 
-import { spawnSync as nodeSpawnSync } from 'node:child_process';
-import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Pinned knip version. Bump deliberately under ADR-0024-dead-code-ratchet.md.
-export const KNIP_VERSION = '6.16.1';
+export const DETECTOR_VERSION = '1.0.0';
 
 // Workspace roots we scan. Matches complexity.mjs WORKSPACE_RE.
 export const DEFAULT_WORKSPACE_ROOTS = ['ws_apps', 'ws_packages'];
 
+// Directory segments we never descend into during the file walk. Mirrors
+// the ignore lists from .dependency-cruiser.cjs / knip defaults.
+const EXCLUDED_DIRS = new Set([
+  'node_modules',
+  '.next',
+  '.turbo',
+  'dist',
+  'build',
+  'target',
+  '.venv',
+  '__pycache__',
+  '.cache',
+  'coverage',
+  '.git',
+]);
+
+// Files that look like source modules to the workspace developer but
+// are loaded by framework convention rather than imported. Counting
+// their exports as unused is structurally wrong — they ARE used; the
+// framework just does not produce an import statement we can see.
+const FRAMEWORK_CONVENTION_FILES = new Set([
+  'mdx-components.tsx',
+  'source.config.ts',
+  'layout.shared.tsx',
+  'middleware.ts',
+  'instrumentation.ts',
+  'instrumentation-client.ts',
+]);
+
+// Path-segment-based exclusions for Next.js App Router conventions.
+// Every file directly under app/ (or nested route segments) is loaded
+// by the framework; scanning their exports for references would be a
+// false-positive farm.
+const FRAMEWORK_CONVENTION_PATH_SEGMENTS = ['/app/'];
+
+// Capture an identifier from `export <kind> <name>`. Whole-line
+// anchored so it does not match exports inside comments or inside
+// string literals. Covers all common shapes of named exports; default
+// exports and `export { renamed }` are intentionally excluded — see
+// the file header for why.
+const EXPORT_RE =
+  /^export\s+(?:async\s+)?(?:const|function|class|interface|type|enum|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm;
+
 /**
  * Enumerate workspace packages by listing every immediate child of
  * each root that contains a package.json. Returns workspace-relative
- * paths (e.g. "ws_apps/example-typescript") — the form knip accepts
- * as `--workspace <name>`.
+ * paths (e.g. "ws_apps/example-typescript"), sorted for determinism.
  */
 export function discoverWorkspaces(
   workspaceRoot,
@@ -98,111 +156,205 @@ export function discoverWorkspaces(
   return out.sort();
 }
 
-/**
- * Sum unused-files, unused-exports, unused-types across every entry in
- * a knip --reporter=json payload. Knip emits one entry per file with
- * arrays for each issue category. We do NOT count `unlisted` or
- * `unresolved`, since those are dependency hygiene (not dead code).
- */
-export function summarizeKnipPayload(payload) {
-  const issues = Array.isArray(payload?.issues) ? payload.issues : [];
-  let unused_files = 0;
-  let unused_exports = 0;
-  let unused_types = 0;
-  for (const entry of issues) {
-    unused_files += Array.isArray(entry?.files) ? entry.files.length : 0;
-    unused_exports += Array.isArray(entry?.exports) ? entry.exports.length : 0;
-    unused_types += Array.isArray(entry?.types) ? entry.types.length : 0;
-  }
-  return {
-    total_unused: unused_files + unused_exports + unused_types,
-    unused_files,
-    unused_exports,
-    unused_types,
-  };
+/** True for a file we should never enter from the recursive walk. */
+function isExcludedDir(name) {
+  return EXCLUDED_DIRS.has(name) || name.startsWith('.');
 }
 
-const DEFAULT_KNIP_ARGS = [
-  '--reporter',
-  'json',
-  '--no-progress',
-  '--include',
-  'files,exports,types',
-];
+/** True for a path we should never include in the export-source list. */
+export function isFrameworkConvention(workspaceRelative) {
+  const segments = workspaceRelative.split('/');
+  const file = segments[segments.length - 1];
+  if (FRAMEWORK_CONVENTION_FILES.has(file)) {
+    return true;
+  }
+  const normalized = `/${workspaceRelative}/`;
+  return FRAMEWORK_CONVENTION_PATH_SEGMENTS.some((seg) => normalized.includes(seg));
+}
 
 /**
- * Run knip via npx and parse its JSON payload. Returns the envelope the
- * gate consumes. Spawn is injectable for tests.
+ * Walk a directory and yield every .ts / .tsx file (deterministic,
+ * sorted within each level). Honors EXCLUDED_DIRS so node_modules,
+ * .next, target, etc. are skipped entirely.
+ */
+export function walkSourceTree(root, fs = { existsSync, readdirSync, statSync, readFileSync }) {
+  const out = [];
+  if (!fs.existsSync(root)) {
+    return out;
+  }
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir).slice().sort();
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry);
+      let st;
+      try {
+        st = fs.statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        if (!isExcludedDir(entry)) {
+          stack.push(full);
+        }
+        continue;
+      }
+      if (entry.endsWith('.ts') || entry.endsWith('.tsx')) {
+        out.push(full);
+      }
+    }
+  }
+  return out.sort();
+}
+
+/**
+ * Identify export-source files: `<workspace>/src/**` under every
+ * discovered workspace package. These are the files whose named
+ * exports we scan for references.
+ */
+export function listExportSources(
+  workspaceRoot,
+  workspaces,
+  fs = { existsSync, readdirSync, statSync, readFileSync },
+) {
+  const out = [];
+  for (const w of workspaces) {
+    const srcRoot = join(workspaceRoot, w, 'src');
+    for (const file of walkSourceTree(srcRoot, fs)) {
+      const rel = relative(workspaceRoot, file);
+      if (!isFrameworkConvention(rel)) {
+        out.push(file);
+      }
+    }
+  }
+  return out.sort();
+}
+
+/**
+ * Identify reference-corpus files: every .ts / .tsx under each
+ * workspace root, including tests / configs / framework conventions
+ * (we want THOSE to count as referrers). Files inside EXCLUDED_DIRS
+ * are skipped.
+ */
+export function listReferenceCorpus(
+  workspaceRoot,
+  roots = DEFAULT_WORKSPACE_ROOTS,
+  fs = { existsSync, readdirSync, statSync, readFileSync },
+) {
+  const out = [];
+  for (const root of roots) {
+    const rootPath = join(workspaceRoot, root);
+    for (const file of walkSourceTree(rootPath, fs)) {
+      out.push(file);
+    }
+  }
+  return out.sort();
+}
+
+/**
+ * Capture every named export identifier in a source file. Returns an
+ * array of { name, line } records (line is 1-indexed) so a future
+ * report layer can surface where the dead export lives.
+ */
+export function findExports(source) {
+  const out = [];
+  for (const m of source.matchAll(EXPORT_RE)) {
+    const name = m[1];
+    const offset = m.index ?? 0;
+    let line = 1;
+    for (let i = 0; i < offset; i += 1) {
+      if (source.charCodeAt(i) === 10) {
+        line += 1;
+      }
+    }
+    out.push({ name, line });
+  }
+  return out;
+}
+
+/**
+ * Count whole-word references to `name` in `content`. Whole-word
+ * boundary uses \b on both sides, matching the way TypeScript imports
+ * write the identifier.
+ */
+export function countReferences(name, content) {
+  const re = new RegExp(`\\b${name}\\b`, 'g');
+  const matches = content.match(re);
+  return matches ? matches.length : 0;
+}
+
+/**
+ * Run the deterministic dead-code scan. Reads no external state; all
+ * filesystem access is injectable via the fs param for unit tests.
  */
 export function runDeadcodeScan({
   workspaceRoot = process.cwd(),
   workspaces,
-  version = KNIP_VERSION,
-  spawn = nodeSpawnSync,
-  fs = { existsSync, readdirSync, statSync },
+  fs = { existsSync, readdirSync, statSync, readFileSync },
 } = {}) {
   const scanned = workspaces ?? discoverWorkspaces(workspaceRoot, DEFAULT_WORKSPACE_ROOTS, fs);
   if (scanned.length === 0) {
     return {
-      tool: 'knip',
+      tool: 'deadcode-grep',
       available: false,
       reason: 'no ws_apps/* or ws_packages/* package detected',
-      version,
+      version: DETECTOR_VERSION,
       scanned_workspaces: [],
       metrics: emptyMetrics(),
     };
   }
-  const args = [`knip@${version}`, ...DEFAULT_KNIP_ARGS];
-  for (const w of scanned) {
-    args.push('--workspace', w);
+  const sources = listExportSources(workspaceRoot, scanned, fs);
+  const corpus = listReferenceCorpus(workspaceRoot, DEFAULT_WORKSPACE_ROOTS, fs);
+  // Cache file contents — the corpus is tiny (~30 files in the template)
+  // and we visit every file once per export name otherwise.
+  const corpusContents = new Map();
+  for (const f of corpus) {
+    try {
+      corpusContents.set(f, fs.readFileSync(f, 'utf8'));
+    } catch {
+      // Unreadable file (broken symlink, race). Skip cleanly.
+    }
   }
-  let result;
-  try {
-    result = spawn('npx', ['--yes', ...args], {
-      cwd: workspaceRoot,
-      encoding: 'utf8',
-      maxBuffer: 32 * 1024 * 1024,
-    });
-  } catch (err) {
-    return {
-      tool: 'knip',
-      available: false,
-      reason: `spawn failed: ${err?.message ?? String(err)}`,
-      version,
-      scanned_workspaces: scanned,
-      metrics: emptyMetrics(),
-    };
-  }
-  if (typeof result?.status !== 'number') {
-    return {
-      tool: 'knip',
-      available: false,
-      reason: 'npx knip did not return an exit status',
-      version,
-      scanned_workspaces: scanned,
-      metrics: emptyMetrics(),
-    };
-  }
-  const stdout = result.stdout ?? '';
-  let payload;
-  try {
-    payload = JSON.parse(stdout);
-  } catch {
-    return {
-      tool: 'knip',
-      available: false,
-      reason: 'npx knip did not emit JSON on stdout',
-      version,
-      scanned_workspaces: scanned,
-      metrics: emptyMetrics(),
-    };
+  let unused = 0;
+  for (const sourceFile of sources) {
+    const content = corpusContents.get(sourceFile);
+    if (typeof content !== 'string') {
+      continue;
+    }
+    const exports = findExports(content);
+    for (const { name } of exports) {
+      let externalRefs = 0;
+      for (const [other, otherContent] of corpusContents) {
+        if (other === sourceFile) {
+          continue;
+        }
+        externalRefs += countReferences(name, otherContent);
+        if (externalRefs > 0) {
+          break;
+        }
+      }
+      if (externalRefs === 0) {
+        unused += 1;
+      }
+    }
   }
   return {
-    tool: 'knip',
+    tool: 'deadcode-grep',
     available: true,
-    version,
+    version: DETECTOR_VERSION,
     scanned_workspaces: scanned,
-    metrics: summarizeKnipPayload(payload),
+    metrics: {
+      total_unused: unused,
+      unused_files: 0,
+      unused_exports: unused,
+      unused_types: 0,
+    },
   };
 }
 

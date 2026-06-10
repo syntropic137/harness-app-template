@@ -217,11 +217,10 @@ const FITNESS_METRICS = {
     },
     {
       id: 'unused-export-count',
-      name: 'Unused Export and Dead Code Count',
+      name: 'Unused Export Count',
       objective:
-        'Total count of unused workspace files plus unused exports plus unused types in ws_apps/* and ws_packages/* detected by knip. The "no broken windows" rot ratchet: orphaned code that AI coding agents create when they refactor without cleanup. Direction max (smaller-is-better); ratchet tightens toward 0. Soft-skip when knip cannot run yields a null reading so a broken scanner cannot silently pass — same shape as the SC01/LG01 readers. See ADR-0024-dead-code-ratchet.md.',
-      source:
-        'knip --reporter=json over ws_apps + ws_packages (via harness/sensors/deadcode_scan.mjs)',
+        'Count of named exports declared under ws_apps/<app>/src/ and ws_packages/<pkg>/src/ that have zero whole-word references elsewhere in the workspace. Detector is a deterministic scoped grep (no node_modules / npx / network dependency), so the same input produces the same count locally and on every CI lane. The "no broken windows" rot ratchet: orphaned exports AI coding agents create when they refactor without cleanup. Direction max (smaller-is-better); ratchet tightens toward 0. Soft-skip when no workspace package exists yields a null reading so a broken scanner cannot silently pass. See ADR-0024-dead-code-ratchet.md.',
+      source: 'harness/sensors/deadcode_scan.mjs (pure-source scoped grep)',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -519,14 +518,15 @@ function sentruxMetricValue(options, field) {
 }
 
 /**
- * Read the knip dead-code envelope the MT01 dimension watches. Accepts
- * a pre-parsed envelope on options.deadcode or a filesystem reader
- * pair on options.io pointing at options.deadcodePath. Returns the
- * named numeric metric (or null when the envelope is absent, the
- * adapter reported unavailable, or the metric is missing). null
- * degrades the gate to "no reading" rather than a false zero — same
- * shape as the SC01/LG01/sentrux readers above. Produced by
- * harness/sensors/deadcode_scan.mjs (ADR-0024-dead-code-ratchet.md).
+ * Read the deterministic dead-code envelope the MT01 dimension
+ * watches. Accepts a pre-parsed envelope on options.deadcode or a
+ * filesystem reader pair on options.io pointing at
+ * options.deadcodePath. Returns the named numeric metric (or null
+ * when the envelope is absent, the adapter reported unavailable, or
+ * the metric is missing). null degrades the gate to "no reading"
+ * rather than a false zero — same shape as the SC01/LG01/sentrux
+ * readers above. Produced by harness/sensors/deadcode_scan.mjs
+ * (ADR-0024-dead-code-ratchet.md).
  */
 function deadcodeMetricValue(options, field) {
   let envelope = options?.deadcode;
@@ -1592,8 +1592,9 @@ function jsonPayload(base, policy) {
  *                          cycle_count, etc.) read from this file.
  *                          Activates sentrux as the 2nd architectural
  *                          lens alongside APSS topology (ADR-0017).
- *   --deadcode=<path>      Optional knip dead-code adapter envelope
- *                          (produced by harness/sensors/deadcode_scan.mjs).
+ *   --deadcode=<path>      Optional deterministic dead-code adapter
+ *                          envelope (produced by
+ *                          harness/sensors/deadcode_scan.mjs).
  *                          When present, the MT01 unused-export-count
  *                          metric reads total_unused from this file.
  *                          Soft-skip yields no-reading rather than a

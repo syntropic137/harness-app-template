@@ -369,7 +369,7 @@ Options:
   --security=PATH        UBS report JSON (feeds SC01).
   --licenses=PATH        License scan JSON (feeds LG01).
   --sentrux=PATH         Sentrux adapter envelope (feeds MT01/MD01/ST01 sentrux metrics).
-  --deadcode=PATH        Knip dead-code adapter envelope (feeds MT01 unused-export-count).
+  --deadcode=PATH        Deterministic dead-code adapter envelope (feeds MT01 unused-export-count).
   --format=FMT           text (default), json, or summary (one-liner for hooks).
   --json / --summary     Aliases for --format.
   --quick                Skip stdin; render the floor-only view from baseline.json.
