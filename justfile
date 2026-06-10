@@ -129,6 +129,13 @@ versioning *args:
 release-check from="" to="HEAD":
     @if [ -n '{{from}}' ]; then bun run scripts/versioning.ts ci-check --from '{{from}}' --to '{{to}}' .; else bun run scripts/versioning.ts ci-check --to '{{to}}' .; fi
 
+# Validate that a PR title is a Conventional Commit subject. Wired into the
+# GitHub Actions versioning workflow on pull_request events so a
+# non-conventional PR title is rejected before squash-merge can land a
+# non-conventional commit on main.
+release-check-pr-title title:
+    bun run scripts/versioning.ts check-pr-title {{quote(title)}}
+
 release-plan from="" to="HEAD":
     @if [ -n '{{from}}' ]; then bun run scripts/versioning.ts plan --from '{{from}}' --to '{{to}}' .; else bun run scripts/versioning.ts plan --to '{{to}}' .; fi
 

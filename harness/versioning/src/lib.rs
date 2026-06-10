@@ -70,6 +70,17 @@ pub enum Cmd {
         #[arg(long, default_value = "HEAD")]
         to: String,
     },
+    /// Validate that a pull request title parses as a Conventional Commit.
+    ///
+    /// Wired into the PR release-discipline gate so a non-conventional PR
+    /// title is blocked before squash-merge can land a non-conventional
+    /// commit on main (the branch commits themselves are independently
+    /// validated by `ci-check`, but squash collapses them under the PR
+    /// title).
+    CheckPrTitle {
+        /// The PR title to validate. Use `-` to read from stdin.
+        title: String,
+    },
     /// Update CHANGELOG.md, commit it, and create an annotated release tag.
     Release {
         /// Project root.
@@ -159,6 +170,7 @@ pub fn run(cli: Cli) -> Result<ExitCode> {
             print_plan(&plan);
             Ok(ExitCode::SUCCESS)
         }
+        Cmd::CheckPrTitle { title } => check_pr_title(title, &mut std::io::stdin()),
         Cmd::Release {
             root,
             level,
@@ -166,6 +178,35 @@ pub fn run(cli: Cli) -> Result<ExitCode> {
             to,
             execute,
         } => release(root, level, from, to, execute),
+    }
+}
+
+fn check_pr_title(title: String, stdin: &mut dyn std::io::Read) -> Result<ExitCode> {
+    let raw = if title == "-" {
+        let mut buf = String::new();
+        stdin
+            .read_to_string(&mut buf)
+            .context("read PR title from stdin")?;
+        buf
+    } else {
+        title
+    };
+    let subject = raw.lines().next().unwrap_or("").trim().to_string();
+    if subject.is_empty() {
+        eprintln!("error: PR title is empty");
+        return Ok(ExitCode::from(1));
+    }
+    if parse_conventional(&subject, "").is_some() {
+        println!("versioning: PR title is conventional: {subject}");
+        Ok(ExitCode::SUCCESS)
+    } else {
+        eprintln!(
+            "error: PR title is not a Conventional Commit subject:\n  {subject}\n\n\
+             Expected: <type>[(scope)][!]: <description>\n\
+             Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore,\n  experiments, plan, proposal, retrospective (or any lowercase ascii-letters-or-digits-or-dash word).\n\n\
+             Examples:\n  feat(versioning): add pr-title check\n  fix: repair release script\n  feat(api)!: drop legacy endpoint\n"
+        );
+        Ok(ExitCode::from(1))
     }
 }
 
@@ -1397,6 +1438,73 @@ mod tests {
                 .to_string()
                 .contains("git command failed")
         );
+    }
+
+    fn pr_title(title: &str) -> Result<ExitCode> {
+        check_pr_title(title.to_string(), &mut std::io::empty())
+    }
+
+    #[test]
+    fn check_pr_title_accepts_conventional_subject() {
+        assert_eq!(
+            pr_title("feat(versioning): validate PR title").unwrap(),
+            ExitCode::SUCCESS
+        );
+        assert_eq!(pr_title("fix: repair release script").unwrap(), ExitCode::SUCCESS);
+        assert_eq!(
+            pr_title("feat(api)!: drop legacy endpoint").unwrap(),
+            ExitCode::SUCCESS
+        );
+    }
+
+    #[test]
+    fn check_pr_title_rejects_non_conventional_subject() {
+        assert_eq!(pr_title("update release script").unwrap(), ExitCode::from(1));
+        assert_eq!(pr_title("Feat: uppercase type").unwrap(), ExitCode::from(1));
+        assert_eq!(
+            pr_title("fork-readiness E2E + fixes for fresh-consumer gaps").unwrap(),
+            ExitCode::from(1)
+        );
+    }
+
+    #[test]
+    fn check_pr_title_rejects_empty_title() {
+        assert_eq!(pr_title("").unwrap(), ExitCode::from(1));
+        assert_eq!(pr_title("   \n  ").unwrap(), ExitCode::from(1));
+    }
+
+    #[test]
+    fn check_pr_title_uses_first_line_only() {
+        assert_eq!(
+            pr_title("feat: ok\n\nbody continues").unwrap(),
+            ExitCode::SUCCESS
+        );
+    }
+
+    #[test]
+    fn check_pr_title_reads_from_stdin_when_dash() {
+        let mut input = b"feat: from stdin\n".as_ref();
+        assert_eq!(
+            check_pr_title("-".to_string(), &mut input).unwrap(),
+            ExitCode::SUCCESS
+        );
+
+        let mut bad = b"plain title\n".as_ref();
+        assert_eq!(
+            check_pr_title("-".to_string(), &mut bad).unwrap(),
+            ExitCode::from(1)
+        );
+    }
+
+    #[test]
+    fn run_dispatches_check_pr_title() {
+        let code = run(Cli {
+            cmd: Cmd::CheckPrTitle {
+                title: "feat: from run".to_string(),
+            },
+        })
+        .unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
     }
 
     #[test]

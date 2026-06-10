@@ -33,6 +33,16 @@ jobs:
         run: cargo install just --locked
       - name: Test versioning slot
         run: cargo test --manifest-path harness/versioning/Cargo.toml
+      - name: Check pull request title is conventional
+        # Squash-merge collapses every branch commit into a single commit on
+        # main whose message is the PR title. A non-conventional title would
+        # therefore land a non-conventional commit on main even when every
+        # branch commit was conventional (which is exactly how PR #20
+        # broke the gate). This step blocks that path before it can happen.
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: just release-check-pr-title "$PR_TITLE"
       - name: Check pull request release discipline
         if: github.event_name == 'pull_request'
         run: just release-check "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
