@@ -156,6 +156,19 @@ Five on-demand skills under [`.claude/skills/`](./.claude/skills/) — the agent
 - [`playwright-debug`](./.claude/skills/playwright-debug/) — drive your app via Playwright (DOM, console errors, network failures, screenshots, trace correlation).
 - [`chrome-devtools-deep`](./.claude/skills/chrome-devtools-deep/) — raw Chrome DevTools Protocol via `newCDPSession` for perf traces, source-mapped stacks, heap snapshots.
 
+### Software leverage points (vendored)
+
+This template also ships the 17 software-leverage-points (SLP) review skills (architecture, configuration, continuous-delivery, dependencies, developer-experience, documentation, dry, environments, error-handling, logging, principles-and-patterns, purpose-and-scope, security, software-complexity, testing, types, versioning) vendored from [`syntropic137/software-leverage-points`](https://github.com/syntropic137/software-leverage-points). They land at `.claude/skills/<leverage-point>/` and load on demand like any other skill.
+
+Provenance lives at [`.claude/skills/slp-source.json`](./.claude/skills/slp-source.json): upstream URL, pinned commit SHA, vendored-on date, and the explicit skill list. Forks get SLP for free (clone the template, the skills are already in tree). To refresh them at a newer upstream ref:
+
+```sh
+just update-slp                # pulls main, updates pinned SHA, prints changed files
+just update-slp v1.2.0         # any ref the upstream repo accepts
+```
+
+The recipe re-clones the upstream, replaces each vendored skill directory in place, rewrites the pinned SHA and date in `slp-source.json`, and prints the resulting `git status --short` so you can review the diff before committing.
+
 ## Updating your fork
 
 This template tracks an upstream canonical repo (`syntropic137/harness-app-template`). To pull harness improvements into your fork:
