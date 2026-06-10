@@ -245,6 +245,46 @@ pre-push:
           node scripts/doc-validator.mjs --apss
         '
 
+    dep-audit-lockfile:
+      # Fast lockfile-integrity check (ADR-0023-dependency-audit.md).
+      # Inner-loop sibling of the CI dep-audit gate: verifies each
+      # present, committed lockfile is consistent with its manifest
+      # WITHOUT going to the network. The heavy CVE audit lives in the
+      # `dep-audit` CI job because npm / RustSec / PyPA round-trips are
+      # too slow to enforce at pre-push. Posture per lane:
+      #   - lockfile missing: this template intentionally gitignores
+      #     pnpm-lock.yaml and Cargo.lock (consumers regenerate on
+      #     `just init`), so a fresh-clone push has nothing to verify.
+      #     uv.lock IS committed and gets the integrity check.
+      #   - tooling missing: pre-push is an inner-loop ergonomics
+      #     surface; the CI dep-audit gate is the authoritative
+      #     fail-closed enforcement. Mismatched posture is intentional.
+      # Rust lockfile integrity is intentionally absent: `cargo metadata
+      # --locked --offline` needs the registry cache populated, which a
+      # fresh-clone box does not have, and dropping --offline forces a
+      # network round-trip that violates the "fast pre-push" tier.
+      run: |
+        sh -eu -c '
+          rc=0
+          if [ -f pnpm-lock.yaml ]; then
+            if command -v pnpm >/dev/null 2>&1; then
+              printf "dep-audit-lockfile[js]: pnpm install --frozen-lockfile --lockfile-only\n"
+              pnpm install --frozen-lockfile --lockfile-only --reporter=silent || rc=$?
+            else
+              printf "warning: pnpm not found; skipping JS lockfile integrity\n" >&2
+            fi
+          fi
+          if [ -f uv.lock ]; then
+            if command -v uv >/dev/null 2>&1; then
+              printf "dep-audit-lockfile[python]: uv lock --check\n"
+              uv lock --check || rc=$?
+            else
+              printf "warning: uv not found; skipping Python lockfile integrity\n" >&2
+            fi
+          fi
+          exit $rc
+        '
+
     perf-gate:
       # Startup-time fitness function (bead create-harness-app-n48.13).
       # Runs hyperfine against ws_apps/example-typescript's cold-start

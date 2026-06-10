@@ -158,6 +158,15 @@ protect-main *args:
 cargo *args:
     bun run scripts/cargo.ts {{args}}
 
+# Polyglot dependency / supply-chain audit (ADR-0023-dependency-audit.md).
+# Runs `pnpm audit --audit-level=high --prod`, `cargo audit` against every
+# Rust workspace, and `pip-audit` against every uv-managed Python project.
+# Fails CLOSED on missing tooling (no audit = no signal). Tier: CI gate,
+# not pre-push — the network round-trip to advisory DBs dominates wall
+# clock. Pass `--only js|rust|python` to scope to a single lane.
+dep-audit *args:
+    bun run scripts/dep-audit.ts {{args}}
+
 uv *args:
     bun run scripts/uv.ts {{args}}
 

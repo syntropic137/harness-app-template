@@ -15,6 +15,12 @@
 .env
 .env.local
 
+# Dependency-audit staging dir (ADR-0023-dependency-audit.md).
+# scripts/dep-audit.ts writes resolved requirements files here before
+# piping them to pip-audit; the dir is rm -rf'd on completion, but a
+# crashed run could leave it behind.
+.dep-audit/
+
 # Harness internals
 # Top-level consumer-side .harness/ is local-only (per-fork policy / scratch).
 # The slot-side governance file at harness/.harness/governance.toml is the
