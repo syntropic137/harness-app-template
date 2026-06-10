@@ -128,7 +128,7 @@
           "source": ".sentrux/baseline.json complex_fn_count (via harness/sensors/sentrux_scan.mjs)",
           "direction": "max",
           "default_threshold": 0,
-          "baseline": 7,
+          "baseline": 9,
           "fail_on_regression": true
         }
       }

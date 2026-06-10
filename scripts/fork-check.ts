@@ -110,6 +110,50 @@ function makeFreshRepo(work: string): void {
   );
 }
 
+function runDocValidator(work: string, results: StepResult[]): void {
+  if (SKIP_DOC) {
+    console.log('\nfork-check: doc-validator skipped (FORK_CHECK_SKIP_DOC=1)');
+    return;
+  }
+  if (!which('apss')) {
+    console.log('\nfork-check: doc-validator skipped (apss not on PATH)');
+    return;
+  }
+  // apss install composes .apss/bin/apss from the lockfile;
+  // env -u CARGO_TARGET_DIR mirrors the `just apss-install` recipe's
+  // workaround for the upstream cargo-target-dir bug.
+  results.push(step('apss install', 'sh', ['-c', 'env -u CARGO_TARGET_DIR apss install'], work));
+  results.push(step('doc-validator', 'node', ['scripts/doc-validator.mjs', '--apss'], work));
+}
+
+function runGates(work: string, results: StepResult[]): void {
+  // Documented consumer flow: `just init <name>`. We pass --no-verify
+  // so bootstrap below runs pnpm/cargo/uv under one observable umbrella
+  // instead of init's hidden pre-flight.
+  results.push(
+    step('just init', 'bun', ['run', 'scripts/init.ts', PROJECT_NAME, '--no-verify'], work),
+  );
+  results.push(step('just bootstrap', 'just', ['bootstrap'], work));
+  // `just qa` runs typecheck + lint + test + sensors-gate + secret-scan.
+  // Sensors gate exercises the APSS topology producer and the
+  // architectural ratchet against the post-init tree — the canonical
+  // fork-readiness pressure point.
+  results.push(step('just qa', 'just', ['qa'], work));
+  runDocValidator(work, results);
+  const fitnessArgs = FITNESS_MODE === 'full' ? ['fitness'] : ['fitness', '--quick'];
+  results.push(step(`just ${fitnessArgs.join(' ')}`, 'just', fitnessArgs, work));
+}
+
+function summarize(results: StepResult[], totalSec: string, work: string): void {
+  console.log('\n=== fork-check: summary ===');
+  for (const r of results) {
+    const tag = r.ok ? 'OK  ' : 'FAIL';
+    console.log(`  ${tag}  ${r.name}  (${(r.durationMs / 1000).toFixed(1)}s)`);
+  }
+  console.log(`  total: ${totalSec}s`);
+  console.log(`  workspace: ${work}${KEEP ? ' (preserved)' : ' (removed)'}`);
+}
+
 function main(): void {
   const work = mkdtempSync(join(tmpdir(), 'harness-forkcheck-'));
   console.log(`fork-check: workspace = ${work}`);
@@ -128,61 +172,13 @@ function main(): void {
       throw new Error('snapshot incomplete: package.json missing in workspace');
     }
     makeFreshRepo(work);
-
-    // Documented consumer flow: just init <name>. We pass --no-verify so
-    // bootstrap below runs the same pnpm/cargo/uv steps under one
-    // observable umbrella instead of init's hidden pre-flight.
-    results.push(
-      step('just init', 'bun', ['run', 'scripts/init.ts', PROJECT_NAME, '--no-verify'], work),
-    );
-
-    results.push(step('just bootstrap', 'just', ['bootstrap'], work));
-
-    // Full gate suite. `just qa` runs typecheck + lint + test +
-    // sensors-gate + secret-scan. The sensors gate exercises the APSS
-    // topology producer and the architectural ratchet against the
-    // post-init tree — the canonical fork-readiness pressure point.
-    results.push(step('just qa', 'just', ['qa'], work));
-
-    // Doc-validator (APSS APS-V1-0003). Only run when apss is on
-    // PATH; otherwise emit a notice — CI installs apss explicitly so
-    // it always runs there.
-    if (SKIP_DOC) {
-      console.log('\nfork-check: doc-validator skipped (FORK_CHECK_SKIP_DOC=1)');
-    } else if (which('apss')) {
-      // apss install composes .apss/bin/apss from the lockfile;
-      // env -u CARGO_TARGET_DIR mirrors the `just apss-install`
-      // recipe's workaround for the upstream cargo-target-dir bug.
-      results.push(
-        step(
-          'apss install',
-          'sh',
-          ['-c', 'env -u CARGO_TARGET_DIR apss install'],
-          work,
-        ),
-      );
-      results.push(
-        step('doc-validator', 'node', ['scripts/doc-validator.mjs', '--apss'], work),
-      );
-    } else {
-      console.log('\nfork-check: doc-validator skipped (apss not on PATH)');
-    }
-
-    // Agent-facing fitness summary. --quick is floor-only and fast; the
-    // gate itself (covered by `just qa` above) is the hard ratchet.
-    const fitnessArgs = FITNESS_MODE === 'full' ? ['fitness'] : ['fitness', '--quick'];
-    results.push(step(`just ${fitnessArgs.join(' ')}`, 'just', fitnessArgs, work));
+    runGates(work, results);
   } catch (e) {
     failed = true;
     console.error(`\nfork-check: FAIL — ${(e as Error).message}`);
   } finally {
     const totalSec = ((Date.now() - t0) / 1000).toFixed(1);
-    console.log('\n=== fork-check: summary ===');
-    for (const r of results) {
-      console.log(`  ${r.ok ? 'OK  ' : 'FAIL'}  ${r.name}  (${(r.durationMs / 1000).toFixed(1)}s)`);
-    }
-    console.log(`  total: ${totalSec}s`);
-    console.log(`  workspace: ${work}${KEEP ? ' (preserved)' : ' (removed)'}`);
+    summarize(results, totalSec, work);
     if (!KEEP) {
       rmSync(work, { recursive: true, force: true });
     }

@@ -152,3 +152,53 @@ jobs:
         run: harness/sensors/bin/sensors gate
       - name: Run perf fitness gate
         run: harness/perf/bench.sh | node harness/perf/gate.mjs
+
+  fork-check:
+    # End-to-end fork-readiness check. Snapshots HEAD into a clean temp
+    # workspace, runs the documented `just init <name>` + `just bootstrap`
+    # consumer flow, then executes the full gate suite (qa, sensors gate,
+    # fitness summary) against the post-init tree. Catches "works in
+    # template repo but breaks on fresh fork" regressions that the
+    # in-repo CI jobs above can never see (e.g. uv workspace member
+    # collisions after rename, cold-cache CLI budgets, baseline paths
+    # tied to seed names). Doc-validator is skipped here because the
+    # `documentation` job above already exercises apss against the
+    # template tree.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.1
+      - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - name: Cache APSS binary
+        id: cache-apss
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/apss
+          key: apss-1.1.0-${{ runner.os }}
+      - name: Install APSS
+        if: steps.cache-apss.outputs.cache-hit != 'true'
+        run: cargo install apss --version 1.1.0
+      - name: Install sensors slot deps for source-tree sensors invocations
+        working-directory: harness/sensors
+        run: npm install --no-package-lock --no-audit --no-fund --silent
+      - name: Configure git author for the snapshot commit
+        run: |
+          git config --global user.email fork-check@github
+          git config --global user.name fork-check
+      - name: Run fork-readiness E2E
+        env:
+          FORK_CHECK_SKIP_DOC: '1'
+          FORK_CHECK_FITNESS: quick
+        run: just fork-check
