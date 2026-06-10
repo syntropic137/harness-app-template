@@ -133,7 +133,13 @@ describe('initProject', () => {
       expect(readFileSync(join(root, 'ws_apps/acme-rust/package.json'), 'utf8')).toContain(
         '"@acme/rust"',
       );
-      expect(readFileSync(join(root, 'pyproject.toml'), 'utf8')).toContain('name = "acme-python"');
+      // Root pyproject (the virtual uv workspace) must keep a distinct
+      // name from the inner Python member, otherwise `uv sync` rejects
+      // the workspace with "two workspace members are both named X".
+      // See scripts/init.ts#updateRootPyproject.
+      const rootPyproject = readFileSync(join(root, 'pyproject.toml'), 'utf8');
+      expect(rootPyproject).toContain('name = "acme-monorepo"');
+      expect(rootPyproject).not.toContain('name = "acme-python"');
       expect(
         readFileSync(join(root, 'harness/observability/compose.harness.yml'), 'utf8'),
       ).toContain('name: acme');

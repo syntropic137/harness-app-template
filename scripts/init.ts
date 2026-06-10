@@ -57,7 +57,13 @@ function updateRootPyproject(cwd: string, projectName: string): void {
   const path = join(cwd, 'pyproject.toml');
   if (!existsSync(path)) return;
   const original = readText(path);
-  const updated = original.replace(/^name = "(agentic-harness-monorepo|example-python)"$/m, `name = "${projectName}-python"`);
+  // The root pyproject declares the virtual uv workspace; its name must
+  // NOT collide with the inner Python member's name (otherwise
+  // `uv sync` refuses with "two workspace members are both named X").
+  // Suffix the root with `-monorepo` to keep it distinct from the
+  // `${projectName}-python` member that `replaceInTree` rewrites inside
+  // `ws_apps/${projectName}-python/pyproject.toml`.
+  const updated = original.replace(/^name = "agentic-harness-monorepo"$/m, `name = "${projectName}-monorepo"`);
   if (updated !== original) {
     writeText(path, updated);
   }
