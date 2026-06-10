@@ -318,7 +318,7 @@ case "${1:-}" in
     if [ -z "$readings_from" ] && command -v ubs >/dev/null 2>&1; then
       sec_tmp="$(mktemp -t harness-sensors-security-XXXXXX.json)"
       ubs --quiet --report-json="$sec_tmp" \
-        --files="scripts/lib/git.ts,scripts/lib/fs.ts,scripts/lib/slots.ts,harness/sensors/aggregate.mjs,harness/sensors/gate.mjs,harness/sensors/abstractness.mjs,harness/sensors/complexity.mjs,harness/sensors/apss_topology.mjs,harness/sensors/license_scan.mjs,harness/perf/gate.mjs,harness/perf/bench.sh,harness/sensors/bin/sensors" \
+        --files="scripts/lib/git.ts,scripts/lib/fs.ts,scripts/lib/slots.ts,harness/sensors/aggregate.mjs,harness/sensors/gate.mjs,harness/sensors/abstractness.mjs,harness/sensors/complexity.mjs,harness/sensors/cx_gate.mjs,harness/sensors/apss_topology.mjs,harness/sensors/license_scan.mjs,harness/perf/gate.mjs,harness/perf/bench.sh,harness/sensors/bin/sensors" \
         >/dev/null 2>/dev/null || true
       if [ -s "$sec_tmp" ]; then
         gate_args+=("--security=$sec_tmp")
