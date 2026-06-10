@@ -33,6 +33,17 @@ lint-fix *args:
 doctor *args:
     bun run scripts/doctor.ts {{args}}
 
+# End-to-end fork-readiness check. Snapshots HEAD into an isolated temp
+# dir, runs the documented consumer onboarding (`just init <name>` →
+# `just bootstrap`), then executes the full gate suite (qa, sensors gate,
+# optional doc-validator with apss, fitness summary) against the
+# post-init tree. Catches "works in template repo but breaks on fork"
+# regressions that the in-repo CI can never see. Honors env knobs
+# FORK_CHECK_NAME, FORK_CHECK_KEEP, FORK_CHECK_SOURCE (head|worktree),
+# FORK_CHECK_SKIP_DOC, FORK_CHECK_FITNESS (quick|full).
+fork-check *args:
+    bun run scripts/fork-check.ts {{args}}
+
 harness-engineering-skills *args:
     bun run scripts/harness-engineering-skills.ts {{args}}
 
