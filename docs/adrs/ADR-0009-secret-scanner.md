@@ -16,11 +16,25 @@ The secret-scanner slot needs broad credential pattern coverage in pre-commit an
 
 ## Decision
 
-Use Gitleaks as the reference secret scanner.
+Use Gitleaks as the reference secret scanner. Both the pre-commit
+hook (`lefthook.yml` `secret-scan`) and the QA wrapper
+(`scripts/qa.ts`) run **fail-closed**: if `gitleaks` is not on PATH
+the gate exits 1 with an install hint rather than soft-skipping. This
+differs from the soft-skip pattern other slots follow (biome, ruff,
+hyperfine) and is deliberate — a missing secret scanner means no scan
+happened, which is the exact failure mode the gate exists to prevent.
+The contract is covered by `scripts/tests/secret-scan.test.ts`, which
+exercises detection, clean-tree pass, and the PATH-stripped enforce
+path.
 
 ## Consequences
 
-The template gets a fast MIT-licensed scanner with broad pattern coverage. Verified-secret semantics remain a possible CI-only second layer if licensing and runtime costs become acceptable.
+The template gets a fast MIT-licensed scanner with broad pattern
+coverage. The fail-closed posture adds a small bootstrap cost
+(single 6 MB binary install) in exchange for a security gate that
+cannot silently bypass itself. Verified-secret semantics remain a
+possible CI-only second layer if licensing and runtime costs become
+acceptable.
 
 ## Details
 

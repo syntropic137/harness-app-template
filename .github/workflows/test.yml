@@ -26,6 +26,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      # Install gitleaks so the secret-scan gate inside `pnpm qa`
+      # (scripts/qa.ts) runs for real in CI. The gate is fail-closed
+      # (see ADR-0009-secret-scanner.md); without this step the QA job
+      # would abort on the install-hint path instead of actually
+      # scanning. taiki-e/install-action ships pre-built binaries, so
+      # the install is a few hundred milliseconds.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: gitleaks
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm qa
 
@@ -181,6 +190,11 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
+      # Fresh-fork qa runs the fail-closed secret-scan gate, so the
+      # forked checkout needs gitleaks on PATH for `pnpm qa` to pass.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: gitleaks
       - name: Cache APSS binary
         id: cache-apss
         uses: actions/cache@v4

@@ -168,17 +168,37 @@ is reproducible.
 
 ### 5. Secret scanning
 
-**State: wired.** [Gitleaks v8](https://github.com/gitleaks/gitleaks)
-runs in three places:
+**State: wired and fail-closed.** [Gitleaks v8](https://github.com/gitleaks/gitleaks)
+runs in two places, both of which abort with an install hint rather
+than soft-skipping when the scanner is missing:
 
-- **Pre-commit hook** (`lefthook.yml` → `gitleaks protect --staged`) —
-  blocks the commit if a staged file matches a credential pattern.
-  Sub-second on a typical diff.
-- **CI** (`.github/workflows/test.yml` → `gitleaks detect`) — full-tree
-  scan on every push; catches anything that slipped past pre-commit
-  (e.g. a contributor with hooks uninstalled).
-- **History scan** (`gitleaks detect --log-opts=...`) — on PR base
-  comparison, catches secrets introduced in the PR's commit range.
+- **Pre-commit hook** (`lefthook.yml` → `gitleaks protect --staged
+  --redact --no-banner`) — blocks the commit if a staged file matches
+  a credential pattern. Sub-second on a typical diff (measured: 1.06 s
+  wall, 399 ms scan on an 8.4 KB staged set; see PR #22).
+- **CI workspace-qa + fork-check jobs** (`.github/workflows/test.yml`)
+  — install gitleaks via `taiki-e/install-action` and run the full
+  `gitleaks detect` pass inside `pnpm qa` (`scripts/qa.ts`). Catches
+  anything that slipped past pre-commit (e.g. a contributor with
+  hooks uninstalled).
+
+Both surfaces are **fail-closed**: a missing `gitleaks` binary exits
+the gate with status 1 and a printed install hint, not a silent skip.
+This is a deliberate departure from the soft-skip pattern other slots
+follow (biome, ruff, hyperfine), because a missing secret scanner
+means *no scan happened*, which is the exact failure mode a security
+gate exists to prevent. Gitleaks is a single 6 MB Go binary, so the
+install cost stays within bootstrap.
+
+Contract is covered by `scripts/tests/secret-scan.test.ts`, which
+proves end-to-end that:
+
+1. a planted fake AWS access-key in a staged file is detected, and
+2. a clean staged tree passes, and
+3. both the lefthook hook body and the `scripts/qa.ts` shell program
+   exit 1 with the install hint when `gitleaks` is stripped from
+   `PATH` (i.e. the silent-soft-skip regression is caught
+   mechanically, not by code review).
 
 Rationale + tool pick: see `docs/adrs/ADR-0009-secret-scanner.md`.
 
