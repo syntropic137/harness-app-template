@@ -61,7 +61,7 @@ Concretely:
 
 - `harness.manifest.json#slots.doc-validator.plugin` stays `harness-doc-validator` (the custom Rust crate). The `implementation` field is updated to note that the project also runs `apss validate` as an *additional* documentation gate; APS-V1-0003 is named in the slot's `decisionAt` chain via this ADR.
 - `harness.manifest.json#slots.sensors` is unchanged. The shim referenced in ADR-0017 (`harness/sensors/apss_topology.mjs`) remains the single integration point. `gate.mjs` does not call `apss run` directly.
-- A project-level `APSS.yaml` declares the two standards the template adopts (`APS-V1-0003` and, when its R1 to R5 disclosure clears upstream, `APS-V1-0002`) and pins `apss.lock`. Both files belong to Codex's lane.
+- A project-level `APSS.yaml` declares the three standards the template adopts and pins `apss.lock`: `APS-V1-0001` (code-topology, the producer whose artifacts the `apss_topology.mjs` shim reads), `APS-V1-0002` (architecture-fitness, composed into the project binary so `apss run APS-V1-0002 ...` is REACHABLE; not yet invoked from `gate.mjs`), and `APS-V1-0003` (documentation, run as the second pre-commit doc gate). Declaring `APS-V1-0002` in `APSS.yaml` is a no-op for the gate's enforcement posture because it only adds the standard to the composed `apss-local` binary's available commands; what remains deferred is the harness sensors gate calling `apss run APS-V1-0002` directly (see the deliberate non-choice below). Both files belong to Codex's lane.
 - The `hooks` slot (lefthook) gains an APSS pre-commit/pre-push entry that runs `apss validate`. The existing `harness/doc-validator` entry stays. Both must pass.
 - The `task-runner` slot exposes `just apss validate` (or similar) so the augmented gate is discoverable.
 
@@ -69,7 +69,7 @@ Deliberate non-choices:
 
 - **No renumbering of ADR-0010.** The custom doc-validator pick is unchanged. APS-V1-0003 is an additional, packaged gate, not a successor pick.
 - **No edit to ADR-0017's shim seam.** `apss_topology.mjs` continues to be the only point that consumes APSS-canonical topology artifacts.
-- **No upgrade of `gate.mjs` to call `apss run APS-V1-0002` in this ADR.** That is a separate decision tied to the upstream R1 to R5 disclosure for ST01 / SC01 / LG01 / PF01 (per `docs/standards-integration/fitness-function-APS-V1-0002.md` §6). The roadmap there is unchanged.
+- **No upgrade of `gate.mjs` to call `apss run APS-V1-0002` in this ADR.** That is a separate decision tied to the upstream R1 to R5 disclosure for ST01 / SC01 / LG01 / PF01 (per `docs/standards-integration/fitness-function-APS-V1-0002.md` §6). The roadmap there is unchanged. Note this constraint is on the INVOCATION seam, not on the lockfile declaration: `APS-V1-0002` is composed into the project's `apss-local` binary so `apss run APS-V1-0002 ...` is reachable from a terminal or a future workflow, but the harness sensors gate continues to drive evaluation using its 8-dimension baseline (preservation-first, stance (3)).
 
 ## Consequences
 
