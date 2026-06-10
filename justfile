@@ -84,6 +84,13 @@ init project-name:
 update *args:
     bun run scripts/update.ts {{args}}
 
+# Re-vendor the software-leverage-points (SLP) skills at the given upstream ref
+# (default: main). Updates .claude/skills/slp-source.json with the new pinned
+# SHA and date, then prints changed files. See README "Software leverage
+# points" for usage.
+update-slp *args:
+    bun run scripts/update-slp.ts {{args}}
+
 stack *args:
     @bun run scripts/stack.ts {{args}}
 

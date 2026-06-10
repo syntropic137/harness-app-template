@@ -1,0 +1,27 @@
+{
+  "$comment": "Provenance for the vendored software-leverage-points (SLP) skills. Managed by `just update-slp` (see scripts/update-slp.ts).",
+  "note": "The upstream skill-auditor, skill-builder, and software-leverage-review skills are intentionally excluded from this vendored set.",
+  "upstream": "https://github.com/syntropic137/software-leverage-points",
+  "commit": "5d48e71018b5aba756530b14d110816ea107b8c6",
+  "vendoredOn": "2026-06-10",
+  "sourcePath": "skills",
+  "skills": [
+    "architecture",
+    "configuration",
+    "continuous-delivery",
+    "dependencies",
+    "developer-experience",
+    "documentation",
+    "dry",
+    "environments",
+    "error-handling",
+    "logging",
+    "principles-and-patterns",
+    "purpose-and-scope",
+    "security",
+    "software-complexity",
+    "testing",
+    "types",
+    "versioning"
+  ]
+}
