@@ -10,12 +10,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import {
-  compareBaseline,
-  extractApssFitnessBaseline,
-  main,
-  ratchetBaseline,
-} from '../gate.mjs';
+import { compareBaseline, extractApssFitnessBaseline, main, ratchetBaseline } from '../gate.mjs';
 
 function reportWith(folders = {}) {
   return {
@@ -177,6 +172,83 @@ test('ratchetBaseline: improving APSS dimension metric tightens floor (direction
   assert.ok(dimT, 'expected dimension tightening for max-cognitive');
   assert.equal(dimT.previous, 12);
   assert.equal(dimT.next, 5);
+});
+
+test('ratchetBaseline: improving high-cognitive-fn-count tightens the spread floor', () => {
+  // Spread metric complements max-cognitive (the PEAK): catches the
+  // death-by-a-thousand-cuts pattern where the worst function gets split
+  // but several moderately-complex functions appear in its place. The
+  // ratchet must auto-tighten the spread floor toward zero just like
+  // the peak floor.
+  const baseline = {
+    schema_version: '1.0.0',
+    folders: {},
+    dimensions: {
+      MT01: {
+        metrics: {
+          'high-cognitive-fn-count': {
+            name: 'High Cognitive Complexity Function Count',
+            direction: 'max',
+            baseline: 7,
+            fail_on_regression: true,
+          },
+        },
+      },
+    },
+  };
+  const better = {
+    workspace: {
+      folders: [],
+      modules: [],
+      circular_edges: 0,
+      high_cognitive_count: 2,
+    },
+  };
+  const { next, tightenings, changed } = ratchetBaseline(baseline, better);
+  assert.equal(changed, true);
+  assert.equal(next.dimensions.MT01.metrics['high-cognitive-fn-count'].baseline, 2);
+  const dimT = tightenings.find(
+    (t) => t.kind === 'dimension' && t.metric === 'high-cognitive-fn-count',
+  );
+  assert.ok(dimT, 'expected dimension tightening for high-cognitive-fn-count');
+  assert.equal(dimT.previous, 7);
+  assert.equal(dimT.next, 2);
+});
+
+test('compareBaseline: regression in high-cognitive-fn-count fails the gate fast', () => {
+  // Floor at 1 (the current template state — one test fixture with
+  // cognitive=8). A change that introduces a second function at >=5
+  // cognitive must trip the gate even when max-cognitive is unchanged.
+  const baseline = {
+    schema_version: '1.0.0',
+    folders: {},
+    dimensions: {
+      MT01: {
+        metrics: {
+          'high-cognitive-fn-count': {
+            name: 'High Cognitive Complexity Function Count',
+            direction: 'max',
+            baseline: 1,
+            fail_on_regression: true,
+          },
+        },
+      },
+    },
+  };
+  const worse = {
+    workspace: {
+      folders: [],
+      modules: [],
+      circular_edges: 0,
+      high_cognitive_count: 3,
+    },
+  };
+  const cmp = compareBaseline(baseline, worse);
+  assert.equal(cmp.ok, false);
+  const reg = cmp.regressions.find((r) => r.metric === 'high-cognitive-fn-count');
+  assert.ok(reg, 'expected regression entry for high-cognitive-fn-count');
+  assert.equal(reg.baseline, 1);
+  assert.equal(reg.current, 3);
 });
 
 test('compareBaseline: regression below floor is reported and ratchet is not triggered', () => {

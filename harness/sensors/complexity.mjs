@@ -28,7 +28,18 @@
 //   { source, function_count,
 //     max_cyclomatic, median_cyclomatic,
 //     max_cognitive, median_cognitive,
+//     high_cognitive_count, high_cyclomatic_count,
 //     functions: [{name, line, cyclomatic, cognitive}, ...] }
+//
+// `high_cognitive_count` and `high_cyclomatic_count` are the "spread"
+// signal that complements the peak metrics: count of functions in this
+// source whose cognitive (resp. cyclomatic) complexity is at or above the
+// HIGH_*_THRESHOLD constants below. The thresholds are the industry
+// "review-needed" line (Sonar / McCabe guidance starts flagging at 5);
+// the workspace-level sum becomes the MT01 `high-cognitive-fn-count`
+// fitness metric so the upward ratchet catches "many medium-complex
+// functions appearing while the peak gets refactored away" — the
+// death-by-a-thousand-cuts pattern that pure peak metrics miss.
 //
 // Preservation-first: this file is additive next to abstractness.mjs and
 // aggregate.mjs; no existing slot files are modified by its addition.
@@ -38,6 +49,16 @@ import { fileURLToPath } from 'node:url';
 import { Project, SyntaxKind } from 'ts-morph';
 
 const WORKSPACE_RE = /^(ws_apps|ws_packages)\//;
+
+// "Review-needed" complexity thresholds used by the spread metric. Sonar's
+// default cognitive-complexity rule starts flagging functions at 15
+// (hard fail) and treats 5+ as the moderate band worth watching; McCabe
+// cyclomatic guidance is similar (5 = simple-but-watch, 10 = review).
+// 5 is the conservative pre-fail line: it catches a function that has
+// taken on a meaningful branching/nesting load before the gate's peak
+// metric (`max-cognitive` floor) is anywhere near tripped.
+export const HIGH_COGNITIVE_THRESHOLD = 5;
+export const HIGH_CYCLOMATIC_THRESHOLD = 5;
 
 /** True when a cruiser `modules[].source` string is workspace code. */
 export function isWorkspaceSource(name) {
@@ -194,6 +215,8 @@ export function classifyModule(sourceFile) {
     median_cyclomatic: median(cyclomaticValues),
     max_cognitive: functions.length === 0 ? null : Math.max(...cognitiveValues),
     median_cognitive: median(cognitiveValues),
+    high_cognitive_count: cognitiveValues.filter((v) => v >= HIGH_COGNITIVE_THRESHOLD).length,
+    high_cyclomatic_count: cyclomaticValues.filter((v) => v >= HIGH_CYCLOMATIC_THRESHOLD).length,
     functions,
   };
 }
@@ -216,7 +239,9 @@ export function analyzeFiles(filePaths, { project } = {}) {
     }
     let sf;
     try {
-      sf = project ? p.getSourceFile(path) ?? p.addSourceFileAtPath(path) : p.addSourceFileAtPath(path);
+      sf = project
+        ? (p.getSourceFile(path) ?? p.addSourceFileAtPath(path))
+        : p.addSourceFileAtPath(path);
     } catch (err) {
       readings.push({
         source: path,
@@ -225,6 +250,8 @@ export function analyzeFiles(filePaths, { project } = {}) {
         median_cyclomatic: null,
         max_cognitive: null,
         median_cognitive: null,
+        high_cognitive_count: 0,
+        high_cyclomatic_count: 0,
         functions: [],
         error: err.message,
       });
@@ -257,7 +284,10 @@ async function readStdin() {
 }
 
 /** CLI entry: cruiser JSON in → ts-morph-complexity readings JSON out. */
-export async function main(argv = process.argv.slice(2), io = { read: readStdin, write: (s) => process.stdout.write(s) }) {
+export async function main(
+  argv = process.argv.slice(2),
+  io = { read: readStdin, write: (s) => process.stdout.write(s) },
+) {
   let raw;
   try {
     raw = await io.read();

@@ -157,6 +157,21 @@ const FITNESS_METRICS = {
       value: (report) => maxNumber(apssFunctionValues(report, 'halstead_volume')),
     },
     {
+      id: 'high-cognitive-fn-count',
+      name: 'High Cognitive Complexity Function Count',
+      objective:
+        'Count of workspace functions whose cognitive complexity is at or above the HIGH_COGNITIVE_THRESHOLD line (5; the Sonar moderate-watch band). max-cognitive watches the PEAK; this watches the SPREAD — catches the death-by-a-thousand-cuts pattern where a refactor splits one ugly function but seeds several moderately-complex ones, an AI-coding regression mode that the peak metric reads as an improvement. Direction max (smaller-is-better); ratchet auto-tightens toward 0 as the workspace simplifies.',
+      source:
+        'aggregate workspace.high_cognitive_count (sum across modules from harness/sensors/complexity.mjs)',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: (report) => {
+        const v = report?.workspace?.high_cognitive_count;
+        return typeof v === 'number' ? v : null;
+      },
+    },
+    {
       id: 'sentrux-quality-signal',
       name: 'Sentrux Composite Quality Signal',
       objective:
@@ -550,6 +565,22 @@ export function readingsFromReport(report) {
     'cycle_count',
     projectScope(),
     report?.workspace?.circular_edges,
+    'count',
+  );
+  pushReading(
+    readings,
+    TEMPLATE_SENSOR,
+    'high_cognitive_count',
+    projectScope(),
+    report?.workspace?.high_cognitive_count,
+    'count',
+  );
+  pushReading(
+    readings,
+    TEMPLATE_SENSOR,
+    'high_cyclomatic_count',
+    projectScope(),
+    report?.workspace?.high_cyclomatic_count,
     'count',
   );
 
