@@ -8,6 +8,12 @@ The slot currently runs:
 - `ts-morph` abstractness: abstractness `A` and Martin distance `D`.
 - `ts-morph` complexity: cyclomatic and cognitive complexity.
 - `apss_topology.mjs`: APSS topology artifacts from `.topology/metrics/`.
+- `sentrux_scan.mjs`: sentrux 52-language tree-sitter overlay
+  (`ADR-0017-sensors-v03-apss-canonical.md`). Activated as the SECOND
+  architectural lens reconciled into the same upward ratchet — feeds
+  `quality_signal`, `coupling_score`, `cycle_count`, `god_file_count`,
+  `hotspot_count`, `complex_fn_count`, and `max_depth` into MT01 /
+  MD01 / ST01. Soft-skips when the `sentrux` binary is absent.
 
 The gate keeps the legacy folder `I` and `D` regression check and adds an APSS
 baseline layer for all eight APS-V1-0002 dimensions. It also loads the lab-style
@@ -28,6 +34,28 @@ just sensors report --workspace-root . --skip-tier dep-cruiser
 
 Requires Node 20 or newer and `npx` on `PATH`. The cruiser version is pinned at
 `17.4.0` inside `bin/sensors`.
+
+### Optional: install sentrux (activates the 2nd architectural lens)
+
+The sentrux adapter soft-skips when the binary is absent. To activate it,
+download the released static binary into `~/.local/bin` (Linux x86_64;
+parallel asset names exist for `linux-aarch64`, `darwin-arm64`, and
+`windows-x86_64.exe`):
+
+```sh
+curl -fL --retry 3 -o ~/.local/bin/sentrux \
+  https://github.com/sentrux/sentrux/releases/download/v0.5.7/sentrux-linux-x86_64
+chmod +x ~/.local/bin/sentrux
+sentrux --version   # 0.5.7 — first run pulls ~30 MB of tree-sitter grammars
+```
+
+Verified SHA-256 (`sentrux-linux-x86_64@v0.5.7`):
+`3237f80fe20d54aad4deefa8a143f0d60543bb5d2d6ad891eb42432f155725a6`.
+
+After installation, `just sensors gate` adds 7 sentrux metrics to the
+ratchet (~3.6 s extra wall-clock for a ~380-file workspace on the bare
+scaffold). Telemetry is force-disabled per-invocation by the adapter via
+`SENTRUX_ANALYTICS=off`.
 
 ## APSS Fitness Model
 
@@ -100,6 +128,10 @@ Node sensors remain available as fallback signals.
 - `abstractness.mjs`: ts-morph abstractness adapter.
 - `complexity.mjs`: ts-morph complexity adapter.
 - `apss_topology.mjs`: APSS topology adapter.
+- `sentrux_scan.mjs`: sentrux adapter — runs the binary, parses
+  `.sentrux/baseline.json`, emits an envelope `gate.mjs` reads via
+  `--sentrux=<path>`. Activated as the 2nd architectural lens per
+  ADR-0017.
 - `adapters.mjs`: adapter seam, precheck, skip-tier, and fanout utilities.
 - `gate.mjs`: baseline and APSS fitness gate.
 - `baseline.json`: committed regression floor.

@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check adapters.mjs",
-    "typecheck": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check adapters.mjs",
-    "test": "bin/sensors --help >/dev/null && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check adapters.mjs && node --test tests/ratchet.test.mjs",
-    "lint": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check adapters.mjs"
+    "build": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check adapters.mjs && node --check sentrux_scan.mjs",
+    "typecheck": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check adapters.mjs && node --check sentrux_scan.mjs",
+    "test": "bin/sensors --help >/dev/null && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check adapters.mjs && node --check sentrux_scan.mjs && node --test tests/ratchet.test.mjs tests/sentrux.test.mjs",
+    "lint": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check adapters.mjs && node --check sentrux_scan.mjs"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",

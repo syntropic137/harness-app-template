@@ -38,8 +38,14 @@ Subcommands:
                               --format json for replay and CI envelopes.
                               Wired into lefthook pre-push.
   adapters                    Print adapter precheck and package fanout JSON.
-  sentrux                     Optional sentrux adapter entrypoint. Emits a
-                              soft-skip JSON envelope when sentrux is absent.
+  sentrux                     Sentrux adapter precheck (manifest envelope).
+                              The actual scan runs inside `gate` via
+                              harness/sensors/sentrux_scan.mjs and feeds the
+                              MT01 / MD01 / ST01 sentrux ratchet metrics
+                              (quality_signal, coupling_score, cycle_count,
+                              god_file_count, hotspot_count, complex_fn_count,
+                              max_depth). Emits a soft-skip JSON envelope
+                              when the sentrux binary is absent (ADR-0017).
   grimp                       Optional grimp-instability adapter entrypoint.
                               Emits a soft-skip JSON envelope when grimp is absent.
   --help                      This text.
@@ -297,8 +303,9 @@ case "${1:-}" in
     apss_tmp=""
     sec_tmp=""
     lic_tmp=""
+    sentrux_tmp=""
     report_tmp="$(mktemp -t harness-sensors-report-XXXXXX.json)"
-    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$report_tmp"' EXIT
+    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$report_tmp"' EXIT
     if [ -z "$readings_from" ]; then
       build_report "json" "$report_tmp" "$workspace_root" "$skip_tier"
     else
@@ -327,6 +334,28 @@ case "${1:-}" in
       node "$HERE/license_scan.mjs" > "$lic_tmp" 2>/dev/null || true
       if [ -s "$lic_tmp" ]; then
         gate_args+=("--licenses=$lic_tmp")
+      fi
+    fi
+    # Sentrux adapter (ADR-0017 + ADR-0006): the 2nd architectural lens
+    # alongside APSS topology. Runs the sentrux binary scan over the
+    # workspace, parses .sentrux/baseline.json, and emits an envelope
+    # the gate reads via --sentrux=<path>. Soft-skips cleanly when
+    # sentrux is not on PATH (envelope sets available=false; gate.mjs
+    # treats every sentrux metric as no-reading rather than a false
+    # zero — mirrors the SC01/LG01 wiring above). Skipped when the
+    # caller asked to skip sentrux via --skip-tier; replay paths
+    # (--readings-from) also skip because the gate is replaying
+    # canned readings rather than re-scanning the workspace.
+    sentrux_skip=0
+    case ",${skip_tier}," in
+      *,sentrux,*|*,sentrux@optional,*) sentrux_skip=1 ;;
+    esac
+    if [ -z "$readings_from" ] && [ "$sentrux_skip" -eq 0 ]; then
+      sentrux_tmp="$(mktemp -t harness-sensors-sentrux-XXXXXX.json)"
+      node "$HERE/sentrux_scan.mjs" --workspace-root="$workspace_root" \
+        > "$sentrux_tmp" 2>/dev/null || true
+      if [ -s "$sentrux_tmp" ]; then
+        gate_args+=("--sentrux=$sentrux_tmp")
       fi
     fi
     node "$HERE/gate.mjs" "${gate_args[@]+"${gate_args[@]}"}" < "$report_tmp"
