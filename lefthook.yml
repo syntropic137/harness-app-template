@@ -69,6 +69,29 @@ pre-commit:
     ubs-staged:
       run: mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
 
+    cx-gate:
+      # Fast complexity-only ratchet (bead create-harness-app-cxgate).
+      # Stripped-down sibling of the full sensors-gate: just
+      # harness/sensors/complexity.mjs vs. the MT01 floors in
+      # harness/sensors/baseline.json (max-cognitive, max-cyclomatic,
+      # high-cognitive-fn-count). ~0.4 s scan + ~1 s Node/ts-morph
+      # startup; full sensors-gate is ~108 s, so this is the inner-loop
+      # signal that catches complexity regressions before push, while
+      # the canonical ratchet authority stays in CI (.github/
+      # workflows/test.yml -> `fitness` job) and in `just sensors gate`.
+      # Glob-gated to TS sources so non-TS commits skip instantly.
+      # Soft-skips when node is absent so first-clone state stays
+      # bootable.
+      glob: "{ws_apps,ws_packages}/**/*.{ts,tsx}"
+      run: |
+        sh -eu -c '
+          if ! command -v node >/dev/null 2>&1; then
+            printf "%s\n" "warning: node not found; skipping fast complexity gate" >&2
+            exit 0
+          fi
+          node harness/sensors/cx_gate.mjs
+        '
+
     python-ruff-format:
       # Auto-formatting member of the formatter slot
       # (ADR-0021-formatter-slot.md). Mirrors biome-format-lint's
