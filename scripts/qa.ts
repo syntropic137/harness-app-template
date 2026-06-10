@@ -5,8 +5,12 @@ import { main as typecheckMain } from './typecheck';
 
 const SECRET_SCAN_SCRIPT = `
 if ! command -v gitleaks >/dev/null 2>&1; then
-  printf "%s\\n" "warning: gitleaks not found; skipping secret scan" >&2
-  exit 0
+  printf "%s\\n" "error: gitleaks is required for the qa secret-scan gate but is not on PATH." >&2
+  printf "%s\\n" "  Install:  brew install gitleaks  (macOS)" >&2
+  printf "%s\\n" "            apt install gitleaks   (Debian/Ubuntu)" >&2
+  printf "%s\\n" "            https://github.com/gitleaks/gitleaks/releases  (single binary)" >&2
+  printf "%s\\n" "  Rationale: docs/adrs/ADR-0009-secret-scanner.md" >&2
+  exit 1
 fi
 gitleaks detect --redact --no-banner
 `.trim();

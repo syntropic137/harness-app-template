@@ -22,11 +22,22 @@ pre-commit:
       stage_fixed: true
 
     secret-scan:
+      # Security gate (ADR-0009-secret-scanner.md). Unlike the other
+      # soft-skipping hooks in this file, this one fails CLOSED: a
+      # missing scanner means no scan, which means a leaked secret can
+      # slip through unobserved. Gitleaks is a single 6 MB Go binary
+      # with zero language-runtime deps, so the install hint below is
+      # the entire bootstrap cost. Scoped to `{staged_files}` via
+      # `gitleaks protect --staged` to keep the inner loop sub-second.
       run: |
         sh -eu -c '
           if ! command -v gitleaks >/dev/null 2>&1; then
-            printf "%s\n" "warning: gitleaks not found; skipping secret scan hook" >&2
-            exit 0
+            printf "%s\n" "error: gitleaks is required for the staged secret-scan gate but is not on PATH." >&2
+            printf "%s\n" "  Install:  brew install gitleaks  (macOS)" >&2
+            printf "%s\n" "            apt install gitleaks   (Debian/Ubuntu)" >&2
+            printf "%s\n" "            https://github.com/gitleaks/gitleaks/releases  (single binary)" >&2
+            printf "%s\n" "  Rationale: docs/adrs/ADR-0009-secret-scanner.md" >&2
+            exit 1
           fi
           gitleaks protect --staged --redact --no-banner
         '
