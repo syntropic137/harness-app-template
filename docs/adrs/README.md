@@ -32,6 +32,9 @@ Forks inherit these records as a baseline. Keep them, then add new numbered ADRs
 | [Sensors v0.3 — APSS canonical, sentrux preserved](ADR-0017-sensors-v03-apss-canonical.md) | Promote APSS to canonical cross-language measurement; keep sentrux as an opt-in available adapter (deliberate both-vs-reduce decision, not a deletion) |
 | [APSS v1.1.0 integration — augment, never replace](ADR-0018-apss-v1-1-0-augmentation.md) | Augment the doc-validator slot with APS-V1-0003 (add, do not replace) and route fitness signals through the ADR-0017 apss_topology shim |
 | [Closed-loop architectural quality](ADR-0019-closed-loop-architectural-quality.md) | APS-V1-0001 code-topology runs every cycle, gate.mjs hard-enforces against real APSS metrics via the apss_topology shim, the diagram is regenerable, and structured verdict + diff reach any coding agent on every run |
+| [Architectural fitness ratchet](ADR-0020-architectural-fitness-ratchet.md) | Ratchet floors upward on complexity, coupling, cycles, security, and licensing every commit; `--update-baseline` is the audited escape hatch |
+| [Formatter slot](ADR-0021-formatter-slot.md) | Promote auto-formatter (Biome + Ruff) from implicit hook to a named, swappable `formatter` slot wired through `lefthook.yml` with `stage_fixed: true` |
+| [Merge gating](ADR-0022-merge-gating.md) | Protect `main` with required PR-time status checks (workspace qa × 2, check, scripts, rust-coverage, python-coverage, documentation, fitness, fork-check); no required approvals so auto-merge does not deadlock the autonomous loop |
 
 ## Adding Records
 
