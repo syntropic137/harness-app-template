@@ -133,18 +133,45 @@ uv *args:
 # and functions over their library business logic. main.rs files are built
 # separately and excluded per the ADR-0013 opt-out table because they are CLI
 # shells with no business logic.
+#
+# Worktree isolation: every `cargo llvm-cov` line pins CARGO_TARGET_DIR to a
+# worktree-local path. Hosts (e.g. the swarm VPS) commonly export a shared
+# CARGO_TARGET_DIR to amortise the cargo build cache across projects; without
+# this override two worktrees running `just cov-rust` concurrently would write
+# *.profraw into the same llvm-cov-target/ directory and corrupt each other's
+# coverage reports (cargo-llvm-cov collects every profraw in that dir at
+# report time, so a foreign run's PID-suffixed file looks like one of ours).
+# Pinning to `{{justfile_directory()}}/target/coverage-isolated` keeps each
+# worktree's build artefacts and profraw inside the worktree.
+coverage_target_dir := justfile_directory() / "target" / "coverage-isolated"
+
 cov-rust: cov-example-rust cov-doc-validator cov-versioning
 
 cov-py:
     cd ws_apps/example-python && sh scripts/with-uv.sh uv run pytest
 
 cov-example-rust:
-    cargo llvm-cov --manifest-path ws_apps/example-rust/Cargo.toml --package example-rust --fail-under-lines 100 --fail-under-functions 100 --fail-under-regions 100
+    CARGO_TARGET_DIR='{{coverage_target_dir}}' cargo llvm-cov --manifest-path ws_apps/example-rust/Cargo.toml --package example-rust --fail-under-lines 100 --fail-under-functions 100 --fail-under-regions 100
 
 cov-doc-validator:
-    cargo build --manifest-path harness/doc-validator/Cargo.toml --bin harness-doc-validator
-    cargo llvm-cov --manifest-path harness/doc-validator/Cargo.toml --package harness-doc-validator --lib --ignore-filename-regex 'main\.rs' --fail-under-lines 100 --fail-under-functions 100
+    CARGO_TARGET_DIR='{{coverage_target_dir}}' cargo build --manifest-path harness/doc-validator/Cargo.toml --bin harness-doc-validator
+    CARGO_TARGET_DIR='{{coverage_target_dir}}' cargo llvm-cov --manifest-path harness/doc-validator/Cargo.toml --package harness-doc-validator --lib --ignore-filename-regex 'main\.rs' --fail-under-lines 100 --fail-under-functions 100
 
 cov-versioning:
-    cargo build --manifest-path harness/versioning/Cargo.toml --bin harness-versioning
-    cargo llvm-cov --manifest-path harness/versioning/Cargo.toml --package harness-versioning --lib --ignore-filename-regex 'main\.rs' --fail-under-lines 100 --fail-under-functions 100
+    CARGO_TARGET_DIR='{{coverage_target_dir}}' cargo build --manifest-path harness/versioning/Cargo.toml --bin harness-versioning
+    CARGO_TARGET_DIR='{{coverage_target_dir}}' cargo llvm-cov --manifest-path harness/versioning/Cargo.toml --package harness-versioning --lib --ignore-filename-regex 'main\.rs' --fail-under-lines 100 --fail-under-functions 100
+
+# Compose the project APSS CLI (`.apss/bin/apss`). Thin wrapper around
+# `apss install` that unsets any inherited CARGO_TARGET_DIR before invoking
+# cargo.
+#
+# Upstream bug: `apss install` hard-codes the post-build binary lookup at
+# `<repo>/.apss/build/target/release/apss`. When the environment exports
+# CARGO_TARGET_DIR (the swarm VPS sets `/data/tmp/cargo-target`), cargo
+# obeys that env var and writes the binary to the shared dir, but `apss
+# install` still looks under `.apss/build/target/` and reports
+# "Install failed; no runnable .apss/bin/apss was installed." Tracking
+# upstream; until that lands, run `just apss-install` (or
+# `env -u CARGO_TARGET_DIR apss install`) on shared-target hosts.
+apss-install:
+    env -u CARGO_TARGET_DIR apss install
