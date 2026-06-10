@@ -98,6 +98,15 @@ jobs:
       - name: Install APSS
         if: steps.cache-apss.outputs.cache-hit != 'true'
         run: cargo install apss --version 1.1.0
+      - name: Cache composed APSS CLI
+        id: cache-apss-composed
+        uses: actions/cache@v4
+        with:
+          path: .apss
+          key: apss-composed-${{ runner.os }}-${{ hashFiles('apss.lock') }}
+      - name: Compose project APSS CLI
+        if: steps.cache-apss-composed.outputs.cache-hit != 'true'
+        run: apss install
       - name: Run APSS documentation validator
         run: node scripts/doc-validator.mjs --apss
 
