@@ -19,6 +19,7 @@ export const REQUIRED_PR_CONTEXTS: readonly string[] = Object.freeze([
   'documentation',
   'fitness',
   'fork-check',
+  'dep-audit',
 ]);
 
 export interface ProtectionBody {

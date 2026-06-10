@@ -62,9 +62,9 @@ function mkDeps(
 }
 
 describe('REQUIRED_PR_CONTEXTS', () => {
-  test('contains the nine PR-time check contexts and excludes release', () => {
+  test('contains the ten PR-time check contexts and excludes release', () => {
     const set = new Set(REQUIRED_PR_CONTEXTS);
-    expect(REQUIRED_PR_CONTEXTS.length).toBe(9);
+    expect(REQUIRED_PR_CONTEXTS.length).toBe(10);
     expect(set.has('check')).toBe(true);
     expect(set.has('workspace qa (ubuntu-latest)')).toBe(true);
     expect(set.has('workspace qa (macos-latest)')).toBe(true);
@@ -74,6 +74,7 @@ describe('REQUIRED_PR_CONTEXTS', () => {
     expect(set.has('documentation')).toBe(true);
     expect(set.has('fitness')).toBe(true);
     expect(set.has('fork-check')).toBe(true);
+    expect(set.has('dep-audit')).toBe(true);
     expect(set.has('release')).toBe(false);
   });
 });
