@@ -298,12 +298,12 @@
         },
         "suite-duration-p95-seconds": {
           "name": "Test-Suite Duration p95 (seconds)",
-          "objective": "p95 wall-clock of the test suite over N iterations from the harness/sensors/suite_duration.mjs adapter envelope. Direction max (smaller-is-better); the ADR-0020 ratchet auto-tightens the floor on improvement and never widens on regression. null/no-reading means the adapter exited non-zero (coverage failure or suite failure) — the adapter is the primary enforcer of the coverage-coupling rule per ADR-0025; the gate reader simply sees no envelope. See docs/adrs/ADR-0025-suite-duration-sensor-pf01.md.",
+          "objective": "p95 wall-clock of the test suite over N iterations from the harness/sensors/suite_duration.mjs adapter envelope. Observational at the gate (fail_on_regression=false) because wall-clock varies machine-to-machine and gate.mjs uses EPSILON=1e-6 which would convert normal CI/dev jitter into false failures. The adapter is the AUTHORITATIVE enforcer per ADR-0025: it owns the hybrid ceiling (absolute_seconds_ceiling + relative_delta_percent against duration_p95_seconds in harness/sensors/suite-duration-baseline.json, default 3.0s / 25%) plus the HARD coverage-coupling rule. null/no-reading means the adapter exited non-zero (coverage failure or suite failure); the gate reader simply sees no envelope and the cycle fails at the adapter step before this metric is ever evaluated. See docs/adrs/ADR-0025-suite-duration-sensor-pf01.md.",
           "source": "harness/sensors/suite_duration.mjs envelope duration_p95_seconds",
           "direction": "max",
           "default_threshold": 5,
           "baseline": null,
-          "fail_on_regression": true
+          "fail_on_regression": false
         },
         "suite-duration-iteration-count": {
           "name": "Test-Suite Iteration Count",
@@ -311,7 +311,7 @@
           "source": "harness/sensors/suite_duration.mjs envelope iteration_count",
           "direction": "min",
           "default_threshold": 0,
-          "baseline": 0,
+          "baseline": 5,
           "fail_on_regression": true
         }
       }

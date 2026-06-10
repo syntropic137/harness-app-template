@@ -392,11 +392,11 @@ const FITNESS_METRICS = {
       id: 'suite-duration-p95-seconds',
       name: 'Test-Suite Duration p95 (seconds)',
       objective:
-        'p95 wall-clock of the test suite over N iterations from the harness/sensors/suite_duration.mjs adapter envelope. Direction max (smaller-is-better); the ADR-0020 ratchet auto-tightens the floor on improvement and never widens on regression. null/no-reading means the adapter exited non-zero (coverage failure or suite failure) — the adapter is the primary enforcer of the coverage-coupling rule per ADR-0025; the gate reader simply sees no envelope. See ADR-0025-suite-duration-sensor-pf01.md.',
+        'p95 wall-clock of the test suite over N iterations from the harness/sensors/suite_duration.mjs adapter envelope. Observational at the gate (fail_on_regression=false) because wall-clock varies machine-to-machine and gate.mjs uses EPSILON=1e-6 which would convert normal CI/dev jitter into false failures. The adapter is the AUTHORITATIVE enforcer per ADR-0025: it owns the hybrid ceiling (`absolute_seconds_ceiling` + `relative_delta_percent` against `duration_p95_seconds` in `harness/sensors/suite-duration-baseline.json`, default 3.0s / 25%) plus the HARD coverage-coupling rule. null/no-reading means the adapter exited non-zero (coverage failure or suite failure); the gate reader simply sees no envelope and the cycle fails at the adapter step before this metric is ever evaluated. See ADR-0025-suite-duration-sensor-pf01.md.',
       source: 'harness/sensors/suite_duration.mjs envelope duration_p95_seconds',
       direction: 'max',
       default_threshold: 5,
-      fail_on_regression: true,
+      fail_on_regression: false,
       value: (_report, options) => suiteDurationMetricValue(options, 'duration_p95_seconds'),
     },
     {
@@ -1464,11 +1464,17 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
       for (const [metricId, curMetric] of Object.entries(curDim.metrics ?? {})) {
         const existing = baseDim.metrics[metricId];
         const cur = curMetric.baseline;
+        // Observational metrics (fail_on_regression=false) intentionally
+        // skip the auto-ratchet: their numeric baseline is purely
+        // descriptive and would otherwise drift to whichever machine
+        // ran the gate last. The primary enforcer for these lives in
+        // the adapter, not in the gate's regression check. The metric
+        // definition is still seeded into baseline.json so reviewers
+        // see the same shape for every metric.
+        const observational = curMetric.fail_on_regression === false;
         if (!existing) {
-          // New metric definition (a freshly-promoted dimension): seed the
-          // floor from the current measurement.
           baseDim.metrics[metricId] = { ...curMetric };
-          if (typeof cur === 'number') {
+          if (typeof cur === 'number' && !observational) {
             tightenings.push({
               kind: 'dimension',
               dimension: code,
@@ -1480,6 +1486,9 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
               reason: 'new-metric',
             });
           }
+          continue;
+        }
+        if (observational) {
           continue;
         }
         const prev = existing.baseline;

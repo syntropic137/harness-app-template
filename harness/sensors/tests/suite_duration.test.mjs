@@ -682,6 +682,104 @@ test('PF01 gate reader returns p95 from a passing envelope, null on available=fa
   assert.equal(gateCode, 0);
 });
 
+test('PF01 gate keeps a noisy timing measurement above the baseline floor as PASS (determinism guard)', async () => {
+  // Lock in the ADR-0025 determinism guard: gate.mjs marks
+  // suite-duration-p95-seconds with fail_on_regression=false so that
+  // EPSILON=1e-6 + wall-clock jitter across machines cannot convert
+  // normal CI variance into a gate failure. The adapter remains the
+  // AUTHORITATIVE enforcer via the hybrid ceiling
+  // (absolute_seconds_ceiling + relative_delta_percent against the
+  // committed p95) + HARD coverage-coupling.
+  const envelopes = {};
+  const ioAdapter = {
+    readFile: (p) => {
+      if (p === 'baseline.json') {
+        return JSON.stringify({
+          schema_version: '1.0.0',
+          suite_command: 'true',
+          workdir: '.',
+          iteration_count: 5,
+          duration_p95_seconds: 1,
+          duration_median_seconds: 1,
+          absolute_seconds_ceiling: 60,
+          relative_delta_percent: 25,
+          required_coverage_percent: 0,
+          coverage_floor_metrics: ['lines'],
+        });
+      }
+      return '';
+    },
+    writeFile: (p, body) => {
+      envelopes[p] = body;
+    },
+    write: () => {},
+    writeErr: () => {},
+    exists: () => true,
+  };
+  await main(
+    ['--baseline=baseline.json', '--mode=advisory', '--report=adapter-report.json', '--json'],
+    ioAdapter,
+    {
+      now: makeIncrementingClock(2.0),
+      runner: fakeRunner(NODE_OUTPUT_PASS),
+    },
+  );
+  const noisyEnv = JSON.parse(envelopes['adapter-report.json']);
+  assert.equal(noisyEnv.available, true);
+  assert.equal(noisyEnv.duration_p95_seconds, 2);
+
+  // Gate baseline floor is 0.5s; the noisy measurement is 2s (4x the
+  // floor). With fail_on_regression=false on the metric, the gate
+  // returns 0 (PASS). Before the determinism guard this would have
+  // exited 1.
+  const gateBaseline = {
+    schema_version: '1.0.0',
+    folders: {},
+    fitness: {
+      schema_version: '1.0.0',
+      dimensions: {
+        PF01: {
+          metrics: {
+            'suite-duration-p95-seconds': {
+              direction: 'max',
+              baseline: 0.5,
+              fail_on_regression: false,
+            },
+            'suite-duration-iteration-count': {
+              direction: 'min',
+              baseline: 0,
+              fail_on_regression: true,
+            },
+          },
+        },
+      },
+    },
+  };
+  const fsState = new Map();
+  fsState.set('harness/sensors/baseline.json', JSON.stringify(gateBaseline));
+  fsState.set('adapter-report.json', envelopes['adapter-report.json']);
+  fsState.set('harness/perf/baseline.json', JSON.stringify({ benchmarks: {} }));
+  const ioGate = {
+    read: async () => '{}',
+    write: () => {},
+    writeErr: () => {},
+    readFile: (p) => fsState.get(p) ?? '',
+    writeFile: (p, s) => fsState.set(p, s),
+    fileExists: (p) => fsState.has(p),
+    env: {},
+  };
+  const gateCode = await gateMain(
+    [
+      '--baseline=harness/sensors/baseline.json',
+      '--suite-duration=adapter-report.json',
+      '--no-ratchet',
+      '--format=json',
+    ],
+    ioGate,
+  );
+  assert.equal(gateCode, 0);
+});
+
 test('SENSOR_VERSION is exposed and stable', () => {
   assert.equal(SENSOR_VERSION, '1.0.0');
 });
