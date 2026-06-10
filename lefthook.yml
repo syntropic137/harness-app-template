@@ -45,7 +45,7 @@ pre-commit:
     doc-validator:
       glob: "*.{md,json}"
       # See pre-push doc-validator for the --exclude rationale.
-      run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ .
+      run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ --exclude .claude/skills/ .
 
     doc-validator-apss:
       # APSS APS-V1-0003 documentation gate (ADR-0018: augment, never
@@ -229,7 +229,13 @@ pre-push:
       #     not yet understand. Preservation-first: the content is
       #     intentionally verbatim, so scope the gate around it rather
       #     than rewriting the vendored material.
-      run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ .
+      #   - .claude/skills/: vendored software-leverage-points SKILL.md
+      #     files (PR #11, scripts/update-slp.ts) keep their upstream
+      #     cross-link to maintaining-software-leverage-points, which
+      #     slp-source.json intentionally excludes from the vendor set.
+      #     Same preservation-first rationale as the harness-engineering
+      #     references above.
+      run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ --exclude .claude/skills/ .
 
     doc-validator-apss:
       # APSS APS-V1-0003 documentation gate (ADR-0018: augment, never
