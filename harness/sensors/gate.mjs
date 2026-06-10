@@ -40,7 +40,15 @@
 // Preservation-first: aggregate.mjs and abstractness.mjs are untouched.
 // The gate consumes their JSON output without altering it.
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import toml from '@iarna/toml';
@@ -1140,6 +1148,23 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
   return { next, tightenings, changed: tightenings.length > 0 };
 }
 
+function atomicWriteFile(path, content) {
+  const directory = dirname(path);
+  mkdirSync(directory, { recursive: true });
+  const tmp = `${path}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  writeFileSync(tmp, content);
+  try {
+    renameSync(tmp, path);
+  } catch (err) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // Ignore cleanup failure.
+    }
+    throw err;
+  }
+}
+
 export function renderRatchetReport(ratchet, baselinePath) {
   if (!ratchet || !ratchet.changed) {
     return '';
@@ -1391,7 +1416,7 @@ export async function main(
     readFile: (p) => readFileSync(p, 'utf8'),
     writeFile: (p, s) => {
       mkdirSync(dirname(p), { recursive: true });
-      writeFileSync(p, s);
+      atomicWriteFile(p, s);
     },
     fileExists: (p) => existsSync(p),
     env: process.env,
