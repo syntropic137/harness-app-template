@@ -1,25 +1,41 @@
-// gate.mjs - baseline-snapshot fitness gate for the sensors slot.
+// gate.mjs - upward-ratchet fitness gate for the sensors slot.
 //
 // Reads a workspace report (the output of aggregate.mjs) and compares each
-// folder's Martin metrics against a persisted baseline. Fails on any
-// worsening of `I` (instability) or `D` (distance from the main sequence).
+// folder's Martin metrics + every APSS dimension metric against the
+// persisted floor in `harness/sensors/baseline.json`. The gate is a
+// monotonic ratchet: quality can improve freely (the floor tightens
+// automatically when measured metrics get better) but a regression below
+// the floor fails the run. "No broken windows" - once a folder reaches
+// instability 0.1, it is not allowed to slide back to 0.4 next week.
 //
-// Closes bead create-harness-app-n48.4 (P0).  Implements ADR-0017's
+// Closes bead create-harness-app-n48.4 (P0). Implements ADR-0017's
 // Decision (2) consequence - the gate consumes whatever the aggregator
 // emits (Node aggregator today, APSS topology later) without depending on
-// APSS being ported first.
+// APSS being ported first. The ratchet shape is recorded in
+// docs/adrs/ADR-0020-architectural-fitness-ratchet.md.
 //
-// Discipline (operator framing, governance-every-run):
+// Discipline (ratchet, monotonic improvement):
 //   - First run: no baseline exists -> write current report as the baseline
 //     and exit 0 with a "baseline created" message. The baseline becomes a
 //     committed floor.
-//   - Subsequent runs: compare each folder. A regression is any folder
-//     whose `I` or `D` is numerically greater than the baseline (beyond a
-//     small epsilon). Exit non-zero on any regression; print a per-folder
-//     diff so the operator sees exactly what worsened.
-//   - The baseline is never auto-updated on regression. The only way to
-//     change the floor is `gate --update-baseline`, which is a deliberate
-//     act recorded in git.
+//   - Subsequent runs: compare each metric against its floor.
+//       * IMPROVEMENT (current is direction-aware better than baseline,
+//         or baseline was null while current is a real number): the floor
+//         AUTO-TIGHTENS to the new value. Baseline file is rewritten with
+//         the tightened floor and the run reports what tightened. Exit 0.
+//       * NO CHANGE (within EPSILON): no write, no churn, exit 0.
+//       * REGRESSION (current is direction-aware worse than baseline,
+//         beyond EPSILON): the floor does NOT move; the run prints a
+//         per-folder / per-dimension diff and exits non-zero.
+//   - Escape hatches:
+//       * `--update-baseline`: deliberate, reviewable RELAX. Writes the
+//         current report as the new baseline regardless of regression. Use
+//         only when an intentional refactor or slot redesign justifies
+//         loosening the floor; the resulting baseline.json diff is the
+//         audit trail.
+//       * `--no-ratchet` (or `RATCHET=off`): run the gate as a pure
+//         comparator. Useful for replay / CI dry-run / debug sessions
+//         where you do not want the side effect of rewriting the baseline.
 //
 // Preservation-first: aggregate.mjs and abstractness.mjs are untouched.
 // The gate consumes their JSON output without altering it.
@@ -982,6 +998,184 @@ export function compareBaseline(baseline, currentReport, options = {}) {
   };
 }
 
+/**
+ * Direction-aware "is `current` strictly better than `baseline`?" predicate.
+ * Mirrors `worsened` but in the opposite direction.
+ *   - `max` (smaller-is-better): improved when current < baseline - EPSILON.
+ *   - `min` (larger-is-better):  improved when current > baseline + EPSILON.
+ *
+ * If either value is non-numeric the comparison is undefined and we return
+ * false; the caller handles the "baseline was null, current is real" path
+ * explicitly via `isNullToReal`.
+ */
+function improved(direction, current, baseline) {
+  if (typeof current !== 'number' || typeof baseline !== 'number') {
+    return false;
+  }
+  if (direction === 'min') {
+    return current > baseline + EPSILON;
+  }
+  return current < baseline - EPSILON;
+}
+
+function isNullToReal(baseline, current) {
+  return (baseline === null || baseline === undefined) && typeof current === 'number';
+}
+
+/**
+ * Compute the tightened baseline implied by `currentReport`. The returned
+ * `next` value is the new floor; `tightenings` lists exactly what moved and
+ * `changed` is true iff any floor value actually shifted (within EPSILON).
+ *
+ * Ratchet rules:
+ *   - Folder I/D: treated as direction='max' (smaller-is-better, per the
+ *     Martin metric semantics already enforced by `compareLegacyBaseline`).
+ *     A null baseline that meets a real current value is tightened to that
+ *     value (improvement from "unmeasured").
+ *   - APSS dimension metrics: direction comes from the metric definition in
+ *     FITNESS_METRICS. Same null-to-real handling.
+ *   - The ratchet only TIGHTENS. It never widens an existing floor on its
+ *     own; widening goes through `--update-baseline` as a deliberate,
+ *     reviewable act.
+ *   - Folders / metrics absent from the current report are left untouched
+ *     in the baseline (transient skips must not erode the floor).
+ *
+ * The returned `next` is a deep copy of `baseline` with the tightened
+ * values applied. When `changed` is false the caller can skip writing the
+ * file to keep git history clean.
+ */
+export function ratchetBaseline(baseline, currentReport, options = {}) {
+  if (!baseline || typeof baseline !== 'object') {
+    return { next: baseline, tightenings: [], changed: false };
+  }
+  const next = structuredClone(baseline);
+  const tightenings = [];
+  const current = extractApssFitnessBaseline(currentReport, options);
+
+  const baseFolders = next.folders ?? {};
+  next.folders = baseFolders;
+  for (const [name, curFolder] of Object.entries(current.folders ?? {})) {
+    const existing = baseFolders[name];
+    if (!existing) {
+      // New folder: take its measured I/D as the initial floor.
+      baseFolders[name] = { I: curFolder.I ?? null, D: curFolder.D ?? null };
+      if (typeof curFolder.I === 'number' || typeof curFolder.D === 'number') {
+        tightenings.push({
+          kind: 'folder',
+          folder: name,
+          metric: 'new-folder',
+          previous: null,
+          next: { I: curFolder.I ?? null, D: curFolder.D ?? null },
+          reason: 'new-folder',
+        });
+      }
+      continue;
+    }
+    for (const key of ['I', 'D']) {
+      const cur = curFolder[key];
+      const prev = existing[key];
+      if (improved('max', cur, prev) || isNullToReal(prev, cur)) {
+        existing[key] = cur;
+        tightenings.push({
+          kind: 'folder',
+          folder: name,
+          metric: key,
+          previous: prev ?? null,
+          next: cur,
+          reason: isNullToReal(prev, cur) ? 'null-to-real' : 'tightened',
+        });
+      }
+    }
+  }
+
+  if (baseline.dimensions) {
+    next.dimensions = next.dimensions ?? {};
+    for (const code of DIMENSION_ORDER) {
+      const curDim = current.dimensions[code];
+      if (!curDim) {
+        continue;
+      }
+      const baseDim = next.dimensions[code] ?? curDim;
+      next.dimensions[code] = baseDim;
+      baseDim.metrics = baseDim.metrics ?? {};
+      for (const [metricId, curMetric] of Object.entries(curDim.metrics ?? {})) {
+        const existing = baseDim.metrics[metricId];
+        const cur = curMetric.baseline;
+        if (!existing) {
+          // New metric definition (a freshly-promoted dimension): seed the
+          // floor from the current measurement.
+          baseDim.metrics[metricId] = { ...curMetric };
+          if (typeof cur === 'number') {
+            tightenings.push({
+              kind: 'dimension',
+              dimension: code,
+              metric: metricId,
+              metricName: curMetric.name,
+              direction: curMetric.direction,
+              previous: null,
+              next: cur,
+              reason: 'new-metric',
+            });
+          }
+          continue;
+        }
+        const prev = existing.baseline;
+        if (improved(curMetric.direction, cur, prev) || isNullToReal(prev, cur)) {
+          existing.baseline = cur;
+          tightenings.push({
+            kind: 'dimension',
+            dimension: code,
+            metric: metricId,
+            metricName: curMetric.name,
+            direction: curMetric.direction,
+            previous: prev ?? null,
+            next: cur,
+            reason: isNullToReal(prev, cur) ? 'null-to-real' : 'tightened',
+          });
+        }
+      }
+    }
+  }
+
+  return { next, tightenings, changed: tightenings.length > 0 };
+}
+
+export function renderRatchetReport(ratchet, baselinePath) {
+  if (!ratchet || !ratchet.changed) {
+    return '';
+  }
+  const lines = [''];
+  lines.push(
+    `RATCHET: floor tightened (${ratchet.tightenings.length} metric(s) improved); ` +
+      `baseline written to ${baselinePath}.`,
+  );
+  for (const t of ratchet.tightenings) {
+    if (t.kind === 'folder') {
+      if (t.reason === 'new-folder') {
+        lines.push(
+          `  + new floor for ${t.folder}: ` +
+            `I=${fmt(t.next.I)} D=${fmt(t.next.D)} (first measurement)`,
+        );
+      } else {
+        lines.push(
+          `  ${t.folder}  ${t.metric}: ${fmt(t.previous)} -> ${fmt(t.next)} ` +
+            `(${t.reason === 'null-to-real' ? 'first measurement' : 'tightened'})`,
+        );
+      }
+    } else {
+      lines.push(
+        `  ${t.dimension} ${t.metric}: ${fmt(t.previous)} -> ${fmt(t.next)} ` +
+          `(${t.reason === 'new-metric' ? 'new metric' : t.reason === 'null-to-real' ? 'first measurement' : 'tightened'})`,
+      );
+    }
+  }
+  lines.push(
+    'Commit the updated baseline.json alongside this change so future runs ' +
+      'enforce the new floor (no broken windows).',
+  );
+  return `${lines.join('\n')}\n`;
+}
+
 function fmt(n) {
   return n === null || n === undefined ? 'n/a' : n.toFixed(3);
 }
@@ -1057,9 +1251,12 @@ export function renderReport(comparison) {
     }
     lines.push('');
     lines.push(
-      'If the regression is intentional (refactor, slot redesign), update the ' +
-        'baseline deliberately: `just sensors gate --update-baseline` and commit ' +
-        'the resulting harness/sensors/baseline.json as part of the same change.',
+      'The ratchet does NOT auto-loosen on regression (no broken windows). ' +
+        'Fix the code so the metric returns at or below the floor and re-run ' +
+        '`just sensors gate`. If the regression is genuinely intentional ' +
+        '(refactor, slot redesign), relax the floor deliberately via ' +
+        '`just sensors gate --update-baseline` and commit the resulting ' +
+        'harness/sensors/baseline.json as the audit trail.',
     );
   }
   return `${lines.join('\n')}\n`;
@@ -1166,8 +1363,16 @@ function jsonPayload(base, policy) {
  * CLI entry.  Defaults: read aggregator JSON from stdin, baseline from
  * `harness/sensors/baseline.json`.  Flags:
  *   --baseline=<path>      override baseline path
- *   --update-baseline      write the current report as the new baseline
- *                          (exits 0)
+ *   --update-baseline      RELAX (escape hatch): write the current report
+ *                          as the new baseline regardless of regression.
+ *                          The resulting baseline.json diff is the
+ *                          deliberate audit trail.
+ *   --no-ratchet           Skip the post-pass auto-tighten step. The gate
+ *                          still passes/fails the same way; only the
+ *                          baseline rewrite-on-improvement side effect is
+ *                          suppressed. Useful for replay / dry-run / CI
+ *                          jobs that should not produce a git change.
+ *                          Equivalent: `--ratchet=off` or env `RATCHET=off`.
  *   --policy=<path>        governance TOML policy. Defaults to
  *                          `harness/.harness/governance.toml`.
  *   --readings-from=<path> replay policy readings from JSON instead of
@@ -1189,6 +1394,7 @@ export async function main(
       writeFileSync(p, s);
     },
     fileExists: (p) => existsSync(p),
+    env: process.env,
   },
 ) {
   let baselinePath = 'harness/sensors/baseline.json';
@@ -1201,6 +1407,7 @@ export async function main(
   let format = 'text';
   let updateBaseline = false;
   let firstRunMode = 'snapshot';
+  let ratchetEnabled = (io.env?.RATCHET ?? '').toLowerCase() !== 'off';
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a.startsWith('--baseline=')) {
@@ -1237,6 +1444,12 @@ export async function main(
       format = 'text';
     } else if (a === '--update-baseline') {
       updateBaseline = true;
+    } else if (a === '--no-ratchet') {
+      ratchetEnabled = false;
+    } else if (a === '--ratchet') {
+      ratchetEnabled = true;
+    } else if (a.startsWith('--ratchet=')) {
+      ratchetEnabled = a.slice('--ratchet='.length).toLowerCase() !== 'off';
     } else if (a.startsWith('--first-run-mode=')) {
       firstRunMode = a.slice('--first-run-mode='.length);
     }
@@ -1373,6 +1586,21 @@ export async function main(
   }
 
   const comparison = compareBaseline(baseline, report, fitnessOptions);
+
+  // RATCHET: on a passing comparison, auto-tighten the floor wherever the
+  // current measurement improved against the baseline. On regression the
+  // ratchet does NOT move - the regression is the signal, and the floor
+  // stays put until the agent either fixes the code or relaxes the floor
+  // deliberately via --update-baseline.
+  let ratchet = { next: baseline, tightenings: [], changed: false, applied: false };
+  if (ratchetEnabled && comparison.ok) {
+    const computed = ratchetBaseline(baseline, report, fitnessOptions);
+    ratchet = { ...computed, applied: true };
+    if (computed.changed) {
+      io.writeFile(baselinePath, `${JSON.stringify(computed.next, null, 2)}\n`);
+    }
+  }
+
   const exitCode = comparison.ok && policyOk ? 0 : 1;
   if (format === 'json') {
     io.write(
@@ -1385,6 +1613,13 @@ export async function main(
               regressions: comparison.regressions,
               summary: comparison.summary,
             },
+            ratchet: {
+              enabled: ratchetEnabled,
+              applied: ratchet.applied,
+              tightened: ratchet.changed,
+              tightenings: ratchet.tightenings,
+              baseline_written: ratchet.applied && ratchet.changed,
+            },
             exit_code: exitCode,
           },
           policyOutput,
@@ -1395,6 +1630,9 @@ export async function main(
     );
   } else {
     io.write(renderReport(comparison));
+    if (ratchet.applied && ratchet.changed) {
+      io.write(renderRatchetReport(ratchet, baselinePath));
+    }
     io.write(renderPolicyReport(policyOutput));
   }
   return exitCode;
