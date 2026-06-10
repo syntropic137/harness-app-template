@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check cx_gate.mjs && node --check adapters.mjs && node --check sentrux_scan.mjs",
-    "typecheck": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check cx_gate.mjs && node --check adapters.mjs && node --check sentrux_scan.mjs",
-    "test": "bin/sensors --help >/dev/null && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check cx_gate.mjs && node --check adapters.mjs && node --check sentrux_scan.mjs && node --test tests/ratchet.test.mjs tests/sentrux.test.mjs tests/complexity.test.mjs tests/cx_gate.test.mjs tests/gate_selfvalidation.test.mjs",
-    "lint": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check cx_gate.mjs && node --check adapters.mjs && node --check sentrux_scan.mjs"
+    "build": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check cx_gate.mjs && node --check adapters.mjs && node --check sentrux_scan.mjs && node --check fitness_report.mjs",
+    "typecheck": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check cx_gate.mjs && node --check adapters.mjs && node --check sentrux_scan.mjs && node --check fitness_report.mjs",
+    "test": "bin/sensors --help >/dev/null && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check cx_gate.mjs && node --check adapters.mjs && node --check sentrux_scan.mjs && node --check fitness_report.mjs && node --test tests/ratchet.test.mjs tests/sentrux.test.mjs tests/complexity.test.mjs tests/cx_gate.test.mjs tests/gate_selfvalidation.test.mjs tests/fitness_report.test.mjs",
+    "lint": "bash -n bin/sensors && node --check aggregate.mjs && node --check abstractness.mjs && node --check complexity.mjs && node --check apss_topology.mjs && node --check gate.mjs && node --check cx_gate.mjs && node --check adapters.mjs && node --check sentrux_scan.mjs && node --check fitness_report.mjs"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
