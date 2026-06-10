@@ -50,11 +50,147 @@ deliverable.
   one-shot recipe for "boot UI -> capture trace -> save -> diff" or only
   conceptual guidance.
 
-## Reusable empirical claims (to be filled in verdict)
-- TBD with N=1 evidence count.
+## Observed (probes run 2026-06-10 02:00 UTC)
 
-## Friction items (append to FRICTION.md on conclusion)
-- TBD.
+### P1 no profiling slot -- FALSIFIED (with caveats)
+- AGENTS.md lists 11 canonical slots; none is "profiling".
+- BUT the filesystem ships TWO extra slot directories not in that list:
+  - `harness/perf/` -- holds `bench.sh`, `gate.mjs`, `baseline.json`.
+  - `harness/observability/` -- holds the otel-collector config (this is
+    the observability-stack slot under a different name).
+- `harness/perf/bench.sh` runs hyperfine against the
+  `node --import tsx --import telemetry.ts main.ts` cold-start path of
+  `ws_apps/example-typescript`. It measures cold-start wall-clock, not
+  request latency. Output: hyperfine JSON.
+- `harness/perf/gate.mjs` is a startup-time fitness gate; it compares the
+  hyperfine mean against `baseline.json` with a 25% tolerance, fails the
+  gate on regression, refuses to auto-update.
+- This covers STARTUP TIME but NOT API latency and NOT frontend perf.
 
-## Design-feeder output (what would a profiling slot need?)
-- TBD; this is the explicit deliverable.
+### P2 no just recipe -- CONFIRMED for profile, FALSIFIED narrowly
+- `just --list` and `grep -iE "profile|trace|flame" justfile`: no profile,
+  trace, or flame recipe.
+- `harness/perf/bench.sh` exists but is NOT exposed via `just`. An agent
+  reading the justfile front door cannot discover it.
+
+### P3 no app-emitted latency histograms -- CONFIRMED
+- VictoriaMetrics `/api/v1/label/__name__/values` returned 16 metric
+  names. Histogram / duration / latency matches: ONLY
+  `v8js.gc.duration_{bucket,count,sum}` (Node V8 GC time, not request
+  latency). No `http.server.duration`, no `http.client.duration`, no
+  custom service histograms because no HTTP server runs in any example app.
+
+### P4 no boot-trace-correlate harness -- CONFIRMED
+- No `just inspect record` recipe.
+- `chrome-devtools-deep` SKILL.md provides a JS-snippet recipe at lines
+  34-47 for `Tracing.start` / `Tracing.end` via `newCDPSession`, but it
+  is a SNIPPET TO PASTE, not a runnable script. There is no
+  `harness/profile-ui/` or similar.
+
+### P5 no flamegraph shortcut -- CONFIRMED
+- No `.claude/skills/*profil*`.
+- No `harness/*flamegraph*` or `*flame*`.
+- The closest thing is `harness/perf/bench.sh` (startup-time mean, not a
+  flamegraph) and the chrome-devtools-deep snippet (manual paste).
+
+## Verdict against frozen prediction: PARTIAL (CONFIRMED with one prediction-better-than-reality flip)
+
+| Sub-prediction | Predicted | Observed | Result |
+|---|---|---|---|
+| P1 no profiling slot | PASS | a startup-time bench slot DOES exist, undocumented | PARTIAL (better than predicted) |
+| P2 no `just profile` | PASS | confirmed (perf bench not even just-exposed) | CONFIRMED |
+| P3 no app histograms | PASS | confirmed (only v8 GC histograms) | CONFIRMED |
+| P4 no boot-trace-correlate | PASS | confirmed (only a snippet recipe) | CONFIRMED |
+| P5 no flamegraph shortcut | PASS | confirmed | CONFIRMED |
+
+Composite verdict: PARTIAL. The template's profiling story today is
+EXACTLY ONE step beyond zero: startup-time hyperfine bench with a fitness
+gate. That covers "did adding a dep make boot slower", and nothing else.
+API latency, frontend perf, span-duration profiling, and flamegraph
+production are all unsupported as runnable recipes.
+
+## Reusable empirical claims
+- The harness ships `harness/perf/bench.sh` (hyperfine startup-time
+  bench) and `harness/perf/gate.mjs` (25% regression gate against
+  `baseline.json`); neither is exposed via `just` and neither addresses
+  API latency or frontend perf. (N=1, low.)
+- VictoriaMetrics in the running stack today contains 16 metric names,
+  all from the Node telemetry SDK (eventloop + v8 + GC); no request
+  latency histogram because no HTTP server runs in the example apps.
+  (N=1, low.)
+- `chrome-devtools-deep` documents a Performance trace recipe as a JS
+  snippet but provides no runnable script that boots the docs UI,
+  captures a trace, and saves an artifact. (N=1, low.)
+
+## Design-feeder output: what a profiling slot would need
+
+Concrete deliverables for a future `harness/profiling/` slot to close
+the gap that today's slot does not cover:
+
+1. **Recipe surface**. `just profile api`, `just profile ui`,
+   `just profile startup` (rename the hyperfine bench).
+   All three produce artifacts under `.harness/artifacts/profile/<iso_key>/`
+   in a shape `before-after-evidence` can pair-diff.
+
+2. **API latency profile** (does NOT exist today):
+   - Add a hello-world HTTP server example to `ws_apps/` (fastify or
+     axum) wired to the OTEL SDK so it emits
+     `http.server.duration` histograms by default.
+   - `just profile api` boots that server, hits it via `oha` or
+     `vegeta`, collects the OTEL histograms and a request-handler
+     flamegraph (Node CPU profile, or `cargo flamegraph` for Rust).
+   - Output: PromQL query the agent can paste to see p50/p90/p99 +
+     a flamegraph SVG.
+
+3. **Frontend perf profile** (snippet today, no runnable):
+   - `just profile ui [route]` boots `ws_apps/docs` dev server, opens
+     it under Playwright using the existing `playwright-debug` setup,
+     calls `Tracing.start` per the `chrome-devtools-deep` recipe,
+     navigates the route, captures the trace JSON.
+   - Save trace + per-frame screenshot pair using the existing
+     `inspector` slot (`just inspector record`).
+   - Output: trace JSON + a CLS / LCP / TTFB summary the agent can
+     read without opening chrome://tracing.
+
+4. **Startup profile** (exists today, undocumented):
+   - Add `just profile startup` recipe that calls
+     `harness/perf/bench.sh` and pretty-prints the hyperfine JSON.
+   - Document `harness/perf/` in AGENTS.md so adopters know it exists.
+
+5. **Fitness gate** (partly exists):
+   - `harness/perf/gate.mjs` is the right shape; extend it to gate
+     p99 request latency and frontend LCP against committed baselines.
+
+6. **Trace correlation**:
+   - Each profile run takes a `--trace-id` flag and tags the artifact
+     directory with it, so a profile can be paired with the request
+     trace in VictoriaTraces (the `before-after-evidence` skill
+     already documents this correlation pattern).
+
+7. **Slot contract / ADR**:
+   - `docs/standard/decisions/profiling.md` (does not exist) needs to
+     pick the per-language tool (Node CPU profile, `cargo flamegraph`,
+     `py-spy`, Chrome Tracing) and pin defaults.
+   - Update AGENTS.md to list `profiling` as the 12th named slot, or
+     fold it into `inspector`.
+
+## Friction items (appended to FRICTION.md)
+- [EXP-11] [docs-gap] AGENTS.md lists 11 canonical slots but
+  `harness/perf/` and `harness/observability/` exist on disk and are not
+  in that list. Adopters do not know hyperfine startup bench is
+  available. (CobaltCoast, 2026-06-10.)
+- [EXP-11] [docs-gap] `harness/perf/bench.sh` is not exposed via `just`;
+  the justfile front door silently omits it. Add `just profile startup`.
+  (CobaltCoast, 2026-06-10.)
+- [EXP-11] [tooling-bug] No example app exposes an HTTP server, so no
+  `http.server.duration` histogram exists in VictoriaMetrics and no API
+  latency profile is possible from out-of-the-box state. Adding a tiny
+  HTTP server example would also fix EXP-05 / EXP-02 simultaneously.
+  (CobaltCoast, 2026-06-10.)
+- [EXP-11] [docs-gap] `chrome-devtools-deep` documents Performance
+  tracing as a snippet to paste. No `just profile ui` recipe wraps it
+  into a one-shot capture + artifact + summary. (CobaltCoast,
+  2026-06-10.)
+- [EXP-11] [config] No `docs/standard/decisions/profiling.md`; per-
+  language profiling tool picks are not pinned. (CobaltCoast,
+  2026-06-10.)

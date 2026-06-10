@@ -53,5 +53,33 @@ Composite prediction:
 - R5: span duration field >= 1_000_000.
 - R6: trace_id from stdout resolves in `/select/jaeger/api/traces?traceID=...`; LogsQL empty for the same.
 
-## Verdict
-TBD until probes run. See VERDICT section appended after the run.
+## Verdict (CONFIRMED with one literal-falsified prediction, plus one bonus finding)
+
+Composite: **CONFIRMED**. The harness ships partial OpenTelemetry access exactly as the hypothesis predicted: traces queryable, metrics endpoint live (with caveat below), host-process logs unreachable, AGENTS.md gap real, slow-path diagnosable via traces inside 60s wall-clock.
+
+### Scorecard
+
+| Pred | Score | Observed |
+|---|---|---|
+| P1 traces reachable | CONFIRMED | `curl /select/jaeger/api/services` returned `{"data":["example-typescript"],"errors":null,"limit":0,"offset":0,"total":1}`. |
+| P2 metrics reachable (literal: `up` query returns rows) | FALSIFIED-literal, CONFIRMED-spirit | `query=up` returned `{"status":"success","data":{"resultType":"vector","result":[]}}`. BUT `/prometheus/api/v1/label/__name__/values` returned 6 OTel-shipped runtime metrics: `nodejs.eventloop.time`, `nodejs.eventloop.utilization`, `v8js.memory.heap.limit`, `v8js.memory.heap.space.available_size`, `v8js.memory.heap.space.physical_size`, `v8js.memory.heap.used`. My prediction was sloppy (OTel does not ship Prometheus `up`); the deeper claim (metrics flow) holds. |
+| P3 logs unreachable | CONFIRMED | LogsQL `query={service.name="example-typescript"} | fields _time, severity, _msg, trace_id | limit 5` returned bytes=0. Collector log: `filelog/harness ... no files match the configured criteria`. The receiver is configured but watching a path no host process writes to. |
+| P4 AGENTS.md gap vs skill | CONFIRMED | AGENTS.md /select/ + VL_PORT + VM_PORT + VT_PORT total hits: 0. observability-queries skill: 12. |
+| P5 slow span queryable, wall-clock <= 60s | CONFIRMED | New span observed: `op=slow-hello dur_us=1151542 trace=d68027ebbda946cc178e02a01350ba73 exp06=measure-1s-sleep-duration`. Duration 1,151,542 microseconds (= 1.15s) is >= 1,000,000 threshold. Wall-clock from emit to diagnostic ~25s. |
+| P6 trace_id correlation works, logs still empty | CONFIRMED | stdout JSON carried `traceId:d68027ebbda946cc178e02a01350ba73`; the same ID was queryable as the operationName `slow-hello` in Jaeger. LogsQL same window still bytes=0. |
+
+### Bonus finding (not in the hypothesis)
+
+Setting `OTEL_SERVICE_NAME` to a custom value (e.g. `exp06-slow-probe`) instead of the default `example-typescript` caused emitted traces to be silently absent from `GET /select/jaeger/api/services` AND from `GET /select/jaeger/api/traces?service=<custom>&limit=N` AND from `GET /select/jaeger/api/traces/<traceID>`. The trace_id resolves to `total:1, data:[]` on direct fetch (suggesting the trace was registered somewhere but not surfaced through the Jaeger schema). Unsetting OTEL_SERVICE_NAME (so the SDK falls back to the package default) made the slow-hello span land normally. Root cause unconfirmed: candidate is VictoriaTraces only indexing service names already seen, OR a collector pipeline rule that drops resource.attributes whose service.name is not pre-registered. Worth a follow-up probe (could become an EXP-NN of its own).
+
+### Reusable empirical claims (with evidence count)
+- VictoriaTraces ingestion latency for an OTLP span emitted from outside-container Node process: < 5s (N=1, low). Source: trace `d68027ebbda946cc178e02a01350ba73` emitted ~T0, visible via Jaeger query at T0+3s.
+- Slow-path detection via trace duration: span.duration field reports microseconds; a 1.1s sleep yields ~1.15M microseconds (N=1, low).
+- OTel collector's filelog receiver path glob matches no files in the default bare-template install (N=1, host=this VPS).
+- The 6 runtime metrics that DO populate VictoriaMetrics on this stack are Node.js/V8 internals shipped by the auto-instrumentation; no application-defined metrics observed.
+
+### Friction items (will append to FRICTION.md)
+- [EXP-06] [tooling-bug] LogsQL pipeline is documented in observability-queries skill but the filelog receiver finds no files on a bare template install; external-process stdout logs never reach VictoriaLogs.
+- [EXP-06] [tooling-bug] Setting OTEL_SERVICE_NAME to a value other than the package default makes emitted traces silently absent from the Jaeger service list and trace-fetch endpoints.
+- [EXP-06] [docs-gap] AGENTS.md does not inline a single endpoint URI for VL/VM/VT; only the skill body has them. An agent that never invokes the skill cannot discover the OTel query surface from AGENTS.md alone.
+- [EXP-06] [docs-gap] No `up` series exists because OTel collector does not synthesize Prometheus-style scrape-target metrics; query examples in any future docs should use OTel-shipped metric names (nodejs.eventloop.*, v8js.memory.*) instead.
