@@ -53,6 +53,11 @@ jobs:
           version: 11.5.1
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm test:coverage
+      # AGENTS.md skill-list drift gate (bead create-harness-app-64l):
+      # the block between the agents-skills markers must match the
+      # .claude/skills directory. Regenerate locally with
+      # `just agents skills --write`.
+      - run: bun run scripts/agents-skills.ts --check
 
   rust-coverage:
     runs-on: ubuntu-latest
