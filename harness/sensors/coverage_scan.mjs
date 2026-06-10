@@ -37,10 +37,11 @@
 // test:coverage runs >2 minutes on a cold cache). The adapter is
 // invoked from bin/sensors gate only when SENSORS_COVERAGE=1 is set in
 // the environment. Pre-push leaves it off; CI's fitness job sets it.
-// When the adapter is skipped or the tools are absent, the envelope
-// reports `available: false` and the gate degrades CV01 metrics to "no
-// reading" (same shape as the SC01 / LG01 / sentrux / deadcode
-// soft-skips above), so a missing scanner cannot silently pass.
+// When the adapter is skipped (no coverage inputs were requested), the
+// envelope reports `available: false`. When requested inputs are present
+// but malformed or a lane scan fails, the envelope reports
+// `available: false` plus `hard_fail: true`, and the process exits
+// non-zero (never silent pass).
 //
 // CONTRACT  -  envelope shape consumed by gate.mjs:
 //   {
@@ -235,6 +236,7 @@ function emptyEnvelope(reason) {
     tool: 'coverage-scan',
     available: false,
     reason,
+    hard_fail: false,
     version: ADAPTER_VERSION,
     scanned_lanes: [],
     metrics: composeMetrics({ rust: null, python: null, javascript: null }),
@@ -330,7 +332,7 @@ const RUST_LANES = [
 function runAllRustLanes({ workspaceRoot, env }) {
   const lanes = RUST_LANES.filter((lane) => existsSync(join(workspaceRoot, lane.manifest)));
   if (lanes.length === 0) {
-    return null;
+    return { ok: false, reason: 'no Rust lanes discovered for --run-rust' };
   }
   const lineValues = [];
   const functionValues = [];
@@ -343,7 +345,10 @@ function runAllRustLanes({ workspaceRoot, env }) {
       env,
     });
     if (!result.ok || !result.metrics) {
-      return null;
+      return {
+        ok: false,
+        reason: `cargo llvm-cov failed for ${lane.manifest}: ${result.reason ?? 'unknown error'}`,
+      };
     }
     if (typeof result.metrics.line_pct === 'number') lineValues.push(result.metrics.line_pct);
     if (typeof result.metrics.function_pct === 'number')
@@ -353,6 +358,7 @@ function runAllRustLanes({ workspaceRoot, env }) {
     }
   }
   return {
+    ok: true,
     line_pct: roundPct(minFinite(lineValues)),
     function_pct: roundPct(minFinite(functionValues)),
     region_pct: roundPct(minFinite(regionValues)),
@@ -374,23 +380,32 @@ function commandExists(bin) {
  */
 export function buildEnvelopeFromOptions(opts) {
   const scanned = [];
+  const failures = [];
   let rust = null;
   let python = null;
   let javascript = null;
 
   // Rust: pre-rendered JSON takes priority over a live run.
   if (opts.rustCovJsonPath) {
-    const payload = readJsonFile(opts.rustCovJsonPath);
-    const parsed = parseRustLlvmCovJson(payload);
-    if (parsed) {
-      rust = parsed;
-      scanned.push('rust');
+    if (!existsSync(opts.rustCovJsonPath)) {
+      failures.push(`missing rust coverage JSON at ${opts.rustCovJsonPath}`);
+    } else {
+      const payload = readJsonFile(opts.rustCovJsonPath);
+      const parsed = parseRustLlvmCovJson(payload);
+      if (parsed) {
+        rust = parsed;
+        scanned.push('rust');
+      } else {
+        failures.push(`rust coverage JSON malformed at ${opts.rustCovJsonPath}`);
+      }
     }
   } else if (opts.runRust) {
     const live = runAllRustLanes({ workspaceRoot: opts.workspaceRoot, env: opts.env });
-    if (live) {
+    if (live.ok) {
       rust = live;
       scanned.push('rust');
+    } else {
+      failures.push(live.reason ?? 'rust scanner failed');
     }
   }
 
@@ -398,22 +413,43 @@ export function buildEnvelopeFromOptions(opts) {
   // live run is delegated to `just cov-py` which writes
   // coverage.json under ws_apps/example-python/.
   if (opts.pythonCovJsonPath) {
-    const payload = readJsonFile(opts.pythonCovJsonPath);
-    const parsed = parsePythonCoverageJson(payload);
-    if (parsed) {
-      python = parsed;
-      scanned.push('python');
+    if (!existsSync(opts.pythonCovJsonPath)) {
+      failures.push(`missing python coverage JSON at ${opts.pythonCovJsonPath}`);
+    } else {
+      const payload = readJsonFile(opts.pythonCovJsonPath);
+      const parsed = parsePythonCoverageJson(payload);
+      if (parsed) {
+        python = parsed;
+        scanned.push('python');
+      } else {
+        failures.push(`python coverage JSON malformed at ${opts.pythonCovJsonPath}`);
+      }
     }
   }
 
   // JavaScript: pre-rendered vitest coverage-summary.json
   if (opts.javascriptCovJsonPath) {
-    const payload = readJsonFile(opts.javascriptCovJsonPath);
-    const parsed = parseJavascriptCoverageSummary(payload);
-    if (parsed) {
-      javascript = parsed;
-      scanned.push('javascript');
+    if (!existsSync(opts.javascriptCovJsonPath)) {
+      failures.push(`missing javascript coverage JSON at ${opts.javascriptCovJsonPath}`);
+    } else {
+      const payload = readJsonFile(opts.javascriptCovJsonPath);
+      const parsed = parseJavascriptCoverageSummary(payload);
+      if (parsed) {
+        javascript = parsed;
+        scanned.push('javascript');
+      } else {
+        failures.push(`javascript coverage JSON malformed at ${opts.javascriptCovJsonPath}`);
+      }
     }
+  }
+
+  if (failures.length > 0) {
+    const reason = `coverage scan failure: ${failures.join('; ')}`;
+    return {
+      ...emptyEnvelope(reason),
+      hard_fail: true,
+      reason,
+    };
   }
 
   if (scanned.length === 0) {
@@ -470,7 +506,7 @@ export async function main(
   opts.workspaceRoot = resolve(opts.workspaceRoot);
   const envelope = buildEnvelopeFromOptions(opts);
   io.write(`${JSON.stringify(envelope, null, 2)}\n`);
-  return 0;
+  return envelope.hard_fail ? 1 : 0;
 }
 
 function isScriptEntry() {

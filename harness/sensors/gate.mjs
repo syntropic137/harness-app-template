@@ -60,6 +60,14 @@ const DEPCRUISER_SENSOR = 'dep-cruiser@17.4.0';
 const TEMPLATE_SENSOR = 'harness-sensors@template';
 
 const DIMENSION_ORDER = ['MT01', 'MD01', 'ST01', 'SC01', 'LG01', 'AC01', 'PF01', 'AV01', 'CV01'];
+const CV01_FIELD_IDS = new Set([
+  'rust_line_pct',
+  'rust_function_pct',
+  'rust_region_pct',
+  'python_line_pct',
+  'javascript_line_pct',
+  'min_line_pct',
+]);
 
 const DIMENSIONS = {
   MT01: {
@@ -646,19 +654,60 @@ function deadcodeMetricValue(options, field) {
   return value;
 }
 
+function coverageInputRequested(options = {}) {
+  const hasPath = typeof options.coveragePath === 'string' && options.coveragePath.length > 0;
+  return options.coverage !== undefined || hasPath;
+}
+
+function recordCoverageFailure(options, field, reason) {
+  const metricId = coverageFieldToDimensionMetricId(field);
+  if (!metricId) {
+    return;
+  }
+  if (!options) {
+    return;
+  }
+  if (!options.coverageReadFailures) {
+    options.coverageReadFailures = {};
+  }
+  if (typeof options.coverageReadFailures[metricId] === 'string') {
+    return;
+  }
+  options.coverageReadFailures[metricId] = reason;
+}
+
+function coverageFieldToDimensionMetricId(field) {
+  switch (field) {
+    case 'rust_line_pct':
+      return 'rust-line-coverage-pct';
+    case 'rust_function_pct':
+      return 'rust-function-coverage-pct';
+    case 'rust_region_pct':
+      return 'rust-region-coverage-pct';
+    case 'python_line_pct':
+      return 'python-line-coverage-pct';
+    case 'javascript_line_pct':
+      return 'javascript-line-coverage-pct';
+    case 'min_line_pct':
+      return 'min-line-coverage-pct';
+    default:
+      return null;
+  }
+}
+
 /**
  * Read the deterministic test-coverage envelope the CV01 dimension
  * watches. Accepts a pre-parsed envelope on options.coverage or a
  * filesystem reader pair on options.io pointing at
  * options.coveragePath. Returns the named numeric metric (or null
- * when the envelope is absent, the adapter reported unavailable, or
- * the metric is missing). null degrades the gate to "no reading"
- * rather than a false zero (same shape as the SC01/LG01/sentrux/
- * deadcode readers above. Produced by harness/sensors/coverage_scan.mjs
- * (ADR-0025-coverage-ratchet.md). The operator invariant pinned by
- * baseline.json is 100 percent or nothing; lowering a CV01 metric's
- * floor below 100 requires an explicit baseline.json edit + ADR
- * update, never a threshold relaxation.
+ * when the envelope is absent and coverage was not explicitly requested,
+ * the adapter reported unavailable, or the metric is missing.
+ *
+ * CV01 is a hard contract: when coverage is explicitly requested
+ * (i.e., the gate was called with --coverage=<path> or a coverage
+ * envelope was injected by tests), malformed or unavailable coverage
+ * data is recorded as a hard regression rather than degrading to
+ * "no reading". This keeps the floor at 100% or worse.
  */
 function coverageMetricValue(options, field) {
   let envelope = options?.coverage;
@@ -672,10 +721,21 @@ function coverageMetricValue(options, field) {
     }
   }
   if (!envelope || envelope.available === false) {
+    if (coverageInputRequested(options) && CV01_FIELD_IDS.has(field)) {
+      const reason = envelope?.reason
+        ? `coverage adapter reported unavailable: ${envelope.reason}`
+        : envelope === null
+          ? `coverage envelope missing${options.coveragePath ? ` at ${options.coveragePath}` : ''}`
+          : 'coverage adapter reported unavailable';
+      recordCoverageFailure(options, field, reason);
+    }
     return null;
   }
   const value = envelope?.metrics?.[field];
   if (typeof value !== 'number' || !Number.isFinite(value)) {
+    if (coverageInputRequested(options) && CV01_FIELD_IDS.has(field)) {
+      recordCoverageFailure(options, field, `coverage metric "${field}" is missing or malformed`);
+    }
     return null;
   }
   return value;
@@ -1258,15 +1318,22 @@ export function compareFitnessBaseline(baseline, currentReport, options = {}) {
       const currentValue = currentMetric.baseline;
       const hasBaseline = typeof baselineValue === 'number';
       const hasCurrent = typeof currentValue === 'number';
-      const regression =
-        currentMetric.fail_on_regression &&
-        hasBaseline &&
-        hasCurrent &&
-        worsened(currentMetric.direction, currentValue, baselineValue);
+      const coverageFailure = hasCoverageFailure(options, metricId);
+      const hardFailCoverage = code === 'CV01' && coverageFailure;
+      const failureReason = hardFailCoverage ? coverageFailureSummary(options, metricId) : null;
+      let regression = false;
 
-      if (hasBaseline && hasCurrent) {
+      if (hardFailCoverage) {
         comparedMetrics += 1;
         evaluated += 1;
+        failed += 1;
+        regression = true;
+      } else if (hasCurrent && hasBaseline) {
+        comparedMetrics += 1;
+        evaluated += 1;
+        regression =
+          currentMetric.fail_on_regression &&
+          worsened(currentMetric.direction, currentValue, baselineValue);
       } else {
         missing += 1;
         missingBaselines.push({
@@ -1284,11 +1351,12 @@ export function compareFitnessBaseline(baseline, currentReport, options = {}) {
         direction: currentMetric.direction,
         fail_on_regression: currentMetric.fail_on_regression,
         regression,
+        diagnostic: failureReason,
       };
       metricSummaries[metricId] = summary;
 
       if (regression) {
-        const delta = currentValue - baselineValue;
+        const delta = hasCurrent && hasBaseline ? currentValue - baselineValue : 0;
         const record = {
           dimension: code,
           metric: metricId,
@@ -1297,9 +1365,12 @@ export function compareFitnessBaseline(baseline, currentReport, options = {}) {
           current: currentValue,
           delta,
           enforcement: dimension.enforcement,
+          diagnostic: failureReason,
         };
         if (dimension.enforcement === 'enforced') {
-          failed += 1;
+          if (!hardFailCoverage) {
+            failed += 1;
+          }
           regressions.push(record);
         } else {
           warned += 1;
@@ -1383,6 +1454,17 @@ function improved(direction, current, baseline) {
 
 function isNullToReal(baseline, current) {
   return (baseline === null || baseline === undefined) && typeof current === 'number';
+}
+
+function hasCoverageFailure(options, metricId) {
+  return coverageInputRequested(options) && options.coverageReadFailures?.[metricId];
+}
+
+function coverageFailureSummary(options, metricId) {
+  return (
+    options.coverageReadFailures?.[metricId] ??
+    `coverage metric "${metricId}" is missing or malformed`
+  );
 }
 
 /**
@@ -1530,7 +1612,7 @@ function atomicWriteFile(path, content) {
 }
 
 export function renderRatchetReport(ratchet, baselinePath) {
-  if (!ratchet || !ratchet.changed) {
+  if (!ratchet?.changed) {
     return '';
   }
   const lines = [''];
@@ -1626,15 +1708,16 @@ export function renderReport(comparison) {
     lines.push('');
     lines.push('regressions:');
     for (const r of comparison.regressions) {
+      const detail = r.diagnostic ? ` (${r.diagnostic})` : '';
       if (r.folder) {
         lines.push(
           `  ${r.folder}  ${r.metric}: ${fmt(r.baseline)} -> ${fmt(r.current)}  ` +
-            `(+${fmt(r.delta)})`,
+            `(+${fmt(r.delta)})${detail}`,
         );
       } else {
         lines.push(
           `  ${r.dimension} ${r.metric}: ${fmt(r.baseline)} -> ${fmt(r.current)} ` +
-            `(+${fmt(r.delta)})`,
+            `(+${fmt(r.delta)})${detail}`,
         );
       }
     }
@@ -1782,8 +1865,9 @@ function jsonPayload(base, policy) {
  *                          present, the CV01 dimension reads rust /
  *                          python / javascript line/function/region
  *                          percentages from this file. Floor pinned at
- *                          100; soft-skip yields no-reading rather than
- *                          a false zero. See ADR-0025-coverage-ratchet.md.
+ *                          100; missing or malformed coverage input is a
+ *                          hard fail (never a skipped no-reading), never a
+ *                          false zero. See ADR-0025-coverage-ratchet.md.
  *   --policy=<path>        governance TOML policy. Defaults to
  *                          `harness/.harness/governance.toml`.
  *   --readings-from=<path> replay policy readings from JSON instead of
