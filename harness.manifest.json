@@ -152,6 +152,20 @@
       },
       "implementation": "Rust harness-versioning crate ported from the lab; wraps the cocogitto versioning slot with whole-repo checks and a per-package extension point.",
       "decisionAt": "docs/adrs/ADR-0011-versioning.md"
+    },
+    "formatter": {
+      "contract": "formatter",
+      "plugin": "biome+ruff",
+      "version": "0.1.0",
+      "required": true,
+      "swappable": true,
+      "interface": {
+        "type": "config",
+        "entrypoint": "lefthook.yml",
+        "commands": ["pre-commit.biome-format-lint", "pre-commit.python-ruff-format"]
+      },
+      "implementation": "Pre-commit auto-format of staged files via lefthook stage_fixed: biome covers JS/TS/JSON/CSS/MD/YAML, ruff covers Python. Hard-enforced because rewrites are whitespace-equivalent.",
+      "decisionAt": "docs/adrs/ADR-0021-formatter-slot.md"
     }
   }
 }

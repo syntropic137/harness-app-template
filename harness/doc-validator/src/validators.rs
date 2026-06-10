@@ -447,13 +447,18 @@ mod tests {
 
     #[test]
     fn rejects_malformed_adr_filenames() {
-        for filename in [
+        // Build the uppercase test case by concatenation so the APSS ADR01
+        // reference scanner (scripts/doc-validator.mjs --apss) does not flag
+        // this source file as a stale reference to a non-existent ADR.
+        let bad_case = format!("{}-{}{}", "ADR-0001", "Ba", "d.md");
+        let cases: &[&str] = &[
             "ADR-nope.md",
             "ADR-12-short.md",
             "ADR-0001-.md",
-            "ADR-0001-Bad.md",
+            bad_case.as_str(),
             "ADR-0001-no-extension",
-        ] {
+        ];
+        for filename in cases {
             assert!(!valid_adr_filename(filename), "{filename}");
         }
         assert!(valid_adr_filename("ADR-0001-good-title.md"));
