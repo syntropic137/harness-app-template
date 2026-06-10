@@ -224,8 +224,79 @@ test('evaluateTiming uses the ratchet ceiling when it exceeds the absolute', () 
   assert.equal(fail[0].effective_ceiling_seconds, 12.5);
 });
 
-test('evaluateTiming returns no violations when p95 is null', () => {
-  assert.deepEqual(evaluateTiming(null, makeBaseline()), []);
+test('evaluateTiming HARD-FAILS with timing_unverifiable when p95 is null (post-PR #28 fail-closed)', () => {
+  // Post-PR #28 generalization: absent or unparseable measurement is
+  // a HARD FAIL, never a silent skip. The earlier shape of this test
+  // expected `[]` (silent skip); that loophole is the one Codex
+  // caught on CV01 and the operator generalized to PF01.
+  const violations = evaluateTiming(null, makeBaseline());
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].type, 'timing_unverifiable');
+});
+
+test('evaluateTiming HARD-FAILS with timing_unverifiable on NaN p95', () => {
+  const violations = evaluateTiming(Number.NaN, makeBaseline());
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].type, 'timing_unverifiable');
+});
+
+test('evaluateTiming HARD-FAILS with timing_unverifiable on +Infinity p95', () => {
+  const violations = evaluateTiming(Number.POSITIVE_INFINITY, makeBaseline());
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].type, 'timing_unverifiable');
+});
+
+test('evaluate ENFORCE mode HARD-FAILS when every iteration has NaN wall-clock (fail-closed)', () => {
+  // Simulate a clock that returns NaN. Records still get emitted
+  // (the suite runs), coverage is 100%, exit_status is 0 — without
+  // the fail-closed guard, the gate would silently skip timing and
+  // pass — exactly the CV01 loophole Codex flagged on PR #28.
+  const baseline = makeBaseline();
+  const brokenNow = () => Number.NaN;
+  const { envelope, exitCode } = evaluate({
+    mode: 'enforce',
+    baseline,
+    runner: fakeRunner(NODE_OUTPUT_PASS),
+    now: brokenNow,
+  });
+  assert.equal(exitCode, 1);
+  assert.equal(envelope.available, false);
+  assert.ok(envelope.violations.some((v) => v.type === 'timing_unverifiable'));
+});
+
+test('evaluate ADVISORY mode also HARD-FAILS on timing_unverifiable (the operator generalization)', () => {
+  // The operator rule: "fails CLOSED when timing OR coverage data is
+  // missing/malformed, in BOTH advisory and enforce modes". This is
+  // the central proof advisory does NOT downgrade an unverifiable
+  // timing reading to WARN-only.
+  const baseline = makeBaseline();
+  const brokenNow = () => Number.NaN;
+  const { envelope, exitCode } = evaluate({
+    mode: 'advisory',
+    baseline,
+    runner: fakeRunner(NODE_OUTPUT_PASS),
+    now: brokenNow,
+  });
+  assert.equal(exitCode, 1, 'advisory mode must exit non-zero on unverifiable timing');
+  assert.equal(envelope.available, false);
+  assert.ok(envelope.violations.some((v) => v.type === 'timing_unverifiable'));
+});
+
+test('renderSummary marks timing_unverifiable as FAIL even in advisory mode', () => {
+  const env = {
+    tool: 'suite-duration',
+    mode: 'advisory',
+    passed: false,
+    duration_p95_seconds: null,
+    duration_median_seconds: null,
+    iteration_count: 1,
+    violations: [{ type: 'timing_unverifiable', message: 'p95 wall-clock is unobservable' }],
+  };
+  const text = renderSummary(env);
+  // Advisory mode WARN-ONLY is reserved for observed-but-too-slow
+  // timing. An unverifiable timing reading must still print FAIL.
+  assert.match(text, /SUITE-DURATION: FAIL/);
+  assert.doesNotMatch(text, /WARN-ONLY/);
 });
 
 test('runIterations runs N times and parses every iteration', () => {

@@ -258,12 +258,29 @@ export function computeMedian(values) {
 /**
  * Evaluate the timing thresholds against the baseline using the
  * hybrid ceiling formula (ADR-0025 § Decision 4). Returns an array of
- * violation records. Advisory mode may downgrade these to a WARN; the
- * caller decides exit code per mode.
+ * violation records.
+ *
+ * Two distinct violation kinds, matching the coverage shape on
+ * purpose (per the operator's generalized "absent or unparseable
+ * measurement is a HARD FAIL, never a silent skip" rule, post-PR
+ * #28 review):
+ *
+ *   - `timing_unverifiable` — no observable p95 (records empty, all
+ *     wall-clocks non-finite). Fatal in BOTH advisory and enforce
+ *     modes — the advisory ramp only ever softens an OBSERVED
+ *     timing miss, not a missing one. The caller does NOT get to
+ *     pretend "timing was fine" when it was never measured.
+ *   - `timing_above_ceiling` — p95 observed AND above the hybrid
+ *     ceiling. Fatal in enforce mode; downgrades to WARN in
+ *     advisory mode (ADR-0025 § Decision 5).
  */
 export function evaluateTiming(observedP95, baseline) {
   const violations = [];
-  if (typeof observedP95 !== 'number') {
+  if (typeof observedP95 !== 'number' || !Number.isFinite(observedP95)) {
+    violations.push({
+      type: 'timing_unverifiable',
+      message: `p95 wall-clock is unobservable (no finite iteration timing). The sensor refuses to assume timing passed per ADR-0025 / PR #28 generalization.`,
+    });
     return violations;
   }
   const ratchet = baseline.duration_p95_seconds * (1 + baseline.relative_delta_percent / 100);
@@ -336,7 +353,14 @@ export function evaluate({
 }) {
   const wantIterations = mode === 'enforce' ? Math.max(baseline.iteration_count, 1) : 1;
   const records = runIterations({ baseline, iterations: wantIterations, runner, now });
-  const wallClocks = records.map((r) => r.wall_clock_seconds);
+  // Filter non-finite wall-clocks BEFORE computing p95 / median. A
+  // runner that returns garbage cannot contaminate the percentile; an
+  // empty filtered array surfaces as a `timing_unverifiable`
+  // violation via evaluateTiming below (the fail-closed generalization
+  // of the no-silent-100% coverage rule, post-PR #28 review).
+  const wallClocks = records
+    .map((r) => r.wall_clock_seconds)
+    .filter((v) => typeof v === 'number' && Number.isFinite(v));
   const p95 = computeP95(wallClocks);
   const median = computeMedian(wallClocks);
 
@@ -369,12 +393,16 @@ export function evaluate({
     (v) => v.type === 'coverage_below_floor' || v.type === 'coverage_unverifiable',
   );
   const hasSuiteFailure = violations.some((v) => v.type === 'suite_command_failed');
+  const hasTimingUnverifiable = violations.some((v) => v.type === 'timing_unverifiable');
   const hasTimingViolation = violations.some((v) => v.type === 'timing_above_ceiling');
 
-  // ADR-0025 § Decision 5: advisory mode keeps coverage + suite-failure
-  // violations fatal. The advisory ramp only ever softens TIMING.
+  // ADR-0025 § Decision 5 + post-PR #28 generalization: advisory mode
+  // keeps every UNVERIFIABLE / hard-failure violation fatal. The
+  // advisory ramp only ever softens an OBSERVED timing miss
+  // (timing_above_ceiling). A missing measurement (coverage or timing)
+  // can NEVER be assumed pass.
   let exitCode = 0;
-  if (hasCoverageViolation || hasSuiteFailure) {
+  if (hasCoverageViolation || hasSuiteFailure || hasTimingUnverifiable) {
     exitCode = 1;
   } else if (hasTimingViolation && mode !== 'advisory') {
     exitCode = 1;
@@ -382,7 +410,7 @@ export function evaluate({
 
   const envelope = {
     tool: 'suite-duration',
-    available: !hasCoverageViolation && !hasSuiteFailure,
+    available: !hasCoverageViolation && !hasSuiteFailure && !hasTimingUnverifiable,
     version: SENSOR_VERSION,
     mode,
     command: baseline.suite_command,
@@ -411,15 +439,21 @@ export function renderSummary(envelope) {
   if (envelope.passed) {
     lines.push(`${tag} SUITE-DURATION: PASS`);
   } else {
-    const hasCoverage = envelope.violations.some(
-      (v) => v.type === 'coverage_below_floor' || v.type === 'coverage_unverifiable',
+    const hasUnverifiable = envelope.violations.some(
+      (v) => v.type === 'coverage_unverifiable' || v.type === 'timing_unverifiable',
     );
-    const hasTiming = envelope.violations.some((v) => v.type === 'timing_above_ceiling');
+    const hasCoverageBelow = envelope.violations.some((v) => v.type === 'coverage_below_floor');
+    const hasTimingObserved = envelope.violations.some((v) => v.type === 'timing_above_ceiling');
     const hasSuite = envelope.violations.some((v) => v.type === 'suite_command_failed');
+    // Unverifiable measurements (timing or coverage) are FAIL in BOTH
+    // modes — see ADR-0025 § Decision 5 + the post-PR #28 fail-closed
+    // generalization. Advisory mode may downgrade ONLY an observed
+    // timing miss, never a missing measurement and never a coverage
+    // floor breach.
     const status =
-      hasCoverage || hasSuite
+      hasUnverifiable || hasCoverageBelow || hasSuite
         ? 'FAIL'
-        : hasTiming && envelope.mode === 'advisory'
+        : hasTimingObserved && envelope.mode === 'advisory'
           ? 'WARN-ONLY'
           : 'FAIL';
     lines.push(`${tag} SUITE-DURATION: ${status}`);
