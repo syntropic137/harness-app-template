@@ -58,11 +58,9 @@ interface Module {
   };
 }
 
-function reportFrom(opts: {
-  folders?: Folder[];
-  modules?: Module[];
-  circular_edges?: number;
-}): { workspace: Workspace } {
+function reportFrom(opts: { folders?: Folder[]; modules?: Module[]; circular_edges?: number }): {
+  workspace: Workspace;
+} {
   return {
     workspace: {
       folders: opts.folders ?? [],
@@ -74,12 +72,12 @@ function reportFrom(opts: {
 
 const ENFORCED_CODES = ['MT01', 'MD01'] as const;
 const ADVISORY_CODES = ['ST01', 'SC01', 'LG01', 'AC01', 'PF01', 'AV01'] as const;
-const ALL_CODES = ['MT01', 'MD01', 'ST01', 'SC01', 'LG01', 'AC01', 'PF01', 'AV01'] as const;
+const ALL_CODES = ['MT01', 'MD01', 'ST01', 'SC01', 'LG01', 'AC01', 'PF01', 'AV01', 'CV01'] as const;
 void ENFORCED_CODES;
 void ADVISORY_CODES;
 
 describe('APSS fitness gate (bead 2zz) — coverage discipline', () => {
-  test('extractApssFitnessBaseline emits all 8 dimensions in canonical order', () => {
+  test('extractApssFitnessBaseline emits all 9 dimensions in canonical order', () => {
     const baseline = extractApssFitnessBaseline(reportFrom({}));
     expect(Object.keys(baseline.dimensions)).toEqual([
       'MT01',
@@ -90,6 +88,7 @@ describe('APSS fitness gate (bead 2zz) — coverage discipline', () => {
       'AC01',
       'PF01',
       'AV01',
+      'CV01',
     ]);
   });
 
@@ -115,11 +114,11 @@ describe('APSS fitness gate (bead 2zz) — coverage discipline', () => {
     }
   });
 
-  test('six dimensions are enforced (MT01, MD01, ST01, SC01, LG01, PF01); AC01 + AV01 are advisory-by-design', () => {
+  test('seven dimensions are enforced (MT01, MD01, ST01, SC01, LG01, PF01, CV01); AC01 + AV01 are advisory-by-design', () => {
     const baseline = extractApssFitnessBaseline(reportFrom({}));
     const enforced = ALL_CODES.filter((c) => baseline.dimensions[c].enforcement === 'enforced');
     const advisory = ALL_CODES.filter((c) => baseline.dimensions[c].enforcement === 'advisory');
-    expect(enforced).toEqual(['MT01', 'MD01', 'ST01', 'SC01', 'LG01', 'PF01']);
+    expect(enforced).toEqual(['MT01', 'MD01', 'ST01', 'SC01', 'LG01', 'PF01', 'CV01']);
     expect(advisory).toEqual(['AC01', 'AV01']);
   });
 });
@@ -153,7 +152,9 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     });
     const result = compareFitnessBaseline(baseline, worse);
     expect(result.ok).toBe(false);
-    expect(result.regressions.some((r) => r.dimension === 'MT01' && r.metric === 'max-cyclomatic')).toBe(true);
+    expect(
+      result.regressions.some((r) => r.dimension === 'MT01' && r.metric === 'max-cyclomatic'),
+    ).toBe(true);
   });
 
   test('MT01: clean current at baseline values keeps ok=true', () => {
@@ -180,17 +181,23 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
 
   test('MD01: a fan-out regression on apss.efferent_coupling trips ok=false', () => {
     const baselineReport = reportFrom({
-      modules: [{ source: 'ws_apps/a/m.ts', apss: { efferent_coupling: 2, instability: 0.5 }, D: 0.1 }],
+      modules: [
+        { source: 'ws_apps/a/m.ts', apss: { efferent_coupling: 2, instability: 0.5 }, D: 0.1 },
+      ],
       folders: [{ name: 'ws_apps/a', D: 0.1 }],
     });
     const baseline = extractApssFitnessBaseline(baselineReport);
     const worse = reportFrom({
-      modules: [{ source: 'ws_apps/a/m.ts', apss: { efferent_coupling: 25, instability: 0.5 }, D: 0.1 }],
+      modules: [
+        { source: 'ws_apps/a/m.ts', apss: { efferent_coupling: 25, instability: 0.5 }, D: 0.1 },
+      ],
       folders: [{ name: 'ws_apps/a', D: 0.1 }],
     });
     const result = compareFitnessBaseline(baseline, worse);
     expect(result.ok).toBe(false);
-    expect(result.regressions.some((r) => r.dimension === 'MD01' && r.metric === 'max-fan-out')).toBe(true);
+    expect(
+      result.regressions.some((r) => r.dimension === 'MD01' && r.metric === 'max-fan-out'),
+    ).toBe(true);
   });
 
   test('MD01: a main-sequence-distance regression trips ok=false', () => {
@@ -205,7 +212,11 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     });
     const result = compareFitnessBaseline(baseline, worse);
     expect(result.ok).toBe(false);
-    expect(result.regressions.some((r) => r.dimension === 'MD01' && r.metric === 'max-main-sequence-distance')).toBe(true);
+    expect(
+      result.regressions.some(
+        (r) => r.dimension === 'MD01' && r.metric === 'max-main-sequence-distance',
+      ),
+    ).toBe(true);
   });
 
   test('MD01: more modules in the unhealthy instability range (<0.1 or >0.9) trips ok=false', () => {
@@ -224,7 +235,11 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     });
     const result = compareFitnessBaseline(baseline, worse);
     expect(result.ok).toBe(false);
-    expect(result.regressions.some((r) => r.dimension === 'MD01' && r.metric === 'instability-out-of-range-count')).toBe(true);
+    expect(
+      result.regressions.some(
+        (r) => r.dimension === 'MD01' && r.metric === 'instability-out-of-range-count',
+      ),
+    ).toBe(true);
   });
 
   test('ST01: a new circular dependency edge (workspace.circular_edges) trips ok=false', () => {
@@ -269,7 +284,9 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     const current = reportFrom({});
     const result = compareFitnessBaseline(baseline, current);
     expect(result.ok).toBe(true);
-    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'ST01')).toBe(true);
+    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'ST01')).toBe(
+      true,
+    );
   });
 
   test('SC01: a critical UBS finding in the current run trips ok=false', () => {
@@ -314,10 +331,20 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
   test('SC01: scanner-array fallback also works (no totals.critical, per-scanner critical fields)', () => {
     const baselineReport = reportFrom({});
     const baseline = extractApssFitnessBaseline(baselineReport, {
-      security: { scanners: [{ language: 'js', critical: 0 }, { language: 'rust', critical: 0 }] },
+      security: {
+        scanners: [
+          { language: 'js', critical: 0 },
+          { language: 'rust', critical: 0 },
+        ],
+      },
     });
     const result = compareFitnessBaseline(baseline, baselineReport, {
-      security: { scanners: [{ language: 'js', critical: 2 }, { language: 'rust', critical: 1 }] },
+      security: {
+        scanners: [
+          { language: 'js', critical: 2 },
+          { language: 'rust', critical: 1 },
+        ],
+      },
     });
     expect(result.ok).toBe(false);
     const sc = result.regressions.find((r) => r.dimension === 'SC01');
@@ -332,7 +359,9 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     expect(result.ok).toBe(true);
     // missingBaselines counter records SC01 since both baseline and current
     // resolved to null and the rule can't be evaluated.
-    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'SC01')).toBe(true);
+    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'SC01')).toBe(
+      true,
+    );
   });
 
   test('LG01: a denied license in the current scan trips ok=false', () => {
@@ -403,7 +432,9 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
       licenses: { available: false, denied_count: 0, scanned: 0, denied: [] },
     });
     expect(result.ok).toBe(true);
-    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'LG01')).toBe(true);
+    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'LG01')).toBe(
+      true,
+    );
   });
 
   test('compareBaseline aggregates legacy folder-level I/D regressions AND MT01/MD01 fitness regressions', () => {
@@ -419,7 +450,9 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     const result = compareBaseline(baseline, worse);
     expect(result.ok).toBe(false);
     expect(result.legacyRegressions?.length).toBeGreaterThan(0);
-    expect(result.fitness?.regressions.some((r: { dimension: string }) => r.dimension === 'MT01')).toBe(true);
+    expect(
+      result.fitness?.regressions.some((r: { dimension: string }) => r.dimension === 'MT01'),
+    ).toBe(true);
   });
 });
 
@@ -458,7 +491,7 @@ describe('APSS fitness gate (bead 2zz) - advisory dimensions never trip ok=false
     expect(pf?.enforcement).toBe('enforced');
   });
 
-  test('compareBaseline render reports 6/6 enforced + 0/2 advisory in its summary line', () => {
+  test('compareBaseline render reports 7/7 enforced + 0/2 advisory in its summary line', () => {
     const baselineReport = reportFrom({
       modules: [{ source: 'ws_apps/a/m.ts', max_cognitive: 5, max_cyclomatic: 3 }],
       circular_edges: 0,
@@ -467,17 +500,32 @@ describe('APSS fitness gate (bead 2zz) - advisory dimensions never trip ok=false
       security: { totals: { critical: 0 } },
       licenses: { available: true, denied_count: 0, scanned: 50, denied: [] },
       perf: { benchmarks: { startup: { mean: 0.4 } } },
+      coverage: {
+        tool: 'coverage-scan',
+        available: true,
+        version: '1.0.0',
+        scanned_lanes: ['rust', 'python', 'javascript'],
+        metrics: {
+          rust_line_pct: 100,
+          rust_function_pct: 100,
+          rust_region_pct: 100,
+          python_line_pct: 100,
+          javascript_line_pct: 100,
+          min_line_pct: 100,
+        },
+      },
     };
     const baseline = extractApssFitnessBaseline(baselineReport, opts);
     const result = compareBaseline(baseline, baselineReport, opts);
     const text = renderReport(result);
-    expect(text).toMatch(/6\/6 enforced/);
+    expect(text).toMatch(/7\/7 enforced/);
     expect(text).toMatch(/\[ENFORCED\] MT01/);
     expect(text).toMatch(/\[ENFORCED\] MD01/);
     expect(text).toMatch(/\[ENFORCED\] ST01/);
     expect(text).toMatch(/\[ENFORCED\] SC01/);
     expect(text).toMatch(/\[ENFORCED\] LG01/);
     expect(text).toMatch(/\[ENFORCED\] PF01/);
+    expect(text).toMatch(/\[ENFORCED\] CV01/);
     expect(text).toMatch(/\[advisory\] AC01/);
     expect(text).toMatch(/\[advisory\] AV01/);
     expect(text).toMatch(/no adapter wired/);

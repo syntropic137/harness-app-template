@@ -59,7 +59,7 @@ const DEFAULT_POLICY_PATH = 'harness/.harness/governance.toml';
 const DEPCRUISER_SENSOR = 'dep-cruiser@17.4.0';
 const TEMPLATE_SENSOR = 'harness-sensors@template';
 
-const DIMENSION_ORDER = ['MT01', 'MD01', 'ST01', 'SC01', 'LG01', 'AC01', 'PF01', 'AV01'];
+const DIMENSION_ORDER = ['MT01', 'MD01', 'ST01', 'SC01', 'LG01', 'AC01', 'PF01', 'AV01', 'CV01'];
 
 const DIMENSIONS = {
   MT01: {
@@ -109,6 +109,12 @@ const DIMENSIONS = {
     promotion_status: 'incubating',
     enforcement: 'advisory',
     default: 'opt-in',
+  },
+  CV01: {
+    name: 'Test Coverage',
+    promotion_status: 'active',
+    enforcement: 'enforced',
+    default: 'default-enabled',
   },
 };
 
@@ -396,6 +402,75 @@ const FITNESS_METRICS = {
       value: () => null,
     },
   ],
+  CV01: [
+    {
+      id: 'rust-line-coverage-pct',
+      name: 'Rust Line Coverage Percentage',
+      objective:
+        'Minimum cargo-llvm-cov line-coverage percentage across every Rust workspace the project covers (ws_apps/example-rust, harness/doc-validator, harness/versioning). Direction min (larger-is-better); ratchet only ever tightens UPWARD toward 100 percent. The operator invariant is 100 percent or nothing. If a line is genuinely uncoverable, exclude it via cfg(coverage)/llvm-cov ignore regions rather than lowering the floor. See ADR-0025-coverage-ratchet.md.',
+      source: 'harness/sensors/coverage_scan.mjs (cargo llvm-cov --json --summary-only)',
+      direction: 'min',
+      default_threshold: 100,
+      fail_on_regression: true,
+      value: (_report, options) => coverageMetricValue(options, 'rust_line_pct'),
+    },
+    {
+      id: 'rust-function-coverage-pct',
+      name: 'Rust Function Coverage Percentage',
+      objective:
+        'Minimum cargo-llvm-cov function-coverage percentage across every Rust workspace. Function coverage catches the case where a helper compiled but never invoked stays uncovered while line coverage masks it via inlining. Direction min; floor pinned at 100 by ADR-0025.',
+      source: 'harness/sensors/coverage_scan.mjs (cargo llvm-cov --json --summary-only)',
+      direction: 'min',
+      default_threshold: 100,
+      fail_on_regression: true,
+      value: (_report, options) => coverageMetricValue(options, 'rust_function_pct'),
+    },
+    {
+      id: 'rust-region-coverage-pct',
+      name: 'Rust Region Coverage Percentage',
+      objective:
+        'Minimum cargo-llvm-cov region-coverage percentage across every Rust workspace. Regions are finer than lines (every branch arm contributes its own region); a sub-100 region percentage signals a branch never exercised even when line coverage is 100. Direction min; floor pinned at 100 by ADR-0025.',
+      source: 'harness/sensors/coverage_scan.mjs (cargo llvm-cov --json --summary-only)',
+      direction: 'min',
+      default_threshold: 100,
+      fail_on_regression: true,
+      value: (_report, options) => coverageMetricValue(options, 'rust_region_pct'),
+    },
+    {
+      id: 'python-line-coverage-pct',
+      name: 'Python Line Coverage Percentage',
+      objective:
+        'pytest-cov totals.percent_covered for every uv-managed Python project the workspace ships (ws_apps/example-python). Direction min; floor pinned at 100 by ADR-0025 and by the existing cov-py recipe (`pytest --cov-fail-under=100`). Excludes integration tests that spawn subprocesses (the same exclusion the cov-py recipe enforces).',
+      source: 'harness/sensors/coverage_scan.mjs (pytest --cov-report=json totals.percent_covered)',
+      direction: 'min',
+      default_threshold: 100,
+      fail_on_regression: true,
+      value: (_report, options) => coverageMetricValue(options, 'python_line_pct'),
+    },
+    {
+      id: 'javascript-line-coverage-pct',
+      name: 'JavaScript Line Coverage Percentage',
+      objective:
+        'Minimum vitest v8 line-coverage percentage across every TypeScript workspace the project covers (scripts/, ws_apps/example-typescript, harness/stack, harness/inspector). Direction min; floor pinned at 100 by ADR-0025 and by the existing vitest thresholds:{lines:100,branches:100,functions:100,statements:100} in every vitest.config.ts.',
+      source: 'harness/sensors/coverage_scan.mjs (vitest coverage-summary.json total.lines.pct)',
+      direction: 'min',
+      default_threshold: 100,
+      fail_on_regression: true,
+      value: (_report, options) => coverageMetricValue(options, 'javascript_line_pct'),
+    },
+    {
+      id: 'min-line-coverage-pct',
+      name: 'Project-Wide Minimum Line Coverage Percentage',
+      objective:
+        'Project-wide MIN line-coverage percentage across every measured lane (rust + python + javascript). Floor pinned at 100. This is the single overall-fitness number an agent should watch; a regression in any lane drops it. Direction min.',
+      source:
+        'harness/sensors/coverage_scan.mjs min(rust_line_pct, python_line_pct, javascript_line_pct)',
+      direction: 'min',
+      default_threshold: 100,
+      fail_on_regression: true,
+      value: (_report, options) => coverageMetricValue(options, 'min_line_pct'),
+    },
+  ],
 };
 
 function moduleValues(report, read) {
@@ -534,6 +609,41 @@ function deadcodeMetricValue(options, field) {
     if (options.io.fileExists?.(options.deadcodePath)) {
       try {
         envelope = JSON.parse(options.io.readFile(options.deadcodePath));
+      } catch {
+        envelope = null;
+      }
+    }
+  }
+  if (!envelope || envelope.available === false) {
+    return null;
+  }
+  const value = envelope?.metrics?.[field];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
+}
+
+/**
+ * Read the deterministic test-coverage envelope the CV01 dimension
+ * watches. Accepts a pre-parsed envelope on options.coverage or a
+ * filesystem reader pair on options.io pointing at
+ * options.coveragePath. Returns the named numeric metric (or null
+ * when the envelope is absent, the adapter reported unavailable, or
+ * the metric is missing). null degrades the gate to "no reading"
+ * rather than a false zero (same shape as the SC01/LG01/sentrux/
+ * deadcode readers above. Produced by harness/sensors/coverage_scan.mjs
+ * (ADR-0025-coverage-ratchet.md). The operator invariant pinned by
+ * baseline.json is 100 percent or nothing; lowering a CV01 metric's
+ * floor below 100 requires an explicit baseline.json edit + ADR
+ * update, never a threshold relaxation.
+ */
+function coverageMetricValue(options, field) {
+  let envelope = options?.coverage;
+  if (!envelope && options?.io && options?.coveragePath) {
+    if (options.io.fileExists?.(options.coveragePath)) {
+      try {
+        envelope = JSON.parse(options.io.readFile(options.coveragePath));
       } catch {
         envelope = null;
       }
@@ -1599,6 +1709,14 @@ function jsonPayload(base, policy) {
  *                          metric reads total_unused from this file.
  *                          Soft-skip yields no-reading rather than a
  *                          false zero. See ADR-0024-dead-code-ratchet.md.
+ *   --coverage=<path>      Optional deterministic test-coverage adapter
+ *                          envelope (produced by
+ *                          harness/sensors/coverage_scan.mjs). When
+ *                          present, the CV01 dimension reads rust /
+ *                          python / javascript line/function/region
+ *                          percentages from this file. Floor pinned at
+ *                          100; soft-skip yields no-reading rather than
+ *                          a false zero. See ADR-0025-coverage-ratchet.md.
  *   --policy=<path>        governance TOML policy. Defaults to
  *                          `harness/.harness/governance.toml`.
  *   --readings-from=<path> replay policy readings from JSON instead of
@@ -1629,6 +1747,7 @@ export async function main(
   let licensesPath = null;
   let sentruxPath = null;
   let deadcodePath = null;
+  let coveragePath = null;
   let policyPath = DEFAULT_POLICY_PATH;
   let explicitPolicy = false;
   let readingsFromPath = null;
@@ -1658,6 +1777,11 @@ export async function main(
       deadcodePath = a.slice('--deadcode='.length);
     } else if (a === '--deadcode') {
       deadcodePath = argv[i + 1] ?? deadcodePath;
+      i += 1;
+    } else if (a.startsWith('--coverage=')) {
+      coveragePath = a.slice('--coverage='.length);
+    } else if (a === '--coverage') {
+      coveragePath = argv[i + 1] ?? coveragePath;
       i += 1;
     } else if (a.startsWith('--policy=')) {
       policyPath = a.slice('--policy='.length);
@@ -1703,6 +1827,7 @@ export async function main(
     licensesPath,
     sentruxPath,
     deadcodePath,
+    coveragePath,
     io,
   };
   let policy;

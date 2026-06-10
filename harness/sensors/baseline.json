@@ -314,6 +314,68 @@
           "fail_on_regression": true
         }
       }
+    },
+    "CV01": {
+      "name": "Test Coverage",
+      "promotion_status": "active",
+      "enforcement": "enforced",
+      "default": "default-enabled",
+      "metrics": {
+        "rust-line-coverage-pct": {
+          "name": "Rust Line Coverage Percentage",
+          "objective": "Minimum cargo-llvm-cov line-coverage percentage across every Rust workspace the project covers (ws_apps/example-rust, harness/doc-validator, harness/versioning). Direction min (larger-is-better); ratchet only ever tightens UPWARD toward 100 percent. The operator invariant is 100 percent or nothing. If a line is genuinely uncoverable, exclude it via cfg(coverage)/llvm-cov ignore regions rather than lowering the floor. See ADR-0025-coverage-ratchet.md.",
+          "source": "harness/sensors/coverage_scan.mjs (cargo llvm-cov --json --summary-only)",
+          "direction": "min",
+          "default_threshold": 100,
+          "baseline": 100,
+          "fail_on_regression": true
+        },
+        "rust-function-coverage-pct": {
+          "name": "Rust Function Coverage Percentage",
+          "objective": "Minimum cargo-llvm-cov function-coverage percentage across every Rust workspace. Function coverage catches the case where a helper compiled but never invoked stays uncovered while line coverage masks it via inlining. Direction min; floor pinned at 100 by ADR-0025.",
+          "source": "harness/sensors/coverage_scan.mjs (cargo llvm-cov --json --summary-only)",
+          "direction": "min",
+          "default_threshold": 100,
+          "baseline": 100,
+          "fail_on_regression": true
+        },
+        "rust-region-coverage-pct": {
+          "name": "Rust Region Coverage Percentage",
+          "objective": "Minimum cargo-llvm-cov region-coverage percentage across every Rust workspace. Regions are finer than lines (every branch arm contributes its own region); a sub-100 region percentage signals a branch never exercised even when line coverage is 100. Direction min; floor pinned at 100 by ADR-0025.",
+          "source": "harness/sensors/coverage_scan.mjs (cargo llvm-cov --json --summary-only)",
+          "direction": "min",
+          "default_threshold": 100,
+          "baseline": 100,
+          "fail_on_regression": true
+        },
+        "python-line-coverage-pct": {
+          "name": "Python Line Coverage Percentage",
+          "objective": "pytest-cov totals.percent_covered for every uv-managed Python project the workspace ships (ws_apps/example-python). Direction min; floor pinned at 100 by ADR-0025 and by the existing cov-py recipe (`pytest --cov-fail-under=100`). Excludes integration tests that spawn subprocesses (the same exclusion the cov-py recipe enforces).",
+          "source": "harness/sensors/coverage_scan.mjs (pytest --cov-report=json totals.percent_covered)",
+          "direction": "min",
+          "default_threshold": 100,
+          "baseline": 100,
+          "fail_on_regression": true
+        },
+        "javascript-line-coverage-pct": {
+          "name": "JavaScript Line Coverage Percentage",
+          "objective": "Minimum vitest v8 line-coverage percentage across every TypeScript workspace the project covers (scripts/, ws_apps/example-typescript, harness/stack, harness/inspector). Direction min; floor pinned at 100 by ADR-0025 and by the existing vitest thresholds:{lines:100,branches:100,functions:100,statements:100} in every vitest.config.ts.",
+          "source": "harness/sensors/coverage_scan.mjs (vitest coverage-summary.json total.lines.pct)",
+          "direction": "min",
+          "default_threshold": 100,
+          "baseline": 100,
+          "fail_on_regression": true
+        },
+        "min-line-coverage-pct": {
+          "name": "Project-Wide Minimum Line Coverage Percentage",
+          "objective": "Project-wide MIN line-coverage percentage across every measured lane (rust + python + javascript). Floor pinned at 100. This is the single overall-fitness number an agent should watch; a regression in any lane drops it. Direction min.",
+          "source": "harness/sensors/coverage_scan.mjs min(rust_line_pct, python_line_pct, javascript_line_pct)",
+          "direction": "min",
+          "default_threshold": 100,
+          "baseline": 100,
+          "fail_on_regression": true
+        }
+      }
     }
   }
 }

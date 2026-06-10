@@ -323,8 +323,9 @@ case "${1:-}" in
     lic_tmp=""
     sentrux_tmp=""
     deadcode_tmp=""
+    coverage_tmp=""
     report_tmp="$(mktemp -t harness-sensors-report-XXXXXX.json)"
-    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$report_tmp"' EXIT
+    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$coverage_tmp" "$report_tmp"' EXIT
     if [ -z "$readings_from" ]; then
       build_report "json" "$report_tmp" "$workspace_root" "$skip_tier"
     else
@@ -401,6 +402,45 @@ case "${1:-}" in
         gate_args+=("--deadcode=$deadcode_tmp")
       fi
     fi
+    # CV01 Test Coverage adapter (ADR-0025-coverage-ratchet.md). Promotes
+    # the existing 100-percent line/function/region coverage gates
+    # (cov-rust + cov-py + pnpm test:coverage) into a first-class
+    # ratcheting fitness dimension so the floor lives in baseline.json
+    # alongside every other architectural metric. Coverage is SLOW
+    # (>2min cold-cache for the full polyglot run) so the adapter is
+    # invoked only when SENSORS_COVERAGE=1 in the environment (CI
+    # fitness job sets it; pre-push leaves it off). When skipped or
+    # when the upstream tools are absent, the adapter emits
+    # available=false and gate.mjs degrades CV01 to no-reading rather
+    # than a false zero. CI populates pre-rendered JSON via three flags
+    # the adapter consumes:
+    #   SENSORS_COVERAGE_RUST_JSON       cargo llvm-cov --json output
+    #   SENSORS_COVERAGE_PYTHON_JSON     pytest-cov coverage.json output
+    #   SENSORS_COVERAGE_JS_JSON         vitest coverage-summary.json
+    coverage_skip=0
+    case ",${skip_tier}," in
+      *,coverage,*) coverage_skip=1 ;;
+    esac
+    if [ -z "$readings_from" ] && [ "$coverage_skip" -eq 0 ] && [ "${SENSORS_COVERAGE:-0}" = "1" ]; then
+      coverage_tmp="$(mktemp -t harness-sensors-coverage-XXXXXX.json)"
+      coverage_args=("--workspace-root=$workspace_root")
+      if [ -n "${SENSORS_COVERAGE_RUST_JSON:-}" ] && [ -f "${SENSORS_COVERAGE_RUST_JSON}" ]; then
+        coverage_args+=("--rust-cov-json=${SENSORS_COVERAGE_RUST_JSON}")
+      elif [ "${SENSORS_COVERAGE_RUST_RUN:-0}" = "1" ]; then
+        coverage_args+=("--run-rust")
+      fi
+      if [ -n "${SENSORS_COVERAGE_PYTHON_JSON:-}" ] && [ -f "${SENSORS_COVERAGE_PYTHON_JSON}" ]; then
+        coverage_args+=("--python-cov-json=${SENSORS_COVERAGE_PYTHON_JSON}")
+      fi
+      if [ -n "${SENSORS_COVERAGE_JS_JSON:-}" ] && [ -f "${SENSORS_COVERAGE_JS_JSON}" ]; then
+        coverage_args+=("--javascript-cov-json=${SENSORS_COVERAGE_JS_JSON}")
+      fi
+      node "$HERE/coverage_scan.mjs" "${coverage_args[@]}" \
+        > "$coverage_tmp" 2>/dev/null || true
+      if [ -s "$coverage_tmp" ]; then
+        gate_args+=("--coverage=$coverage_tmp")
+      fi
+    fi
     node "$HERE/gate.mjs" "${gate_args[@]+"${gate_args[@]}"}" < "$report_tmp"
     ;;
   fitness)
@@ -434,11 +474,11 @@ case "${1:-}" in
           fitness_args+=("$1")
           shift
           ;;
-        --baseline=*|--readings-from=*|--perf-baseline=*|--security=*|--licenses=*|--sentrux=*|--deadcode=*)
+        --baseline=*|--readings-from=*|--perf-baseline=*|--security=*|--licenses=*|--sentrux=*|--deadcode=*|--coverage=*)
           fitness_args+=("$1")
           shift
           ;;
-        --baseline|--readings-from|--perf-baseline|--security|--licenses|--sentrux|--deadcode)
+        --baseline|--readings-from|--perf-baseline|--security|--licenses|--sentrux|--deadcode|--coverage)
           fitness_args+=("$1" "${2:-}")
           shift 2 || true
           ;;
@@ -480,8 +520,9 @@ case "${1:-}" in
       lic_tmp=""
       sentrux_tmp=""
       deadcode_tmp=""
+      coverage_tmp=""
       report_tmp="$(mktemp -t harness-sensors-fitness-XXXXXX.json)"
-      trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$report_tmp"' EXIT
+      trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$coverage_tmp" "$report_tmp"' EXIT
       build_report "json" "$report_tmp" "$workspace_root" "$skip_tier"
       # Mirror the gate's optional adapter wiring so fitness sees the
       # same SC01/LG01/sentrux/perf readings the gate would.
@@ -525,6 +566,35 @@ case "${1:-}" in
           fitness_args+=("--deadcode=$deadcode_tmp")
         fi
       fi
+      # Mirror the CV01 test-coverage wiring from the gate path. Only
+      # invoked when SENSORS_COVERAGE=1 because the cargo llvm-cov /
+      # pytest / vitest runs are too slow for an interactive `just
+      # fitness` invocation. See bin/sensors gate block above for the
+      # SENSORS_COVERAGE_* env contract.
+      coverage_skip=0
+      case ",${skip_tier}," in
+        *,coverage,*) coverage_skip=1 ;;
+      esac
+      if [ "$coverage_skip" -eq 0 ] && [ "${SENSORS_COVERAGE:-0}" = "1" ]; then
+        coverage_tmp="$(mktemp -t harness-sensors-fitness-coverage-XXXXXX.json)"
+        coverage_args=("--workspace-root=$workspace_root")
+        if [ -n "${SENSORS_COVERAGE_RUST_JSON:-}" ] && [ -f "${SENSORS_COVERAGE_RUST_JSON}" ]; then
+          coverage_args+=("--rust-cov-json=${SENSORS_COVERAGE_RUST_JSON}")
+        elif [ "${SENSORS_COVERAGE_RUST_RUN:-0}" = "1" ]; then
+          coverage_args+=("--run-rust")
+        fi
+        if [ -n "${SENSORS_COVERAGE_PYTHON_JSON:-}" ] && [ -f "${SENSORS_COVERAGE_PYTHON_JSON}" ]; then
+          coverage_args+=("--python-cov-json=${SENSORS_COVERAGE_PYTHON_JSON}")
+        fi
+        if [ -n "${SENSORS_COVERAGE_JS_JSON:-}" ] && [ -f "${SENSORS_COVERAGE_JS_JSON}" ]; then
+          coverage_args+=("--javascript-cov-json=${SENSORS_COVERAGE_JS_JSON}")
+        fi
+        node "$HERE/coverage_scan.mjs" "${coverage_args[@]}" \
+          > "$coverage_tmp" 2>/dev/null || true
+        if [ -s "$coverage_tmp" ]; then
+          fitness_args+=("--coverage=$coverage_tmp")
+        fi
+      fi
       node "$HERE/fitness_report.mjs" "${fitness_args[@]+"${fitness_args[@]}"}" < "$report_tmp"
     fi
     ;;
@@ -557,6 +627,29 @@ case "${1:-}" in
     done
     workspace_root="$(cd "$workspace_root" && pwd)"
     node "$HERE/deadcode_scan.mjs" --workspace-root="$workspace_root"
+    ;;
+  coverage)
+    shift
+    workspace_root="$REPO_ROOT"
+    coverage_passthrough=()
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --workspace-root)
+          workspace_root="${2:-$workspace_root}"
+          shift 2 || true
+          ;;
+        --workspace-root=*)
+          workspace_root="${1#--workspace-root=}"
+          shift
+          ;;
+        *)
+          coverage_passthrough+=("$1")
+          shift
+          ;;
+      esac
+    done
+    workspace_root="$(cd "$workspace_root" && pwd)"
+    node "$HERE/coverage_scan.mjs" --workspace-root="$workspace_root" "${coverage_passthrough[@]+"${coverage_passthrough[@]}"}"
     ;;
   grimp)
     shift
