@@ -144,7 +144,9 @@ Three small ports + the recorded ADR. Each preserves the upstream and adds new i
 
 Each port carries the lab's content verbatim where the contract is shared.
 
-**Reversal noted:** an earlier draft of this plan included porting `harness/hooks/template-hygiene-gate.mjs`. Re-reading the lab file's header — *"Lab-only by design — consumer projects don't need this. Path-filter: gate only fires when the push touches `templates/` or `harness/create-harness-app/`"* — this template has neither path, so the port would be inert. Dropped from the first-step scope. Filed instead as a deferred note: if the template ever grows a `templates/` sub-tree for downstream-fork seeding, revisit.
+**Reversal noted:** an earlier draft of this plan included porting `harness/hooks/template-hygiene-gate.mjs`. The lab file's header declares it *"Lab-only by design"* with a path-filter that only fires when the push touches `templates/` or `harness/create-harness-app/`; this template has neither path, so a verbatim port would be inert. Dropped from the first-step scope at the time.
+
+**Reversal superseded (2026-06-11, bead `create-harness-app-port-template-hygiene-hook-rh2`):** the gate was ported with adapted semantics rather than verbatim. This repo has no scaffolder, so the pre-commit port path-filters on this repo's own hygiene-critical surfaces (`lefthook.yml`, `justfile`, `harness/hooks/`, `scripts/{init,update,bootstrap}.ts`, `scripts/lib/`) and runs a fast structural validation (lefthook config validity, justfile parse, hook-script syntax checks). The deep scaffold-and-smoke equivalent remains `just fork-check`.
 
 ## Provenance
 
