@@ -49,8 +49,84 @@ at the AGENTS.md layer; the gates are infra (docker) and docs gaps.
   edit a log line in example-typescript, re-run start, query logs via the
   documented LogsQL curl. Capture wall-clock.
 
-## Reusable empirical claims (to be filled in verdict)
-- TBD with N=1 evidence count.
+## Observed (probes run 2026-06-10 01:43 UTC)
 
-## Friction items (append to FRICTION.md on conclusion)
-- TBD.
+### P1 backend response surface
+- `pnpm --filter @example/typescript start` ran end-to-end in 7.17s wall-clock
+  on this VPS (warm pnpm cache).
+- It is a ONE-SHOT process. It emits exactly one Pino log line to stdout, e.g.
+  `{"time":"2026-06-10T01:44:26.469Z","severity":"INFO","service":
+  "example-typescript","traceId":"8e5f2a3cc36fa6853d4b4bed7ca6e409","msg":
+  "hello from example-typescript"}` and exits 0.
+- The trace landed in VictoriaTraces:
+  `curl http://localhost:35945/select/jaeger/api/services` returns
+  `{"data":["example-typescript"], ...}`.
+- The LOG did NOT come back through VictoriaLogs in any of the three queries
+  I tried (documented `service.name="..." | fields ...`, colon shorthand,
+  bare wildcard). Empty body, no error. The stdout-to-VictoriaLogs ingest
+  path is either not wired or not documented for an agent. Tagged in
+  FRICTION.md as docs-gap.
+
+### P2 UI dev server
+- `pnpm --filter @harness/docs dev` aka `next dev -p 3001` bound the listening
+  socket at +3.0s (Next ready line) but BLOCKED GET / until the first
+  Turbopack compile completed at +18s. After first compile, GETs are
+  sub-200ms.
+- HMR edit -> visible change: edited `content/docs/index.mdx`, polled
+  /docs/, marker visible at +17.92s (first edit) measured by absolute
+  timestamps. That is dominated by the page-compile, not by HMR itself.
+- Subsequent edits would be faster (warm compile) but I did not measure
+  N>1 in this experiment.
+
+### P3 AGENTS.md silence
+- `grep -nE "ws_apps/docs|next dev|docs app|@harness/docs" AGENTS.md
+  README.md` returned ONE hit: README.md:145 mentions `ws_apps/docs` only
+  as a workspace-layout note, not as the UI entrypoint.
+- AGENTS.md does not document the UI dev loop, the next port, or the HMR
+  contract. A fresh agent has to read `ws_apps/docs/package.json` and
+  guess `pnpm dev` from the script entry.
+
+### P4 fast vs slow path
+- Fast (UI): edit MDX, see change in browser - ~18s including first compile.
+- Slow (backend telemetry): edit log line, re-run emitter, hit
+  VictoriaTraces/Logs - ~7s emit + query roundtrip BUT only traces are
+  observable today; the log query path is broken or undocumented.
+
+## Verdict against frozen prediction: PARTIAL (CONFIRMED with one new finding)
+
+| Sub-prediction | Predicted | Observed | Result |
+|---|---|---|---|
+| P1 backend obs requires stack | PARTIAL | yes, plus log path broken | PARTIAL (worse than predicted) |
+| P2 next dev hits 3001 < 15s | PASS | listening at 3s but body at 18s | PARTIAL (boot fast, first compile slow) |
+| P3 no AGENTS.md UI mention | PASS | confirmed (one workspace-layout note only) | CONFIRMED |
+| P4 fast UI, slow telemetry | PASS | yes, plus log path broken | CONFIRMED |
+
+Composite verdict: PARTIAL. The fast-feedback loop EXISTS for the UI but the
+mechanical "edit-and-see" wall-clock is dominated by the first Turbopack
+compile (~18s), not 3s as the Next "Ready" line suggests. The telemetry loop
+half is BROKEN today for logs: traces roundtrip, logs do not surface via the
+documented LogsQL queries.
+
+## Reusable empirical claims
+- Fumadocs/Next 16 turbopack first-compile-after-boot wall-clock for THIS docs
+  app on a 16-core VPS: ~15-18 seconds before the first GET returns. (N=1, low.)
+- VictoriaTraces ingest of OTEL HTTP/protobuf 0.218 spans from this template's
+  example-typescript emitter works out of the box; the trace appears in the
+  Jaeger /services API within seconds of emission. (N=1, low.)
+- VictoriaLogs query for the same emission returns empty body on three
+  documented query shapes; ingest path for Pino-via-OTEL-Collector is either
+  not wired or not documented. (N=1, low; needs replication.)
+
+## Friction items (appended to FRICTION.md)
+- [EXP-03] [docs-gap] AGENTS.md never names the docs UI app, the dev port, or
+  the HMR loop. Fresh agents must guess from `ws_apps/docs/package.json`.
+  (CobaltCoast, 2026-06-10.)
+- [EXP-03] [tooling-bug] VictoriaLogs LogsQL queries return empty body for
+  emissions that DID land in VictoriaTraces. Stdout log lines from the
+  example-typescript emitter never appear via the documented query shape.
+  Likely missing Collector log pipeline or missing logsAccept enable.
+  (CobaltCoast, 2026-06-10.)
+- [EXP-03] [docs-gap] The Next.js "Ready in 3s" line is misleading: the
+  first GET / blocks ~15s for first compile. Adopters reading the Ready line
+  in logs will assume the app is reachable before it actually is.
+  (CobaltCoast, 2026-06-10.)
