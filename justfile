@@ -303,6 +303,16 @@ uv *args:
 
 # --- meta (architecture, vendor, scaffolding) ------------------------------
 
+# Print the slot/plugin matrix as a discoverable table. Reads
+# `harness.manifest.json` so the output stays accurate when a fork swaps a
+# plugin. Pass `--json` for a machine-readable view. See
+# `docs/slot-contracts.md` for the interface contract and a worked swap.
+
+# Print the slot/plugin matrix from harness.manifest.json.
+[group('meta')]
+slots *args:
+    bun run scripts/slots.ts {{args}}
+
 # APSS code-topology producer. Emits `.topology/metrics/*.json` (the data
 # the architectural fitness gate consumes via
 # `harness/sensors/apss_topology.mjs`). Re-run on demand; `bin/sensors gate`
