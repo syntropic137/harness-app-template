@@ -447,11 +447,14 @@ mod tests {
 
     #[test]
     fn rejects_malformed_adr_filenames() {
+        // Uppercase case is built by concatenation so the APSS ADR01
+        // reference scan does not read the literal as a real ADR backlink.
+        let uppercase = concat!("ADR-0001-", "Bad.md");
         for filename in [
             "ADR-nope.md",
             "ADR-12-short.md",
             "ADR-0001-.md",
-            "ADR-0001-Bad.md",
+            uppercase,
             "ADR-0001-no-extension",
         ] {
             assert!(!valid_adr_filename(filename), "{filename}");

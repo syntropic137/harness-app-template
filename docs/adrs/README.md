@@ -40,7 +40,7 @@ Use the next four-digit number and a kebab-case title:
 docs/adrs/ADR-0019-my-decision.md
 ```
 
-The canonical shape lives at [`_template.md`](./_template.md) — **copy it as a starting point** rather than writing from scratch. The leading underscore keeps it sorted before the numbered records and signals "meta / not a record". The doc-validator skips files beginning with `_`, so the template doesn't have to pass its own rule.
+The canonical shape is specified in [`../coordination/APSS-ADR-STANDARD.md`](../coordination/APSS-ADR-STANDARD.md); copy the Required Sections skeleton there as a starting point rather than writing from scratch.
 
 Each ADR must include APSS ADR01 front matter with `name`, `description`, and `status`, then the standard `## Context`, `## Decision`, and `## Consequences` sections. Use `## Details` for migrated rationale, alternatives, sources, and operational notes.
 
