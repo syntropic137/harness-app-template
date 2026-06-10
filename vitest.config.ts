@@ -13,7 +13,11 @@ export default defineConfig({
       reporter: ['text', 'json-summary'],
       all: true,
       include: ['scripts/**/*.ts'],
-      exclude: ['scripts/tests/**/*.ts'],
+      // fork-check.ts is an E2E orchestrator that snapshots the repo
+      // into a temp dir and shells out to `just`; it has no
+      // unit-testable surface, and its correctness is asserted by the
+      // `just fork-check` recipe + the matching CI job, not vitest.
+      exclude: ['scripts/tests/**/*.ts', 'scripts/fork-check.ts'],
       thresholds: {
         lines: 100,
         branches: 100,
