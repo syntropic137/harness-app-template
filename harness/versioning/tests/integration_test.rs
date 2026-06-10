@@ -53,6 +53,10 @@ fn git_command(root: &Path) -> Command {
     for key in LOCAL_GIT_ENV {
         command.env_remove(key);
     }
+    // Mirror harness_versioning::git_command: silence any host-installed
+    // hooks (e.g. apss's managed global pre-commit) so temp git repos
+    // can commit without inheriting unrelated host validation.
+    command.args(["-c", "core.hooksPath=/dev/null"]);
     command
 }
 

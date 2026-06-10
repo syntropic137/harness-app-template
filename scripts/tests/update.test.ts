@@ -8,7 +8,15 @@ import { withoutLocalGitEnv } from '../lib/git';
 import { parseCli, updateProject } from '../update';
 
 function run(cwd: string, args: string[]): string {
-  return execFileSync('git', args, { cwd, env: withoutLocalGitEnv(), encoding: 'utf8' }).trim();
+  // `-c core.hooksPath=/dev/null` silences any host-installed hooks
+  // (e.g. apss's managed global pre-commit) so temp git repos created
+  // by these tests can commit without inheriting unrelated host
+  // validation against a directory that has no project structure.
+  return execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
+    cwd,
+    env: withoutLocalGitEnv(),
+    encoding: 'utf8',
+  }).trim();
 }
 
 function write(path: string, content: string): void {

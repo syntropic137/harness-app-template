@@ -22,9 +22,16 @@ export function withoutLocalGitEnv(env: NodeJS.ProcessEnv = process.env): NodeJS
   return clean;
 }
 
+// `-c core.hooksPath=/dev/null` silences any host-installed hooks (e.g. apss's
+// managed global pre-commit) so this helper's programmatic commits do not
+// trigger interactive-grade host validation against directories the script
+// is not responsible for. The Rust harness-versioning sibling does the same;
+// callers that genuinely want host hooks should shell out to `git` directly.
+const SUPPRESS_HOST_HOOKS_ARGS = ['-c', 'core.hooksPath=/dev/null'];
+
 export function git(args: string[], options: RunOptions = {}): string {
   try {
-    return execFileSync('git', args, {
+    return execFileSync('git', [...SUPPRESS_HOST_HOOKS_ARGS, ...args], {
       cwd: options.cwd,
       env: withoutLocalGitEnv(),
       encoding: 'utf8',
