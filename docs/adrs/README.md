@@ -31,16 +31,17 @@ Forks inherit these records as a baseline. Keep them, then add new numbered ADRs
 | [Create Harness App Wrapper](ADR-0016-createapp-wrapper-design.md) | Design a future npx create-harness-app wrapper as an additive scaffolding path |
 | [Sensors v0.3 — APSS canonical, sentrux preserved](ADR-0017-sensors-v03-apss-canonical.md) | Promote APSS to canonical cross-language measurement; keep sentrux as an opt-in available adapter (deliberate both-vs-reduce decision, not a deletion) |
 | [APSS v1.1.0 integration — augment, never replace](ADR-0018-apss-v1-1-0-augmentation.md) | Augment the doc-validator slot with APS-V1-0003 (add, do not replace) and route fitness signals through the ADR-0017 apss_topology shim |
+| [Closed-loop architectural quality](ADR-0019-closed-loop-architectural-quality.md) | APS-V1-0001 code-topology runs every cycle, gate.mjs hard-enforces against real APSS metrics via the apss_topology shim, the diagram is regenerable, and structured verdict + diff reach any coding agent on every run |
 
 ## Adding Records
 
 Use the next four-digit number and a kebab-case title:
 
 ```text
-docs/adrs/ADR-0019-my-decision.md
+docs/adrs/ADR-0020-my-decision.md
 ```
 
-The canonical shape lives at [`_template.md`](./_template.md) — **copy it as a starting point** rather than writing from scratch. The leading underscore keeps it sorted before the numbered records and signals "meta / not a record". The doc-validator skips files beginning with `_`, so the template doesn't have to pass its own rule.
+The canonical shape lives at [`../coordination/adr-template.md`](../coordination/adr-template.md) — **copy it as a starting point** rather than writing from scratch. The template lives outside this directory because the APSS APS-V1-0003 documentation gate strictly enforces the `ADR-\d{3,5}-…` naming pattern on every file in `docs/adrs/` and does not exempt template files. Keeping the template at `docs/coordination/adr-template.md` lets both the narrow `harness/doc-validator` (which checks internal links) and the APSS gate (which checks ADR naming) pass.
 
 Each ADR must include APSS ADR01 front matter with `name`, `description`, and `status`, then the standard `## Context`, `## Decision`, and `## Consequences` sections. Use `## Details` for migrated rationale, alternatives, sources, and operational notes.
 
