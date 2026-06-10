@@ -114,17 +114,41 @@ jobs:
     # APSS 8-dimension architectural fitness gate (bead
     # create-harness-app-2zz). Mirrors the lefthook pre-push sensors-gate
     # so a fork that bypasses local hooks still gets blocked on regression
-    # at PR time.
+    # at PR time. Installs the APSS code-topology producer so the gate
+    # consumes real .topology/metrics/*.json (closed loop) instead of
+    # silently degrading to apss-topology: available=false.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache APSS binary
+        id: cache-apss
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/apss
+          key: apss-1.1.0-${{ runner.os }}
+      - name: Install APSS
+        if: steps.cache-apss.outputs.cache-hit != 'true'
+        run: cargo install apss --version 1.1.0
+      - name: Cache composed APSS CLI
+        id: cache-apss-composed
+        uses: actions/cache@v4
+        with:
+          path: .apss
+          key: apss-composed-${{ runner.os }}-${{ hashFiles('apss.lock') }}
+      - name: Compose project APSS CLI
+        if: steps.cache-apss-composed.outputs.cache-hit != 'true'
+        run: apss install
       - name: Install sensors slot deps (ts-morph)
         working-directory: harness/sensors
         run: npm install --no-package-lock --no-audit --no-fund --silent
       - name: Run APSS fitness gate
+        # bin/sensors gate runs `apss run code-topology analyze` itself
+        # via the --produce path in apss_topology.mjs, so no separate
+        # producer step is needed here.
         run: harness/sensors/bin/sensors gate
       - name: Run perf fitness gate
         run: harness/perf/bench.sh | node harness/perf/gate.mjs

@@ -5,22 +5,24 @@
 // existing adapters preserved).  Uses in-memory fs stubs throughout.
 import { describe, expect, test } from 'vitest';
 import {
-  analyzeFromTopology,
+  mergeApssTopology,
+  // @ts-expect-error — plain ESM, no .d.ts ships with the slot.
+} from '../../harness/sensors/aggregate.mjs';
+import {
   APSS_FUNCTION_METRICS,
   APSS_MODULE_METRICS,
+  analyzeFromTopology,
   extractMetrics,
+  findApssBinary,
   findTopologyFiles,
   joinModulesAndFunctions,
   main,
   normalizePath,
   parseFunctionsJson,
   parseModulesJson,
+  produceTopology,
   // @ts-expect-error — plain ESM, no .d.ts ships with the slot.
 } from '../../harness/sensors/apss_topology.mjs';
-import {
-  mergeApssTopology,
-  // @ts-expect-error — plain ESM, no .d.ts ships with the slot.
-} from '../../harness/sensors/aggregate.mjs';
 
 interface FsStub {
   files: Record<string, string>;
@@ -85,7 +87,10 @@ describe('apss_topology — extractMetrics', () => {
   });
 
   test('treats non-number metric values as null (forward-compat)', () => {
-    const m = extractMetrics({ ca: 'string', ce: null, instability: undefined }, APSS_MODULE_METRICS);
+    const m = extractMetrics(
+      { ca: 'string', ce: null, instability: undefined },
+      APSS_MODULE_METRICS,
+    );
     expect(m.ca).toBeNull();
     expect(m.ce).toBeNull();
     expect(m.instability).toBeNull();
@@ -103,7 +108,10 @@ describe('apss_topology — parseModulesJson', () => {
       modules: [{ source: 'ws_apps/a/main.ts', ca: 0, ce: 2, instability: 1 }],
     });
     expect(out).toEqual([
-      { source: 'ws_apps/a/main.ts', ...extractMetrics({ ca: 0, ce: 2, instability: 1 }, APSS_MODULE_METRICS) },
+      {
+        source: 'ws_apps/a/main.ts',
+        ...extractMetrics({ ca: 0, ce: 2, instability: 1 }, APSS_MODULE_METRICS),
+      },
     ]);
   });
 
@@ -129,6 +137,112 @@ describe('apss_topology — parseModulesJson', () => {
     expect(parseModulesJson(null)).toEqual([]);
     expect(parseModulesJson({})).toEqual([]);
     expect(parseModulesJson({ modules: 'not-an-array' })).toEqual([]);
+  });
+
+  test('reads the real APSS code-topology shape: metrics.* + metrics.martin.*', () => {
+    // This is the exact envelope `apss run code-topology analyze .`
+    // emits in .topology/metrics/modules.json — module-level aggregates
+    // live under `metrics`, and Martin coupling lives under `metrics.martin`.
+    // Before the n48 closed-loop wiring these fields all came back null
+    // because the parser only read flat top-level keys.
+    const out = parseModulesJson({
+      modules: [
+        {
+          id: 'scripts/inspector',
+          path: 'scripts/inspector/',
+          name: 'scripts/inspector',
+          metrics: {
+            avg_cognitive: 0.5,
+            avg_cyclomatic: 1.25,
+            file_count: 1,
+            function_count: 4,
+            lines_of_code: 52,
+            total_cognitive: 2,
+            total_cyclomatic: 5,
+            martin: {
+              abstractness: 0.0,
+              ca: 0,
+              ce: 1,
+              distance_from_main_sequence: 0.5,
+              instability: 0.5,
+            },
+          },
+        },
+      ],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].source).toBe('scripts/inspector/');
+    expect(out[0].ca).toBe(0);
+    expect(out[0].ce).toBe(1);
+    expect(out[0].instability).toBe(0.5);
+    expect(out[0].abstractness).toBe(0);
+    expect(out[0].distance_from_main_sequence).toBe(0.5);
+    expect(out[0].file_count).toBe(1);
+    expect(out[0].function_count).toBe(4);
+    expect(out[0].lines_of_code).toBe(52);
+    expect(out[0].total_cognitive).toBe(2);
+    expect(out[0].total_cyclomatic).toBe(5);
+    expect(out[0].avg_cognitive).toBe(0.5);
+    expect(out[0].avg_cyclomatic).toBe(1.25);
+  });
+});
+
+describe('apss_topology — producer wiring (n48.X closed loop)', () => {
+  test('findApssBinary prefers the project-composed .apss/bin/apss', () => {
+    const fs = {
+      existsSync: (p: string) => p === '/repo/.apss/bin/apss',
+    };
+    expect(findApssBinary('/repo', { fs })).toBe('/repo/.apss/bin/apss');
+  });
+
+  test('findApssBinary falls back to PATH when .apss/bin/apss is missing', () => {
+    const fs = { existsSync: () => false };
+    const spawn = () => ({ status: 0 });
+    expect(findApssBinary('/repo', { fs, spawn })).toBe('apss');
+  });
+
+  test('findApssBinary returns null when nothing is reachable', () => {
+    const fs = { existsSync: () => false };
+    const spawn = () => ({ status: 127 });
+    expect(findApssBinary('/repo', { fs, spawn })).toBeNull();
+  });
+
+  test('produceTopology returns ran:false when no apss is installed', () => {
+    const out = produceTopology({
+      cwd: '/repo',
+      bin: null,
+      fs: { existsSync: () => false },
+      spawn: () => ({ status: 127 }),
+    });
+    expect(out.ran).toBe(false);
+    expect(out.reason).toBe('apss-binary-not-found');
+  });
+
+  test('produceTopology invokes apss with the canonical analyze argv on success', () => {
+    const calls: { bin: string; argv: readonly string[] }[] = [];
+    const out = produceTopology({
+      cwd: '/repo',
+      bin: '/repo/.apss/bin/apss',
+      spawn: (bin: string, argv: readonly string[]) => {
+        calls.push({ bin, argv });
+        return { status: 0, stdout: 'ok', stderr: '' };
+      },
+    });
+    expect(out.ran).toBe(true);
+    expect(out.bin).toBe('/repo/.apss/bin/apss');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].argv).toEqual(['run', 'code-topology', 'analyze', '.']);
+  });
+
+  test('produceTopology surfaces a non-zero exit as ran:false with the apss exit code', () => {
+    const out = produceTopology({
+      cwd: '/repo',
+      bin: '/repo/.apss/bin/apss',
+      spawn: () => ({ status: 2, stdout: '', stderr: 'boom' }),
+    });
+    expect(out.ran).toBe(false);
+    expect(out.reason).toBe('apss-exit-2');
+    expect(out.stderr).toContain('boom');
   });
 });
 
@@ -325,7 +439,11 @@ describe('aggregate.mjs — mergeApssTopology (n48.3 + ADR-0017)', () => {
   }
 
   test('available:false leaves modules + folders unchanged, signals apssAvailable=false', () => {
-    const out = mergeApssTopology(baseReport(), { tool: 'apss-topology', available: false, readings: [] });
+    const out = mergeApssTopology(baseReport(), {
+      tool: 'apss-topology',
+      available: false,
+      readings: [],
+    });
     expect(out.apssAvailable).toBe(false);
     expect(out.apssTopologyTool).toBeNull();
     expect(out.workspace.modules).toEqual(baseReport().workspace.modules);
@@ -354,7 +472,9 @@ describe('aggregate.mjs — mergeApssTopology (n48.3 + ADR-0017)', () => {
     });
     expect(out.apssAvailable).toBe(true);
     expect(out.apssTopologyTool).toBe('apss-topology');
-    const main = out.workspace.modules.find((m: { source: string }) => m.source === 'ws_apps/a/main.ts');
+    const main = out.workspace.modules.find(
+      (m: { source: string }) => m.source === 'ws_apps/a/main.ts',
+    );
     // Existing dep-cruiser fields preserved.
     expect(main?.Ca).toBe(1);
     expect(main?.Ce).toBe(2);
@@ -365,7 +485,9 @@ describe('aggregate.mjs — mergeApssTopology (n48.3 + ADR-0017)', () => {
     expect(main?.apss?.distance_from_main_sequence).toBeCloseTo(0.4);
     expect(main?.apss?.function_count).toBe(1);
     // Module with no APSS reading is untouched (no .apss key).
-    const lib = out.workspace.modules.find((m: { source: string }) => m.source === 'ws_apps/a/lib.ts');
+    const lib = out.workspace.modules.find(
+      (m: { source: string }) => m.source === 'ws_apps/a/lib.ts',
+    );
     expect(lib?.apss).toBeUndefined();
   });
 
