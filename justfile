@@ -145,6 +145,16 @@ release-dry-run level="auto" from="" to="HEAD":
 release-apply level="auto" from="" to="HEAD":
     @if [ -n '{{from}}' ]; then bun run scripts/versioning.ts release --execute --level '{{level}}' --from '{{from}}' --to '{{to}}' .; else bun run scripts/versioning.ts release --execute --level '{{level}}' --to '{{to}}' .; fi
 
+# Idempotently apply branch protection to `main` on the GitHub remote so
+# that auto-merge waits for every CI check before merging. Required-check
+# list is the constant `REQUIRED_PR_CONTEXTS` in scripts/protect-main.ts;
+# update there (and re-run this recipe) when a check is added or renamed.
+# See ADR-0022-merge-gating.md for why this exists. Requires `gh` to be
+# authenticated against the owning org. Re-running is safe — the API call
+# is a full-document PUT, so drift is overwritten on every invocation.
+protect-main *args:
+    bun run scripts/protect-main.ts {{args}}
+
 cargo *args:
     bun run scripts/cargo.ts {{args}}
 
