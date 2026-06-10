@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "standard": "APS-V1-0002",
+  "suite_command": "node --test --experimental-test-coverage tests/divide.test.mjs",
+  "workdir": "harness/sensors/fixtures/suite_duration_demo",
+  "iteration_count": 5,
+  "duration_p95_seconds": 0.5,
+  "duration_median_seconds": 0.45,
+  "absolute_seconds_ceiling": 3,
+  "relative_delta_percent": 25,
+  "required_coverage_percent": 100,
+  "coverage_floor_metrics": ["branches", "functions", "lines"],
+  "notes": "Committed baseline for the suite-duration PF01 metric per ADR-0025. The duration_p95_seconds floor starts intentionally loose; the ADR-0020 ratchet will tighten it on the first improving run. The suite_command is intentionally framework-agnostic — replace it with `bun test --coverage`, `pytest --cov`, `cargo test`, or whatever your project uses; the parser reads the `all files` row from the suite's coverage output, which both bun and node's experimental coverage emit in compatible shapes. coverage_floor_metrics defaults to ['branches','functions','lines'] because node's --experimental-test-coverage does NOT emit a separate `statements` column; a fork using bun / vitest / jest / c8 (all of which emit four metrics) should set the list to ['statements','branches','functions','lines']. The sensor refuses to silently assume 100% on any metric absent from the suite's output — that is the EXP-04 defect (1) the port intentionally fixes."
+}

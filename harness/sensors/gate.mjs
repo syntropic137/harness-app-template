@@ -388,6 +388,28 @@ const FITNESS_METRICS = {
       fail_on_regression: true,
       value: (_report, options) => perfBenchmarkMeans(options).length,
     },
+    {
+      id: 'suite-duration-p95-seconds',
+      name: 'Test-Suite Duration p95 (seconds)',
+      objective:
+        'p95 wall-clock of the test suite over N iterations from the harness/sensors/suite_duration.mjs adapter envelope. Direction max (smaller-is-better); the ADR-0020 ratchet auto-tightens the floor on improvement and never widens on regression. null/no-reading means the adapter exited non-zero (coverage failure or suite failure) — the adapter is the primary enforcer of the coverage-coupling rule per ADR-0025; the gate reader simply sees no envelope. See ADR-0025-suite-duration-sensor-pf01.md.',
+      source: 'harness/sensors/suite_duration.mjs envelope duration_p95_seconds',
+      direction: 'max',
+      default_threshold: 5,
+      fail_on_regression: true,
+      value: (_report, options) => suiteDurationMetricValue(options, 'duration_p95_seconds'),
+    },
+    {
+      id: 'suite-duration-iteration-count',
+      name: 'Test-Suite Iteration Count',
+      objective:
+        "Number of iterations the suite-duration adapter ran. Floor is the snapshotted count; the gate fails if the count drops (a silently lowered iteration_count is a fake speedup, mirroring startup-benchmark-count's rationale verbatim). Direction min (larger-is-better). See ADR-0025-suite-duration-sensor-pf01.md.",
+      source: 'harness/sensors/suite_duration.mjs envelope iteration_count',
+      direction: 'min',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: (_report, options) => suiteDurationMetricValue(options, 'iteration_count'),
+    },
   ],
   AV01: [
     {
@@ -653,6 +675,42 @@ function coverageMetricValue(options, field) {
     return null;
   }
   const value = envelope?.metrics?.[field];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
+}
+
+/**
+ * Read the suite-duration envelope the PF01 dimension watches. Accepts
+ * a pre-parsed envelope on options.suiteDuration or a filesystem reader
+ * pair on options.io pointing at options.suiteDurationPath. Returns
+ * the named numeric field (or null when the envelope is absent, the
+ * adapter reported unavailable, or the field is missing). null degrades
+ * the gate to "no reading" rather than a false zero, same shape as the
+ * SC01/LG01/sentrux/deadcode/coverage readers above. Produced by
+ * harness/sensors/suite_duration.mjs (ADR-0025-suite-duration-sensor-pf01.md).
+ *
+ * The adapter is the primary enforcer of the coverage-coupling rule;
+ * when coverage <100% on any tracked metric, the adapter exits non-zero
+ * and writes `available: false`. The PF01 metric then returns null and
+ * the cycle fails at the adapter step (before the gate evaluates).
+ */
+function suiteDurationMetricValue(options, field) {
+  let envelope = options?.suiteDuration;
+  if (!envelope && options?.io && options?.suiteDurationPath) {
+    if (options.io.fileExists?.(options.suiteDurationPath)) {
+      try {
+        envelope = JSON.parse(options.io.readFile(options.suiteDurationPath));
+      } catch {
+        envelope = null;
+      }
+    }
+  }
+  if (!envelope || envelope.available === false) {
+    return null;
+  }
+  const value = envelope?.[field];
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return null;
   }
@@ -1748,6 +1806,7 @@ export async function main(
   let sentruxPath = null;
   let deadcodePath = null;
   let coveragePath = null;
+  let suiteDurationPath = null;
   let policyPath = DEFAULT_POLICY_PATH;
   let explicitPolicy = false;
   let readingsFromPath = null;
@@ -1782,6 +1841,11 @@ export async function main(
       coveragePath = a.slice('--coverage='.length);
     } else if (a === '--coverage') {
       coveragePath = argv[i + 1] ?? coveragePath;
+      i += 1;
+    } else if (a.startsWith('--suite-duration=')) {
+      suiteDurationPath = a.slice('--suite-duration='.length);
+    } else if (a === '--suite-duration') {
+      suiteDurationPath = argv[i + 1] ?? suiteDurationPath;
       i += 1;
     } else if (a.startsWith('--policy=')) {
       policyPath = a.slice('--policy='.length);
@@ -1828,6 +1892,7 @@ export async function main(
     sentruxPath,
     deadcodePath,
     coveragePath,
+    suiteDurationPath,
     io,
   };
   let policy;

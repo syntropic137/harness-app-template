@@ -295,6 +295,24 @@
           "default_threshold": 0,
           "baseline": 0,
           "fail_on_regression": true
+        },
+        "suite-duration-p95-seconds": {
+          "name": "Test-Suite Duration p95 (seconds)",
+          "objective": "p95 wall-clock of the test suite over N iterations from the harness/sensors/suite_duration.mjs adapter envelope. Direction max (smaller-is-better); the ADR-0020 ratchet auto-tightens the floor on improvement and never widens on regression. null/no-reading means the adapter exited non-zero (coverage failure or suite failure) — the adapter is the primary enforcer of the coverage-coupling rule per ADR-0025; the gate reader simply sees no envelope. See docs/adrs/ADR-0025-suite-duration-sensor-pf01.md.",
+          "source": "harness/sensors/suite_duration.mjs envelope duration_p95_seconds",
+          "direction": "max",
+          "default_threshold": 5,
+          "baseline": null,
+          "fail_on_regression": true
+        },
+        "suite-duration-iteration-count": {
+          "name": "Test-Suite Iteration Count",
+          "objective": "Number of iterations the suite-duration adapter ran. Floor is the snapshotted count; the gate fails if the count drops (a silently lowered iteration_count is a fake speedup, mirroring startup-benchmark-count's rationale verbatim). Direction min (larger-is-better). See docs/adrs/ADR-0025-suite-duration-sensor-pf01.md.",
+          "source": "harness/sensors/suite_duration.mjs envelope iteration_count",
+          "direction": "min",
+          "default_threshold": 0,
+          "baseline": 0,
+          "fail_on_regression": true
         }
       }
     },
