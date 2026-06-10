@@ -30,7 +30,7 @@
 // `.sentrux/baseline.json`.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -187,8 +187,25 @@ export function runSentrux(args, io = {}) {
   };
 }
 
+/** True when this module is being executed directly (not imported).
+ *  Resolves symlinks on both sides because the sensors slot is invoked
+ *  via paths that ntm-style and proj-style setups symlink in from
+ *  /data/projects/<org>--<repo> (see CLAUDE.md). Node resolves
+ *  import.meta.url through realpath but leaves process.argv[1] as the
+ *  symlinked path the shell passed, so a raw comparison fails and main()
+ *  never runs - the sentrux envelope comes out empty and the gate
+ *  silently drops every sentrux metric to no-reading. Mirrors the
+ *  pattern aggregate.mjs / deadcode_scan.mjs already use.
+ */
 function isScriptEntry() {
-  return process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+  if (!process.argv[1]) {
+    return false;
+  }
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
 }
 
 if (isScriptEntry()) {
