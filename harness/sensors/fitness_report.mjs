@@ -318,6 +318,7 @@ function parseArgs(argv) {
     securityPath: null,
     licensesPath: null,
     sentruxPath: null,
+    deadcodePath: null,
     format: 'text',
     quick: false,
     help: false,
@@ -339,6 +340,10 @@ function parseArgs(argv) {
     else if (a.startsWith('--sentrux=')) opts.sentruxPath = a.slice('--sentrux='.length);
     else if (a === '--sentrux') {
       opts.sentruxPath = argv[i + 1] ?? opts.sentruxPath;
+      i += 1;
+    } else if (a.startsWith('--deadcode=')) opts.deadcodePath = a.slice('--deadcode='.length);
+    else if (a === '--deadcode') {
+      opts.deadcodePath = argv[i + 1] ?? opts.deadcodePath;
       i += 1;
     } else if (a.startsWith('--format=')) opts.format = a.slice('--format='.length);
     else if (a === '--format') {
@@ -364,6 +369,7 @@ Options:
   --security=PATH        UBS report JSON (feeds SC01).
   --licenses=PATH        License scan JSON (feeds LG01).
   --sentrux=PATH         Sentrux adapter envelope (feeds MT01/MD01/ST01 sentrux metrics).
+  --deadcode=PATH        Knip dead-code adapter envelope (feeds MT01 unused-export-count).
   --format=FMT           text (default), json, or summary (one-liner for hooks).
   --json / --summary     Aliases for --format.
   --quick                Skip stdin; render the floor-only view from baseline.json.
@@ -446,6 +452,7 @@ export async function main(argv = process.argv.slice(2), io = defaultIo()) {
     securityPath: opts.securityPath,
     licensesPath: opts.licensesPath,
     sentruxPath: opts.sentruxPath,
+    deadcodePath: opts.deadcodePath,
     io,
   };
 
