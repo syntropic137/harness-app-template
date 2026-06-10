@@ -329,39 +329,56 @@ const RUST_LANES = [
  * aggregated across crates whose RUST_LANES entry sets enforceRegions
  * so the CV01 region floor matches the existing cov-rust policy.
  */
+function discoverRustLanes(workspaceRoot) {
+  return RUST_LANES.filter((lane) => existsSync(join(workspaceRoot, lane.manifest)));
+}
+
+function runRustLane({ workspaceRoot, lane, env }) {
+  return runCargoLlvmCov({
+    workspaceRoot,
+    manifestRelPath: lane.manifest,
+    extraArgs: lane.extraArgs,
+    env,
+  });
+}
+
+function addRustValues(values, lane, metrics) {
+  if (typeof metrics.line_pct === 'number') {
+    values.line.push(metrics.line_pct);
+  }
+  if (typeof metrics.function_pct === 'number') {
+    values.function.push(metrics.function_pct);
+  }
+  if (lane.enforceRegions && typeof metrics.region_pct === 'number') {
+    values.region.push(metrics.region_pct);
+  }
+}
+
 function runAllRustLanes({ workspaceRoot, env }) {
-  const lanes = RUST_LANES.filter((lane) => existsSync(join(workspaceRoot, lane.manifest)));
+  const lanes = discoverRustLanes(workspaceRoot);
   if (lanes.length === 0) {
     return { ok: false, reason: 'no Rust lanes discovered for --run-rust' };
   }
-  const lineValues = [];
-  const functionValues = [];
-  const regionValues = [];
+  const values = {
+    line: [],
+    function: [],
+    region: [],
+  };
   for (const lane of lanes) {
-    const result = runCargoLlvmCov({
-      workspaceRoot,
-      manifestRelPath: lane.manifest,
-      extraArgs: lane.extraArgs,
-      env,
-    });
+    const result = runRustLane({ workspaceRoot, lane, env });
     if (!result.ok || !result.metrics) {
       return {
         ok: false,
         reason: `cargo llvm-cov failed for ${lane.manifest}: ${result.reason ?? 'unknown error'}`,
       };
     }
-    if (typeof result.metrics.line_pct === 'number') lineValues.push(result.metrics.line_pct);
-    if (typeof result.metrics.function_pct === 'number')
-      functionValues.push(result.metrics.function_pct);
-    if (lane.enforceRegions && typeof result.metrics.region_pct === 'number') {
-      regionValues.push(result.metrics.region_pct);
-    }
+    addRustValues(values, lane, result.metrics);
   }
   return {
     ok: true,
-    line_pct: roundPct(minFinite(lineValues)),
-    function_pct: roundPct(minFinite(functionValues)),
-    region_pct: roundPct(minFinite(regionValues)),
+    line_pct: roundPct(minFinite(values.line)),
+    function_pct: roundPct(minFinite(values.function)),
+    region_pct: roundPct(minFinite(values.region)),
   };
 }
 
@@ -373,6 +390,61 @@ function commandExists(bin) {
   return result.status === 0;
 }
 
+function readCoverageJsonOrNull(path) {
+  if (!existsSync(path)) {
+    return null;
+  }
+  return readJsonFile(path);
+}
+
+function parseCoverageJsonFile(path, parse, failures, failuresKey) {
+  const payload = readCoverageJsonOrNull(path);
+  if (payload === null) {
+    failures.push(`missing ${failuresKey} coverage JSON at ${path}`);
+    return null;
+  }
+  const parsed = parse(payload);
+  if (!parsed) {
+    failures.push(`${failuresKey} coverage JSON malformed at ${path}`);
+    return null;
+  }
+  return parsed;
+}
+
+function resolveRustCoverageFromOptions(opts, failures) {
+  if (opts.rustCovJsonPath) {
+    return parseCoverageJsonFile(opts.rustCovJsonPath, parseRustLlvmCovJson, failures, 'rust');
+  }
+  if (!opts.runRust) {
+    return null;
+  }
+  const live = runAllRustLanes({ workspaceRoot: opts.workspaceRoot, env: opts.env });
+  if (live.ok) {
+    return live;
+  }
+  failures.push(live.reason ?? 'rust scanner failed');
+  return null;
+}
+
+function resolvePythonCoverageFromOptions(opts, failures) {
+  return parseCoverageJsonFile(opts.pythonCovJsonPath, parsePythonCoverageJson, failures, 'python');
+}
+
+function resolveJavascriptCoverageFromOptions(opts, failures) {
+  return parseCoverageJsonFile(
+    opts.javascriptCovJsonPath,
+    parseJavascriptCoverageSummary,
+    failures,
+    'javascript',
+  );
+}
+
+function markScannedIfPresent(scanned, laneName, value) {
+  if (value) {
+    scanned.push(laneName);
+  }
+}
+
 /**
  * Public entry: build an envelope from a mix of pre-rendered JSON
  * paths and (when --run flags are set) live tool runs. The CLI wrapper
@@ -381,67 +453,14 @@ function commandExists(bin) {
 export function buildEnvelopeFromOptions(opts) {
   const scanned = [];
   const failures = [];
-  let rust = null;
-  let python = null;
-  let javascript = null;
-
-  // Rust: pre-rendered JSON takes priority over a live run.
-  if (opts.rustCovJsonPath) {
-    if (!existsSync(opts.rustCovJsonPath)) {
-      failures.push(`missing rust coverage JSON at ${opts.rustCovJsonPath}`);
-    } else {
-      const payload = readJsonFile(opts.rustCovJsonPath);
-      const parsed = parseRustLlvmCovJson(payload);
-      if (parsed) {
-        rust = parsed;
-        scanned.push('rust');
-      } else {
-        failures.push(`rust coverage JSON malformed at ${opts.rustCovJsonPath}`);
-      }
-    }
-  } else if (opts.runRust) {
-    const live = runAllRustLanes({ workspaceRoot: opts.workspaceRoot, env: opts.env });
-    if (live.ok) {
-      rust = live;
-      scanned.push('rust');
-    } else {
-      failures.push(live.reason ?? 'rust scanner failed');
-    }
-  }
-
-  // Python: only pre-rendered JSON is supported in this adapter; the
-  // live run is delegated to `just cov-py` which writes
-  // coverage.json under ws_apps/example-python/.
-  if (opts.pythonCovJsonPath) {
-    if (!existsSync(opts.pythonCovJsonPath)) {
-      failures.push(`missing python coverage JSON at ${opts.pythonCovJsonPath}`);
-    } else {
-      const payload = readJsonFile(opts.pythonCovJsonPath);
-      const parsed = parsePythonCoverageJson(payload);
-      if (parsed) {
-        python = parsed;
-        scanned.push('python');
-      } else {
-        failures.push(`python coverage JSON malformed at ${opts.pythonCovJsonPath}`);
-      }
-    }
-  }
-
-  // JavaScript: pre-rendered vitest coverage-summary.json
-  if (opts.javascriptCovJsonPath) {
-    if (!existsSync(opts.javascriptCovJsonPath)) {
-      failures.push(`missing javascript coverage JSON at ${opts.javascriptCovJsonPath}`);
-    } else {
-      const payload = readJsonFile(opts.javascriptCovJsonPath);
-      const parsed = parseJavascriptCoverageSummary(payload);
-      if (parsed) {
-        javascript = parsed;
-        scanned.push('javascript');
-      } else {
-        failures.push(`javascript coverage JSON malformed at ${opts.javascriptCovJsonPath}`);
-      }
-    }
-  }
+  const rust = resolveRustCoverageFromOptions(opts, failures);
+  const python = opts.pythonCovJsonPath ? resolvePythonCoverageFromOptions(opts, failures) : null;
+  const javascript = opts.javascriptCovJsonPath
+    ? resolveJavascriptCoverageFromOptions(opts, failures)
+    : null;
+  markScannedIfPresent(scanned, 'rust', rust);
+  markScannedIfPresent(scanned, 'python', python);
+  markScannedIfPresent(scanned, 'javascript', javascript);
 
   if (failures.length > 0) {
     const reason = `coverage scan failure: ${failures.join('; ')}`;

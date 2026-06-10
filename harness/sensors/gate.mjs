@@ -68,6 +68,14 @@ const CV01_FIELD_IDS = new Set([
   'javascript_line_pct',
   'min_line_pct',
 ]);
+const CV01_FIELD_TO_DIMENSION_METRIC_ID = {
+  rust_line_pct: 'rust-line-coverage-pct',
+  rust_function_pct: 'rust-function-coverage-pct',
+  rust_region_pct: 'rust-region-coverage-pct',
+  python_line_pct: 'python-line-coverage-pct',
+  javascript_line_pct: 'javascript-line-coverage-pct',
+  min_line_pct: 'min-line-coverage-pct',
+};
 
 const DIMENSIONS = {
   MT01: {
@@ -677,22 +685,46 @@ function recordCoverageFailure(options, field, reason) {
 }
 
 function coverageFieldToDimensionMetricId(field) {
-  switch (field) {
-    case 'rust_line_pct':
-      return 'rust-line-coverage-pct';
-    case 'rust_function_pct':
-      return 'rust-function-coverage-pct';
-    case 'rust_region_pct':
-      return 'rust-region-coverage-pct';
-    case 'python_line_pct':
-      return 'python-line-coverage-pct';
-    case 'javascript_line_pct':
-      return 'javascript-line-coverage-pct';
-    case 'min_line_pct':
-      return 'min-line-coverage-pct';
-    default:
-      return null;
+  return CV01_FIELD_TO_DIMENSION_METRIC_ID[field] ?? null;
+}
+
+function loadCoverageEnvelopeFromOptions(options) {
+  if (options?.coverage) {
+    return options.coverage;
   }
+  if (!options?.io || !options?.coveragePath) {
+    return null;
+  }
+  if (!options.io.fileExists?.(options.coveragePath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(options.io.readFile(options.coveragePath));
+  } catch {
+    return null;
+  }
+}
+
+function coverageMetricValueWithFallback(options, field, envelope, hasPath) {
+  if (!envelope || envelope.available === false) {
+    if (hasPath && CV01_FIELD_IDS.has(field)) {
+      const reason = envelope?.reason
+        ? `coverage adapter reported unavailable: ${envelope.reason}`
+        : envelope === null
+          ? `coverage envelope missing${options.coveragePath ? ` at ${options.coveragePath}` : ''}`
+          : 'coverage adapter reported unavailable';
+      recordCoverageFailure(options, field, reason);
+    }
+    return null;
+  }
+  const value = envelope?.metrics?.[field];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    if (hasPath && CV01_FIELD_IDS.has(field)) {
+      recordCoverageFailure(options, field, `coverage metric "${field}" is missing or malformed`);
+    }
+    return null;
+  }
+  return value;
 }
 
 /**
@@ -710,35 +742,9 @@ function coverageFieldToDimensionMetricId(field) {
  * "no reading". This keeps the floor at 100% or worse.
  */
 function coverageMetricValue(options, field) {
-  let envelope = options?.coverage;
-  if (!envelope && options?.io && options?.coveragePath) {
-    if (options.io.fileExists?.(options.coveragePath)) {
-      try {
-        envelope = JSON.parse(options.io.readFile(options.coveragePath));
-      } catch {
-        envelope = null;
-      }
-    }
-  }
-  if (!envelope || envelope.available === false) {
-    if (coverageInputRequested(options) && CV01_FIELD_IDS.has(field)) {
-      const reason = envelope?.reason
-        ? `coverage adapter reported unavailable: ${envelope.reason}`
-        : envelope === null
-          ? `coverage envelope missing${options.coveragePath ? ` at ${options.coveragePath}` : ''}`
-          : 'coverage adapter reported unavailable';
-      recordCoverageFailure(options, field, reason);
-    }
-    return null;
-  }
-  const value = envelope?.metrics?.[field];
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    if (coverageInputRequested(options) && CV01_FIELD_IDS.has(field)) {
-      recordCoverageFailure(options, field, `coverage metric "${field}" is missing or malformed`);
-    }
-    return null;
-  }
-  return value;
+  const hasCoverageInput = coverageInputRequested(options);
+  const envelope = loadCoverageEnvelopeFromOptions(options);
+  return coverageMetricValueWithFallback(options, field, envelope, hasCoverageInput);
 }
 
 /**
@@ -1295,6 +1301,92 @@ function compareLegacyBaseline(baseline, currentReport) {
   };
 }
 
+function assessMetricComparisonState({ code, metricId, currentMetric, baselineMetric, options }) {
+  const baselineValue = baselineMetric?.baseline;
+  const currentValue = currentMetric.baseline;
+  const hardFailCoverage = code === 'CV01' && hasCoverageFailure(options, metricId);
+  const hasBothValues = typeof baselineValue === 'number' && typeof currentValue === 'number';
+
+  if (hardFailCoverage) {
+    return {
+      baselineValue,
+      currentValue,
+      hardFailCoverage: true,
+      failureReason: coverageFailureSummary(options, metricId),
+      regression: true,
+      compared: 1,
+      evaluated: 1,
+      failed: 1,
+      warned: 0,
+      missing: 0,
+      hasBothValues,
+    };
+  }
+
+  if (hasBothValues) {
+    return {
+      baselineValue,
+      currentValue,
+      hardFailCoverage: false,
+      failureReason: null,
+      regression:
+        currentMetric.fail_on_regression &&
+        worsened(currentMetric.direction, currentValue, baselineValue),
+      compared: 1,
+      evaluated: 1,
+      failed: 0,
+      warned: 0,
+      missing: 0,
+      hasBothValues,
+    };
+  }
+
+  return {
+    baselineValue,
+    currentValue,
+    hardFailCoverage: false,
+    failureReason: null,
+    regression: false,
+    compared: 0,
+    evaluated: 0,
+    failed: 0,
+    warned: 0,
+    missing: 1,
+    hasBothValues,
+  };
+}
+
+function buildMetricSummary(currentMetric, state) {
+  return {
+    name: currentMetric.name,
+    baseline: state.baselineValue ?? null,
+    current: state.currentValue ?? null,
+    direction: currentMetric.direction,
+    fail_on_regression: currentMetric.fail_on_regression,
+    regression: state.regression,
+    diagnostic: state.failureReason,
+  };
+}
+
+function buildMetricRegressionRecord({
+  dimensionCode,
+  metricId,
+  currentMetric,
+  state,
+  dimensionEnforcement,
+}) {
+  return {
+    dimension: dimensionCode,
+    metric: metricId,
+    metric_name: currentMetric.name,
+    baseline: state.baselineValue,
+    current: state.currentValue,
+    delta: state.hasBothValues ? state.currentValue - state.baselineValue : 0,
+    enforcement: dimensionEnforcement,
+    diagnostic: state.failureReason,
+  };
+}
+
 export function compareFitnessBaseline(baseline, currentReport, options = {}) {
   const current = extractApssFitnessBaseline(currentReport, options);
   const regressions = [];
@@ -1314,61 +1406,40 @@ export function compareFitnessBaseline(baseline, currentReport, options = {}) {
 
     for (const [metricId, currentMetric] of Object.entries(dimension.metrics ?? {})) {
       const baselineMetric = baselineDimension?.metrics?.[metricId];
-      const baselineValue = baselineMetric?.baseline;
-      const currentValue = currentMetric.baseline;
-      const hasBaseline = typeof baselineValue === 'number';
-      const hasCurrent = typeof currentValue === 'number';
-      const coverageFailure = hasCoverageFailure(options, metricId);
-      const hardFailCoverage = code === 'CV01' && coverageFailure;
-      const failureReason = hardFailCoverage ? coverageFailureSummary(options, metricId) : null;
-      let regression = false;
-
-      if (hardFailCoverage) {
-        comparedMetrics += 1;
-        evaluated += 1;
-        failed += 1;
-        regression = true;
-      } else if (hasCurrent && hasBaseline) {
-        comparedMetrics += 1;
-        evaluated += 1;
-        regression =
-          currentMetric.fail_on_regression &&
-          worsened(currentMetric.direction, currentValue, baselineValue);
-      } else {
-        missing += 1;
+      const state = assessMetricComparisonState({
+        code,
+        metricId,
+        currentMetric,
+        baselineMetric,
+        options,
+      });
+      comparedMetrics += state.compared;
+      evaluated += state.evaluated;
+      failed += state.failed;
+      warned += state.warned;
+      missing += state.missing;
+      if (state.missing) {
         missingBaselines.push({
           dimension: code,
           metric: metricId,
-          baseline: baselineValue,
-          current: currentValue,
+          baseline: state.baselineValue,
+          current: state.currentValue,
         });
       }
 
-      const summary = {
-        name: currentMetric.name,
-        baseline: baselineValue ?? null,
-        current: currentValue ?? null,
-        direction: currentMetric.direction,
-        fail_on_regression: currentMetric.fail_on_regression,
-        regression,
-        diagnostic: failureReason,
-      };
+      const summary = buildMetricSummary(currentMetric, state);
       metricSummaries[metricId] = summary;
 
-      if (regression) {
-        const delta = hasCurrent && hasBaseline ? currentValue - baselineValue : 0;
-        const record = {
-          dimension: code,
-          metric: metricId,
-          metric_name: currentMetric.name,
-          baseline: baselineValue,
-          current: currentValue,
-          delta,
-          enforcement: dimension.enforcement,
-          diagnostic: failureReason,
-        };
+      if (state.regression) {
+        const record = buildMetricRegressionRecord({
+          dimensionCode: code,
+          metricId,
+          currentMetric,
+          state,
+          dimensionEnforcement: dimension.enforcement,
+        });
         if (dimension.enforcement === 'enforced') {
-          if (!hardFailCoverage) {
+          if (!state.hardFailCoverage) {
             failed += 1;
           }
           regressions.push(record);
