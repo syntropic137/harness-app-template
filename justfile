@@ -196,53 +196,48 @@ test-coverage *args:
     bun run scripts/test-coverage.ts {{args}}
 
 # HARNESS-ENGINEERING PROTECTED CONFIG / DO NOT ADJUST.
-# Rust coverage gates. The root Cargo workspace intentionally contains only
-# ws_apps/example-rust; harness/doc-validator and harness/versioning are
-# self-contained slot workspaces (each carries its own [workspace] block by
-# design, so the root never pulls slot stubs in transitively) and are
-# covered by explicit --manifest-path invocations.
-# Thresholds are pinned to protected baselines: example-rust stays
-# 100/100/100, and doc-validator and versioning enforce 100 percent lines
-# and functions over their library business logic. main.rs files are built
-# separately and excluded per the ADR-0013 opt-out table because they are CLI
-# shells with no business logic.
+# Per-language coverage gates (ADR-0013-coverage-enforcement.md). The
+# recipes stay thin by design: lane definitions, thresholds, the main.rs
+# opt-outs, and the CARGO_TARGET_DIR worktree isolation all live in
+# scripts/lib/coverage.ts (dispatched by scripts/coverage.ts, both tested
+# at 100 percent by scripts/tests/coverage.test.ts). Threshold changes are
+# ADR-0013 edits, not recipe edits.
 #
-# Worktree isolation: every `cargo llvm-cov` line pins CARGO_TARGET_DIR to a
-# worktree-local path. Hosts (e.g. the swarm VPS) commonly export a shared
-# CARGO_TARGET_DIR to amortise the cargo build cache across projects; without
-# this override two worktrees running `just cov-rust` concurrently would write
-# *.profraw into the same llvm-cov-target/ directory and corrupt each other's
-# coverage reports (cargo-llvm-cov collects every profraw in that dir at
-# report time, so a foreign run's PID-suffixed file looks like one of ours).
-# Pinning to `{{justfile_directory()}}/target/coverage-isolated` keeps each
-# worktree's build artefacts and profraw inside the worktree.
-coverage_target_dir := justfile_directory() / "target" / "coverage-isolated"
+# cov-rust runs the three Rust lanes (example-rust 100/100/100,
+# doc-validator and versioning 100 lines/functions over their library
+# targets). cov-py defers to the 100 percent pytest-cov threshold pinned
+# in ws_apps/example-python/pyproject.toml. cov-sensors gates the sensors
+# slot's node:test suite at its measured floor.
 
 # Rust coverage gates across every Rust crate (100% on protected baselines).
 [group('coverage')]
-cov-rust: cov-example-rust cov-doc-validator cov-versioning
-
-# Python coverage gates (pytest under uv).
-[group('coverage')]
-cov-py:
-    cd ws_apps/example-python && sh scripts/with-uv.sh uv run pytest
+cov-rust:
+    bun run scripts/coverage.ts rust
 
 # Coverage gate for ws_apps/example-rust (100% lines / functions / regions).
 [group('coverage')]
 cov-example-rust:
-    CARGO_TARGET_DIR='{{coverage_target_dir}}' cargo llvm-cov --manifest-path ws_apps/example-rust/Cargo.toml --package example-rust --fail-under-lines 100 --fail-under-functions 100 --fail-under-regions 100
+    bun run scripts/coverage.ts example-rust
 
 # Coverage gate for harness/doc-validator library (100% lines / functions).
 [group('coverage')]
 cov-doc-validator:
-    CARGO_TARGET_DIR='{{coverage_target_dir}}' cargo build --manifest-path harness/doc-validator/Cargo.toml --bin harness-doc-validator
-    CARGO_TARGET_DIR='{{coverage_target_dir}}' cargo llvm-cov --manifest-path harness/doc-validator/Cargo.toml --package harness-doc-validator --lib --ignore-filename-regex 'main\.rs' --fail-under-lines 100 --fail-under-functions 100
+    bun run scripts/coverage.ts doc-validator
 
 # Coverage gate for harness/versioning library (100% lines / functions).
 [group('coverage')]
 cov-versioning:
-    CARGO_TARGET_DIR='{{coverage_target_dir}}' cargo build --manifest-path harness/versioning/Cargo.toml --bin harness-versioning
-    CARGO_TARGET_DIR='{{coverage_target_dir}}' cargo llvm-cov --manifest-path harness/versioning/Cargo.toml --package harness-versioning --lib --ignore-filename-regex 'main\.rs' --fail-under-lines 100 --fail-under-functions 100
+    bun run scripts/coverage.ts versioning
+
+# Python coverage gates (pytest under uv, 100% threshold in pyproject.toml).
+[group('coverage')]
+cov-py:
+    bun run scripts/coverage.ts py
+
+# Sensors slot node:test coverage gate at its measured floor (ADR-0013).
+[group('coverage')]
+cov-sensors:
+    bun run scripts/coverage.ts sensors
 
 # --- release ---------------------------------------------------------------
 
