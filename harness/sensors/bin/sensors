@@ -56,6 +56,17 @@ Subcommands:
                               unused-export-count ratchet. No node_modules /
                               network / npx dependency
                               (ADR-0024-dead-code-ratchet.md).
+  suite-duration              PF01 test-suite wall-clock adapter (ADR-0025).
+                              Hybrid absolute ceiling + relative regression
+                              delta against the committed
+                              harness/sensors/suite-duration-baseline.json,
+                              with coverage <100% as a HARD precondition in
+                              BOTH advisory and enforce modes. Default mode
+                              is enforce (median-of-5 / p95-of-5);
+                              `--mode=advisory` runs single-shot for fast
+                              local feedback while keeping coverage fatal.
+                              Feeds the PF01 suite-duration-p95-seconds +
+                              suite-duration-iteration-count ratchet metrics.
   sentrux                     Sentrux adapter precheck (manifest envelope).
                               The actual scan runs inside `gate` via
                               harness/sensors/sentrux_scan.mjs and feeds the
@@ -324,8 +335,9 @@ case "${1:-}" in
     sentrux_tmp=""
     deadcode_tmp=""
     coverage_tmp=""
+    suite_duration_tmp=""
     report_tmp="$(mktemp -t harness-sensors-report-XXXXXX.json)"
-    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$coverage_tmp" "$report_tmp"' EXIT
+    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$coverage_tmp" "$suite_duration_tmp" "$report_tmp"' EXIT
     if [ -z "$readings_from" ]; then
       build_report "json" "$report_tmp" "$workspace_root" "$skip_tier"
     else
@@ -441,6 +453,30 @@ case "${1:-}" in
         gate_args+=("--coverage=$coverage_tmp")
       fi
     fi
+    # PF01 suite-duration adapter (ADR-0025). Hybrid wall-clock ceiling
+    # + relative regression delta with HARD coverage coupling. The
+    # adapter is the primary enforcer of the coverage rule; gate.mjs
+    # consumes the resulting envelope through --suite-duration=<path>
+    # and reads `duration_p95_seconds` + `iteration_count` for the two
+    # PF01 metrics. Skipped via --skip-tier=suite-duration (CI may
+    # invoke it separately + pass --readings-from) and on replay
+    # paths. The 5-iteration default lives in the committed baseline
+    # at harness/sensors/suite-duration-baseline.json.
+    suite_duration_skip=0
+    case ",${skip_tier}," in
+      *,suite-duration,*|*,suite_duration,*) suite_duration_skip=1 ;;
+    esac
+    if [ -z "$readings_from" ] && [ "$suite_duration_skip" -eq 0 ] \
+        && [ -f "$workspace_root/harness/sensors/suite-duration-baseline.json" ]; then
+      suite_duration_tmp="$(mktemp -t harness-sensors-suite-duration-XXXXXX.json)"
+      node "$HERE/suite_duration.mjs" \
+        --baseline="$workspace_root/harness/sensors/suite-duration-baseline.json" \
+        --json --quiet \
+        > "$suite_duration_tmp" 2>/dev/null || true
+      if [ -s "$suite_duration_tmp" ]; then
+        gate_args+=("--suite-duration=$suite_duration_tmp")
+      fi
+    fi
     node "$HERE/gate.mjs" "${gate_args[@]+"${gate_args[@]}"}" < "$report_tmp"
     ;;
   fitness)
@@ -474,11 +510,11 @@ case "${1:-}" in
           fitness_args+=("$1")
           shift
           ;;
-        --baseline=*|--readings-from=*|--perf-baseline=*|--security=*|--licenses=*|--sentrux=*|--deadcode=*|--coverage=*)
+        --baseline=*|--readings-from=*|--perf-baseline=*|--security=*|--licenses=*|--sentrux=*|--deadcode=*|--coverage=*|--suite-duration=*)
           fitness_args+=("$1")
           shift
           ;;
-        --baseline|--readings-from|--perf-baseline|--security|--licenses|--sentrux|--deadcode|--coverage)
+        --baseline|--readings-from|--perf-baseline|--security|--licenses|--sentrux|--deadcode|--coverage|--suite-duration)
           fitness_args+=("$1" "${2:-}")
           shift 2 || true
           ;;
@@ -521,8 +557,9 @@ case "${1:-}" in
       sentrux_tmp=""
       deadcode_tmp=""
       coverage_tmp=""
+      suite_duration_tmp=""
       report_tmp="$(mktemp -t harness-sensors-fitness-XXXXXX.json)"
-      trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$coverage_tmp" "$report_tmp"' EXIT
+      trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$coverage_tmp" "$suite_duration_tmp" "$report_tmp"' EXIT
       build_report "json" "$report_tmp" "$workspace_root" "$skip_tier"
       # Mirror the gate's optional adapter wiring so fitness sees the
       # same SC01/LG01/sentrux/perf readings the gate would.
@@ -595,6 +632,24 @@ case "${1:-}" in
           fitness_args+=("--coverage=$coverage_tmp")
         fi
       fi
+      # Mirror the suite-duration wiring from the gate path
+      # (ADR-0025). Skipped via --skip-tier=suite-duration; soft-skips
+      # cleanly when the committed baseline is absent.
+      suite_duration_skip=0
+      case ",${skip_tier}," in
+        *,suite-duration,*|*,suite_duration,*) suite_duration_skip=1 ;;
+      esac
+      if [ "$suite_duration_skip" -eq 0 ] \
+          && [ -f "$workspace_root/harness/sensors/suite-duration-baseline.json" ]; then
+        suite_duration_tmp="$(mktemp -t harness-sensors-fitness-suite-duration-XXXXXX.json)"
+        node "$HERE/suite_duration.mjs" \
+          --baseline="$workspace_root/harness/sensors/suite-duration-baseline.json" \
+          --json --quiet \
+          > "$suite_duration_tmp" 2>/dev/null || true
+        if [ -s "$suite_duration_tmp" ]; then
+          fitness_args+=("--suite-duration=$suite_duration_tmp")
+        fi
+      fi
       node "$HERE/fitness_report.mjs" "${fitness_args[@]+"${fitness_args[@]}"}" < "$report_tmp"
     fi
     ;;
@@ -650,6 +705,17 @@ case "${1:-}" in
     done
     workspace_root="$(cd "$workspace_root" && pwd)"
     node "$HERE/coverage_scan.mjs" --workspace-root="$workspace_root" "${coverage_passthrough[@]+"${coverage_passthrough[@]}"}"
+    ;;
+  suite-duration)
+    # PF01 suite-duration adapter (ADR-0025). On-demand invocation
+    # outside the gate pipeline. Pass-through to suite_duration.mjs
+    # so the caller controls --mode, --baseline, etc. Default baseline
+    # is harness/sensors/suite-duration-baseline.json (run from repo
+    # root). Exits 0 on PASS / advisory-mode timing-only WARN; exits
+    # non-zero on coverage failure (any mode), enforce timing failure,
+    # or suite-command failure.
+    shift
+    node "$HERE/suite_duration.mjs" "$@"
     ;;
   grimp)
     shift

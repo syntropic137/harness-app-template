@@ -388,6 +388,28 @@ const FITNESS_METRICS = {
       fail_on_regression: true,
       value: (_report, options) => perfBenchmarkMeans(options).length,
     },
+    {
+      id: 'suite-duration-p95-seconds',
+      name: 'Test-Suite Duration p95 (seconds)',
+      objective:
+        'p95 wall-clock of the test suite over N iterations from the harness/sensors/suite_duration.mjs adapter envelope. Observational at the gate (fail_on_regression=false) because wall-clock varies machine-to-machine and gate.mjs uses EPSILON=1e-6 which would convert normal CI/dev jitter into false failures. The adapter is the AUTHORITATIVE enforcer per ADR-0025: it owns the hybrid ceiling (`absolute_seconds_ceiling` + `relative_delta_percent` against `duration_p95_seconds` in `harness/sensors/suite-duration-baseline.json`, default 3.0s / 25%) plus the HARD coverage-coupling rule. null/no-reading means the adapter exited non-zero (coverage failure or suite failure); the gate reader simply sees no envelope and the cycle fails at the adapter step before this metric is ever evaluated. See ADR-0025-suite-duration-sensor-pf01.md.',
+      source: 'harness/sensors/suite_duration.mjs envelope duration_p95_seconds',
+      direction: 'max',
+      default_threshold: 5,
+      fail_on_regression: false,
+      value: (_report, options) => suiteDurationMetricValue(options, 'duration_p95_seconds'),
+    },
+    {
+      id: 'suite-duration-iteration-count',
+      name: 'Test-Suite Iteration Count',
+      objective:
+        "Number of iterations the suite-duration adapter ran. Floor is the snapshotted count; the gate fails if the count drops (a silently lowered iteration_count is a fake speedup, mirroring startup-benchmark-count's rationale verbatim). Direction min (larger-is-better). See ADR-0025-suite-duration-sensor-pf01.md.",
+      source: 'harness/sensors/suite_duration.mjs envelope iteration_count',
+      direction: 'min',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: (_report, options) => suiteDurationMetricValue(options, 'iteration_count'),
+    },
   ],
   AV01: [
     {
@@ -653,6 +675,42 @@ function coverageMetricValue(options, field) {
     return null;
   }
   const value = envelope?.metrics?.[field];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
+}
+
+/**
+ * Read the suite-duration envelope the PF01 dimension watches. Accepts
+ * a pre-parsed envelope on options.suiteDuration or a filesystem reader
+ * pair on options.io pointing at options.suiteDurationPath. Returns
+ * the named numeric field (or null when the envelope is absent, the
+ * adapter reported unavailable, or the field is missing). null degrades
+ * the gate to "no reading" rather than a false zero, same shape as the
+ * SC01/LG01/sentrux/deadcode/coverage readers above. Produced by
+ * harness/sensors/suite_duration.mjs (ADR-0025-suite-duration-sensor-pf01.md).
+ *
+ * The adapter is the primary enforcer of the coverage-coupling rule;
+ * when coverage <100% on any tracked metric, the adapter exits non-zero
+ * and writes `available: false`. The PF01 metric then returns null and
+ * the cycle fails at the adapter step (before the gate evaluates).
+ */
+function suiteDurationMetricValue(options, field) {
+  let envelope = options?.suiteDuration;
+  if (!envelope && options?.io && options?.suiteDurationPath) {
+    if (options.io.fileExists?.(options.suiteDurationPath)) {
+      try {
+        envelope = JSON.parse(options.io.readFile(options.suiteDurationPath));
+      } catch {
+        envelope = null;
+      }
+    }
+  }
+  if (!envelope || envelope.available === false) {
+    return null;
+  }
+  const value = envelope?.[field];
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return null;
   }
@@ -1406,11 +1464,17 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
       for (const [metricId, curMetric] of Object.entries(curDim.metrics ?? {})) {
         const existing = baseDim.metrics[metricId];
         const cur = curMetric.baseline;
+        // Observational metrics (fail_on_regression=false) intentionally
+        // skip the auto-ratchet: their numeric baseline is purely
+        // descriptive and would otherwise drift to whichever machine
+        // ran the gate last. The primary enforcer for these lives in
+        // the adapter, not in the gate's regression check. The metric
+        // definition is still seeded into baseline.json so reviewers
+        // see the same shape for every metric.
+        const observational = curMetric.fail_on_regression === false;
         if (!existing) {
-          // New metric definition (a freshly-promoted dimension): seed the
-          // floor from the current measurement.
           baseDim.metrics[metricId] = { ...curMetric };
-          if (typeof cur === 'number') {
+          if (typeof cur === 'number' && !observational) {
             tightenings.push({
               kind: 'dimension',
               dimension: code,
@@ -1422,6 +1486,9 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
               reason: 'new-metric',
             });
           }
+          continue;
+        }
+        if (observational) {
           continue;
         }
         const prev = existing.baseline;
@@ -1748,6 +1815,7 @@ export async function main(
   let sentruxPath = null;
   let deadcodePath = null;
   let coveragePath = null;
+  let suiteDurationPath = null;
   let policyPath = DEFAULT_POLICY_PATH;
   let explicitPolicy = false;
   let readingsFromPath = null;
@@ -1782,6 +1850,11 @@ export async function main(
       coveragePath = a.slice('--coverage='.length);
     } else if (a === '--coverage') {
       coveragePath = argv[i + 1] ?? coveragePath;
+      i += 1;
+    } else if (a.startsWith('--suite-duration=')) {
+      suiteDurationPath = a.slice('--suite-duration='.length);
+    } else if (a === '--suite-duration') {
+      suiteDurationPath = argv[i + 1] ?? suiteDurationPath;
       i += 1;
     } else if (a.startsWith('--policy=')) {
       policyPath = a.slice('--policy='.length);
@@ -1828,6 +1901,7 @@ export async function main(
     sentruxPath,
     deadcodePath,
     coveragePath,
+    suiteDurationPath,
     io,
   };
   let policy;

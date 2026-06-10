@@ -327,6 +327,7 @@ function parseArgs(argv) {
     sentruxPath: null,
     deadcodePath: null,
     coveragePath: null,
+    suiteDurationPath: null,
     format: 'text',
     quick: false,
     help: false,
@@ -357,6 +358,11 @@ function parseArgs(argv) {
     else if (a === '--coverage') {
       opts.coveragePath = argv[i + 1] ?? opts.coveragePath;
       i += 1;
+    } else if (a.startsWith('--suite-duration=')) {
+      opts.suiteDurationPath = a.slice('--suite-duration='.length);
+    } else if (a === '--suite-duration') {
+      opts.suiteDurationPath = argv[i + 1] ?? opts.suiteDurationPath;
+      i += 1;
     } else if (a.startsWith('--format=')) opts.format = a.slice('--format='.length);
     else if (a === '--format') {
       opts.format = argv[i + 1] ?? opts.format;
@@ -383,6 +389,7 @@ Options:
   --sentrux=PATH         Sentrux adapter envelope (feeds MT01/MD01/ST01 sentrux metrics).
   --deadcode=PATH        Deterministic dead-code adapter envelope (feeds MT01 unused-export-count).
   --coverage=PATH        Deterministic test-coverage adapter envelope (feeds CV01 rust/python/javascript coverage percentages).
+  --suite-duration=PATH  Suite-duration adapter envelope (feeds PF01 suite-duration-* metrics).
   --format=FMT           text (default), json, or summary (one-liner for hooks).
   --json / --summary     Aliases for --format.
   --quick                Skip stdin; render the floor-only view from baseline.json.
@@ -467,6 +474,7 @@ export async function main(argv = process.argv.slice(2), io = defaultIo()) {
     sentruxPath: opts.sentruxPath,
     deadcodePath: opts.deadcodePath,
     coveragePath: opts.coveragePath,
+    suiteDurationPath: opts.suiteDurationPath,
     io,
   };
 
