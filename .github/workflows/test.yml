@@ -177,6 +177,11 @@ jobs:
       - name: Install sensors slot deps (ts-morph)
         working-directory: harness/sensors
         run: npm install --no-package-lock --no-audit --no-fund --silent
+      - name: Install sentrux (activates 2nd architectural lens in gate)
+        # Without sentrux on PATH, harness/sensors/sentrux_scan.mjs
+        # soft-skips and sentrux-* baseline floors silently stop
+        # gating — exactly the drift this branch was opened to fix.
+        run: bash .github/scripts/install-sentrux.sh
       - name: Install root deps for vitest coverage
         run: pnpm install --no-frozen-lockfile
       - name: Prepare CV01 Python coverage envelope (pytest --cov-report=json)
@@ -297,6 +302,12 @@ jobs:
       - name: Install sensors slot deps for source-tree sensors invocations
         working-directory: harness/sensors
         run: npm install --no-package-lock --no-audit --no-fund --silent
+      - name: Install sentrux (matches local adopter PATH)
+        # Mirrors the fitness job: without sentrux, the fork-check
+        # qa/sensors run skips the 2nd architectural lens and lets
+        # sentrux-* baseline regressions through, breaking adopters
+        # who install sentrux per harness/sensors/README.md.
+        run: bash .github/scripts/install-sentrux.sh
       - name: Configure git author for the snapshot commit
         run: |
           git config --global user.email fork-check@github
