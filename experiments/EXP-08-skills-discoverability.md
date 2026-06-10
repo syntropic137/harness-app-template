@@ -46,8 +46,89 @@ skill, which makes EXP-02's discoverability problem worse.
   the upstream plugin is actually installed locally; if not, the AGENTS.md
   reference is link-only for the agent invoking it now.
 
-## Reusable empirical claims (to be filled in verdict)
-- TBD with N=1 evidence count.
+## Observed (probes run 2026-06-10 01:55 UTC)
 
-## Friction items (append to FRICTION.md on conclusion)
-- TBD.
+### P1 skill count -- FALSIFIED
+- `find .claude/skills -maxdepth 2 -name SKILL.md` returned SIX, not three:
+  - `before-after-evidence/SKILL.md`
+  - `chrome-devtools-deep/SKILL.md`
+  - `observability-queries/SKILL.md`
+  - `orchestrating-a-vps-agent-swarm/SKILL.md`
+  - `playwright-debug/SKILL.md`
+  - `running-experiments/SKILL.md`
+- AGENTS.md lines 29-32 list only THREE: `running-experiments`,
+  `observability-queries`, `before-after-evidence`.
+- The three undocumented skills (`chrome-devtools-deep`,
+  `orchestrating-a-vps-agent-swarm`, `playwright-debug`) are present and
+  valid; they just are not advertised on the front door.
+
+### P2 frontmatter validity -- CONFIRMED
+- All six SKILL.md files open with a `---` block containing `name:` and
+  `description:` keys. Two (observability-queries, allowed-tools) also pin
+  `allowed-tools:`.
+
+### P3 no run-the-app skill -- CONFIRMED
+- Grep for run/dev/start patterns matched `running-experiments`,
+  `playwright-debug`, `observability-queries` by substring only; none of
+  these is a "boot the dev loop" skill.
+
+### P4 ports surface lives inline -- CONFIRMED
+- VL_PORT/VM_PORT/VT_PORT references concentrated in
+  `observability-queries/SKILL.md` (lines 23-25, 52, 67, 85, 103, 120) and
+  `before-after-evidence/SKILL.md` (lines 31, 88).
+- There is no central port-glossary skill; the trio of ports is only
+  discoverable via these two skills or `just stack ports`.
+
+### P5 upstream plugin not vendored -- CONFIRMED
+- `~/.claude/plugins/harness-engineering/skills/` -> does not exist.
+- `~/.codex/harness-engineering/` -> does not exist.
+- On this fresh-ish VPS, the AGENTS.md lines 40-95 inventory of upstream
+  principle skills is a list of NAMES, not bodies. An agent that wants the
+  `harness-review` orchestrator has to run the `git clone` recipe
+  themselves before invocation.
+
+## Verdict against frozen prediction: PARTIAL (mostly CONFIRMED, one FALSIFIED)
+
+| Sub-prediction | Predicted | Observed | Result |
+|---|---|---|---|
+| P1 count = 3 | PASS | count = 6 | FALSIFIED |
+| P2 valid frontmatter | PASS | all 6 valid | CONFIRMED |
+| P3 no run-the-app skill | PASS | confirmed | CONFIRMED |
+| P4 ports inline only | PASS | confirmed | CONFIRMED |
+| P5 upstream plugin link-only | PASS | confirmed | CONFIRMED |
+
+Composite verdict: PARTIAL. The skill bench is RICHER than AGENTS.md
+advertises (6 actual vs 3 advertised), but the FRONT DOOR document
+undercounts and hides three useful skills (`chrome-devtools-deep`,
+`orchestrating-a-vps-agent-swarm`, `playwright-debug`). A fresh agent that
+reads AGENTS.md alone will never discover them. P1 falsification is
+strict: AGENTS.md must enumerate ALL installed skills to satisfy
+"discoverable from AGENTS.md alone".
+
+## Reusable empirical claims
+- Project-local skills under `.claude/skills/` in this fork: 6 SKILL.md
+  files. AGENTS.md enumerates 3. Discoverability shortfall: 50%. (N=1, low.)
+- The upstream `harness-engineering` plugin AGENTS.md references is NOT
+  vendored on a fresh VPS; agents must run the documented `git clone`
+  recipe before any of `application-legibility`, `harness-review`,
+  `telemetry-pipeline`, etc. can be invoked. (N=1, low.)
+- Each SKILL.md uses YAML frontmatter with `name` + `description` as
+  required keys; some also pin `allowed-tools` to constrain tool use.
+  (N=1, low.)
+
+## Friction items (appended to FRICTION.md)
+- [EXP-08] [docs-gap] AGENTS.md lists 3 skills but `.claude/skills/`
+  actually ships 6: `chrome-devtools-deep`, `orchestrating-a-vps-agent-swarm`,
+  and `playwright-debug` are present but invisible to an agent reading
+  AGENTS.md alone. Fix: enumerate all six in AGENTS.md, or auto-generate
+  the list from the filesystem. (CobaltCoast, 2026-06-10.)
+- [EXP-08] [docs-gap] No "run-the-app" / "boot-the-dev-loop" skill
+  exists; the closest thing is `observability-queries` (query-only)
+  and inline app READMEs. This is the root cause of the EXP-02
+  discoverability problem. (CobaltCoast, 2026-06-10.)
+- [EXP-08] [config] The upstream `harness-engineering` plugin AGENTS.md
+  documents is NOT vendored on this VPS. Agents that try to invoke
+  `harness-review`, `telemetry-pipeline`, `application-legibility`, etc.
+  will get a dead handle until they run the documented `git clone`
+  recipe; AGENTS.md should make the install step a `just` recipe
+  instead of inline shell. (CobaltCoast, 2026-06-10.)

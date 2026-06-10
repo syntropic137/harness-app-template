@@ -12,4 +12,9 @@ Sole-editor rule does NOT apply here; append-only.
 - [EXP-05] [docs-gap] AGENTS.md mentions the observability-queries skill by name but never inlines a single endpoint URI; agents that never invoke the skill cannot discover the backend surface. (CobaltCoast, 2026-06-10.)
 - [EXP-05] [tooling-bug] VictoriaLogs returns empty body for malformed LogsQL queries; absence of a structured error makes it hard for an agent to self-correct. (CobaltCoast, 2026-06-10.)
 - [EXP-05] [workaround-found] Shared working tree + shared git index makes `git commit` sweep up another agent's staged-but-uncommitted files. Use explicit `git add <path>` and pre-commit `git diff --staged --name-only` check; long-term, run agents in per-task worktrees. (CobaltCoast, 2026-06-10.)
+- [EXP-08] [docs-gap] AGENTS.md lists 3 skills but `.claude/skills/` ships 6; `chrome-devtools-deep`, `orchestrating-a-vps-agent-swarm`, and `playwright-debug` are invisible to an agent reading AGENTS.md alone. Fix: enumerate all six in AGENTS.md or auto-generate from filesystem. (CobaltCoast, 2026-06-10.)
+- [EXP-08] [docs-gap] No "run-the-app" / "boot-the-dev-loop" skill exists; closest is `observability-queries` (query-only) and inline app READMEs. Root cause of the EXP-02 discoverability problem. (CobaltCoast, 2026-06-10.)
+- [EXP-08] [config] The upstream `harness-engineering` plugin AGENTS.md documents is NOT vendored on this VPS; agents that try to invoke `harness-review`, `telemetry-pipeline`, etc. get a dead handle until they run the documented `git clone`. AGENTS.md should turn the install into a `just` recipe. (CobaltCoast, 2026-06-10.)
+- [EXP-coord] [config] Sole-editor convention violated: my EXP-05 verdict at 1ef1a74 was overwritten in working tree by a Codex peer who later committed at 36e4cf9. My verdict survives in git history but the on-disk file no longer matches. Per-agent worktrees, or a name-prefixed file convention, would prevent this. (CobaltCoast, 2026-06-10.)
+
 
