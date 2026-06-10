@@ -765,6 +765,13 @@ fn git_command(root: &Path) -> Command {
     for key in LOCAL_GIT_ENV {
         command.env_remove(key);
     }
+    // Suppress any host-installed hooks (e.g. a global `core.hooksPath`
+    // pointing at apss's managed pre-commit). Temp git repos created by
+    // tests inherit that config and would otherwise fail unrelated
+    // host-level validation against a directory that has no project
+    // structure. Production release commits already pass `--no-verify`,
+    // so disabling hooks at the command level is consistent.
+    command.args(["-c", "core.hooksPath=/dev/null"]);
     command
 }
 
