@@ -17,6 +17,11 @@ export type SymlinkFn = (target: string, path: string) => void;
 
 const REQUIRED_TOOLS = ['bun', 'pnpm', 'cargo', 'uv'] as const;
 
+// Pinned to the same version the CI documentation job installs
+// (.github/workflows/test.yml cache key apss-1.1.0) and apss.lock declares
+// under [core].
+export const APSS_VERSION = '1.1.0';
+
 const INSTALL_HINTS: Record<string, string> = {
   bun: 'install via https://bun.sh (curl -fsSL https://bun.sh/install | bash)',
   pnpm: 'install via corepack enable, or npm i -g pnpm',
@@ -175,6 +180,55 @@ function runInherit(spawn: typeof spawnSync, command: string, args: string[], cw
   return result.status ?? 1;
 }
 
+/**
+ * Compose the project-local APSS binary at `.apss/bin/apss` so the
+ * lefthook `doc-validator-apss` pre-commit gate works on a fresh fork
+ * (ADR-0018: an `apss install` step belongs to `just bootstrap`).
+ * `.apss/` is gitignored; this rebuild is the deterministic substitute
+ * for tracking it. Mirrors the CI documentation job: install the host
+ * `apss` CLI via cargo when absent, then `apss install` to compose the
+ * standards pinned in apss.lock.
+ *
+ * Returns 0 on success (including the already-composed fast path) and
+ * the failing step's exit code otherwise.
+ */
+export function ensureApssBinary(
+  deps: Pick<BootstrapDeps, 'spawn' | 'stdout' | 'stderr'>,
+  cwd: string,
+  platform: NodeJS.Platform,
+  exists: (path: string) => boolean,
+): number {
+  const binaryName = platform === 'win32' ? 'apss.exe' : 'apss';
+  const composedBinary = join(cwd, '.apss', 'bin', binaryName);
+  if (exists(composedBinary)) {
+    deps.stdout.log('bootstrap: apss project binary present (.apss/bin); skipping compose');
+    return 0;
+  }
+  const hostCli = deps.spawn('apss', ['--version'], { stdio: 'ignore' });
+  if (hostCli.status !== 0) {
+    deps.stdout.log(
+      `bootstrap: apss CLI not found; installing apss ${APSS_VERSION} via cargo (one-time per machine)`,
+    );
+    const installStatus = runInherit(
+      deps.spawn,
+      'cargo',
+      ['install', 'apss', '--version', APSS_VERSION],
+      cwd,
+    );
+    if (installStatus !== 0) {
+      deps.stderr.error('bootstrap: cargo install apss failed');
+      return installStatus;
+    }
+  }
+  deps.stdout.log('bootstrap: composing apss project binary (apss install)');
+  const composeStatus = runInherit(deps.spawn, 'apss', ['install'], cwd);
+  if (composeStatus !== 0) {
+    deps.stderr.error('bootstrap: apss install failed');
+    return composeStatus;
+  }
+  return 0;
+}
+
 export function main(deps: BootstrapDeps): void {
   const cwd = deps.cwd ?? process.cwd();
   const platform = deps.platform ?? process.platform;
@@ -274,6 +328,10 @@ export function main(deps: BootstrapDeps): void {
   }
   if (runInherit(deps.spawn, 'uv', ['sync'], cwd) !== 0) {
     deps.stderr.error('bootstrap: uv sync failed');
+    deps.exit(1);
+    return;
+  }
+  if (ensureApssBinary(deps, cwd, platform, exists) !== 0) {
     deps.exit(1);
     return;
   }

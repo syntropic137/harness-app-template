@@ -24,6 +24,10 @@
 !harness/.harness/**
 .worktrees/
 .sentrux/
+# .apss/ holds the composed APSS project binary plus its cargo build tree,
+# both fully reproducible from the committed APSS.yaml + apss.lock. It stays
+# ignored because `just bootstrap` (scripts/bootstrap.ts ensureApssBinary)
+# and the CI documentation job both recompose it via `apss install`.
 .apss/
 
 # Agent-plugin vendor symlinks are now COMMITTED so they exist the instant
@@ -62,3 +66,6 @@ uv.lock
 # Go
 go.sum
 .claude/settings.local.json
+
+# bv (beads viewer) local config and caches
+.bv/

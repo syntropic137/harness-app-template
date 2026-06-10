@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
+  APSS_VERSION,
   type BootstrapDeps,
   detectEsbuildMismatches,
   detectMissingTools,
+  ensureApssBinary,
   main,
   platformArchSlug,
   repairEsbuildMismatch,
@@ -905,5 +907,147 @@ describe('main', () => {
       expect(readlinkSync(claudePath)).toBe('AGENTS.md');
       expect(sinks2.exit).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('ensureApssBinary', () => {
+  function apssDeps(spawn: ReturnType<typeof vi.fn>) {
+    const sinks = captureSinks();
+    return {
+      deps: {
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks.stdout,
+        stderr: sinks.stderr,
+      },
+      sinks,
+    };
+  }
+
+  test('skips compose when .apss/bin/apss already exists', () => {
+    const spawn = vi.fn(() => ({ status: 0 }));
+    const { deps, sinks } = apssDeps(spawn);
+    const status = ensureApssBinary(deps, '/proj', 'linux', (p) => p === '/proj/.apss/bin/apss');
+    expect(status).toBe(0);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(sinks.stdoutLog).toHaveBeenCalledWith(
+      'bootstrap: apss project binary present (.apss/bin); skipping compose',
+    );
+  });
+
+  test('checks for apss.exe on win32', () => {
+    const spawn = vi.fn(() => ({ status: 0 }));
+    const { deps } = apssDeps(spawn);
+    const seen: string[] = [];
+    const status = ensureApssBinary(deps, '/proj', 'win32', (p) => {
+      seen.push(p);
+      return true;
+    });
+    expect(status).toBe(0);
+    expect(seen[0]).toBe(join('/proj', '.apss', 'bin', 'apss.exe'));
+  });
+
+  test('composes via apss install when host CLI is present', () => {
+    const calls: Array<[string, readonly string[]]> = [];
+    const spawn = vi.fn((command: string, args: readonly string[] = []) => {
+      calls.push([command, args]);
+      return { status: 0 };
+    });
+    const { deps, sinks } = apssDeps(spawn);
+    const status = ensureApssBinary(deps, '/proj', 'linux', () => false);
+    expect(status).toBe(0);
+    expect(calls).toEqual([
+      ['apss', ['--version']],
+      ['apss', ['install']],
+    ]);
+    expect(sinks.stdoutLog).toHaveBeenCalledWith(
+      'bootstrap: composing apss project binary (apss install)',
+    );
+  });
+
+  test('cargo-installs the pinned apss version when host CLI is absent', () => {
+    const calls: Array<[string, readonly string[]]> = [];
+    const spawn = vi.fn((command: string, args: readonly string[] = []) => {
+      calls.push([command, args]);
+      if (command === 'apss' && args[0] === '--version') {
+        return { status: 1 };
+      }
+      return { status: 0 };
+    });
+    const { deps, sinks } = apssDeps(spawn);
+    const status = ensureApssBinary(deps, '/proj', 'linux', () => false);
+    expect(status).toBe(0);
+    expect(calls).toEqual([
+      ['apss', ['--version']],
+      ['cargo', ['install', 'apss', '--version', APSS_VERSION]],
+      ['apss', ['install']],
+    ]);
+    expect(sinks.stdoutLog).toHaveBeenCalledWith(
+      `bootstrap: apss CLI not found; installing apss ${APSS_VERSION} via cargo (one-time per machine)`,
+    );
+  });
+
+  test('returns cargo failure status and skips compose', () => {
+    const spawn = vi.fn((command: string, args: readonly string[] = []) => {
+      if (command === 'apss' && args[0] === '--version') return { status: 1 };
+      if (command === 'cargo') return { status: 101 };
+      return { status: 0 };
+    });
+    const { deps, sinks } = apssDeps(spawn);
+    const status = ensureApssBinary(deps, '/proj', 'linux', () => false);
+    expect(status).toBe(101);
+    expect(sinks.stderrError).toHaveBeenCalledWith('bootstrap: cargo install apss failed');
+    expect(spawn).not.toHaveBeenCalledWith('apss', ['install'], expect.anything());
+  });
+
+  test('returns apss install failure status', () => {
+    const spawn = vi.fn((command: string, args: readonly string[] = []) => {
+      if (command === 'apss' && args[0] === 'install') return { status: 2 };
+      return { status: 0 };
+    });
+    const { deps, sinks } = apssDeps(spawn);
+    const status = ensureApssBinary(deps, '/proj', 'linux', () => false);
+    expect(status).toBe(2);
+    expect(sinks.stderrError).toHaveBeenCalledWith('bootstrap: apss install failed');
+  });
+
+  test('main exits 1 when the apss step fails', () => {
+    const sinks = captureSinks();
+    const spawn = vi.fn((command: string, args: readonly string[] = []) => {
+      if (args[0] === '--version') return { status: 0 };
+      if (command === 'apss' && args[0] === 'install') return { status: 2 };
+      return { status: 0 };
+    });
+    expect(() =>
+      main(
+        baseDeps({
+          spawn: spawn as unknown as BootstrapDeps['spawn'],
+          stdout: sinks.stdout,
+          stderr: sinks.stderr,
+          exit: sinks.exit,
+        }),
+      ),
+    ).toThrow('__exit__');
+    expect(sinks.exit).toHaveBeenCalledWith(1);
+    expect(sinks.stderrError).toHaveBeenCalledWith('bootstrap: apss install failed');
+  });
+
+  test('main composes the apss binary on the happy path', () => {
+    const sinks = captureSinks();
+    const calls: Array<[string, readonly string[]]> = [];
+    const spawn = vi.fn((command: string, args: readonly string[] = []) => {
+      calls.push([command, args]);
+      return { status: 0 };
+    });
+    main(
+      baseDeps({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks.stdout,
+        stderr: sinks.stderr,
+        exit: sinks.exit,
+      }),
+    );
+    expect(sinks.exit).not.toHaveBeenCalled();
+    expect(calls).toContainEqual(['apss', ['install']]);
+    expect(sinks.stdoutLog).toHaveBeenCalledWith('bootstrap: complete');
   });
 });
