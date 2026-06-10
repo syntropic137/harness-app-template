@@ -86,6 +86,15 @@
           "baseline": null,
           "fail_on_regression": true
         },
+        "high-cognitive-fn-count": {
+          "name": "High Cognitive Complexity Function Count",
+          "objective": "Count of workspace functions whose cognitive complexity is at or above the HIGH_COGNITIVE_THRESHOLD line (5; the Sonar moderate-watch band). max-cognitive watches the PEAK; this watches the SPREAD — catches the death-by-a-thousand-cuts pattern where a refactor splits one ugly function but seeds several moderately-complex ones, an AI-coding regression mode that the peak metric reads as an improvement. Direction max (smaller-is-better); ratchet auto-tightens toward 0 as the workspace simplifies.",
+          "source": "aggregate workspace.high_cognitive_count (sum across modules from harness/sensors/complexity.mjs)",
+          "direction": "max",
+          "default_threshold": 0,
+          "baseline": 1,
+          "fail_on_regression": true
+        },
         "sentrux-quality-signal": {
           "name": "Sentrux Composite Quality Signal",
           "objective": "Geometric mean of sentrux 5 root-cause sub-scores (modularity, acyclicity, depth, equality, redundancy). Direction is min (larger-is-better). Sentrux is the 2nd architectural lens alongside APSS topology per ADR-0017; the metric ratchets up as the project improves so the floor only ever tightens.",

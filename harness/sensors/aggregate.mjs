@@ -112,7 +112,15 @@ export function scopeFolders(folders) {
 function summarize(modules) {
   const defined = modules.map((m) => m.I).filter((i) => typeof i === 'number');
   if (defined.length === 0) {
-    return { count: modules.length, definedI: 0, min: null, median: null, max: null, stable: 0, unstable: 0 };
+    return {
+      count: modules.length,
+      definedI: 0,
+      min: null,
+      median: null,
+      max: null,
+      stable: 0,
+      unstable: 0,
+    };
   }
   const sorted = [...defined].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
@@ -207,7 +215,12 @@ function summarizeA(modules) {
  * `function_count`, `max_cyclomatic`, `max_cognitive`, plus medians, to
  * each module.  Per-folder: `max_cyclomatic` and `max_cognitive` are the
  * max across the folder's modules (worst-case fitness signal); folder
- * `function_count` is the sum.  Non-mutating.
+ * `function_count` is the sum.  Also propagates the per-source spread
+ * counters `high_cognitive_count` / `high_cyclomatic_count` (functions
+ * at or above the HIGH_*_THRESHOLD lines in complexity.mjs) and sums
+ * them into a workspace-level total the MT01 fitness gate reads as the
+ * `high-cognitive-fn-count` / `high-cyclomatic-fn-count` ratchet
+ * metrics.  Non-mutating.
  */
 export function mergeComplexity(report, complexity) {
   const byModule = new Map();
@@ -226,15 +239,23 @@ export function mergeComplexity(report, complexity) {
         median_cyclomatic: null,
         max_cognitive: null,
         median_cognitive: null,
+        high_cognitive_count: 0,
+        high_cyclomatic_count: 0,
       };
     }
     return {
       ...m,
       function_count: reading.function_count ?? 0,
       max_cyclomatic: typeof reading.max_cyclomatic === 'number' ? reading.max_cyclomatic : null,
-      median_cyclomatic: typeof reading.median_cyclomatic === 'number' ? reading.median_cyclomatic : null,
+      median_cyclomatic:
+        typeof reading.median_cyclomatic === 'number' ? reading.median_cyclomatic : null,
       max_cognitive: typeof reading.max_cognitive === 'number' ? reading.max_cognitive : null,
-      median_cognitive: typeof reading.median_cognitive === 'number' ? reading.median_cognitive : null,
+      median_cognitive:
+        typeof reading.median_cognitive === 'number' ? reading.median_cognitive : null,
+      high_cognitive_count:
+        typeof reading.high_cognitive_count === 'number' ? reading.high_cognitive_count : 0,
+      high_cyclomatic_count:
+        typeof reading.high_cyclomatic_count === 'number' ? reading.high_cyclomatic_count : 0,
     };
   });
   const folders = report.workspace.folders.map((f) => {
@@ -243,13 +264,19 @@ export function mergeComplexity(report, complexity) {
     const cycValues = inFolder.map((m) => m.max_cyclomatic).filter((v) => typeof v === 'number');
     const cogValues = inFolder.map((m) => m.max_cognitive).filter((v) => typeof v === 'number');
     const fnSum = inFolder.reduce((acc, m) => acc + (m.function_count ?? 0), 0);
+    const highCogSum = inFolder.reduce((acc, m) => acc + (m.high_cognitive_count ?? 0), 0);
+    const highCycSum = inFolder.reduce((acc, m) => acc + (m.high_cyclomatic_count ?? 0), 0);
     return {
       ...f,
       function_count: fnSum,
       max_cyclomatic: cycValues.length === 0 ? null : Math.max(...cycValues),
       max_cognitive: cogValues.length === 0 ? null : Math.max(...cogValues),
+      high_cognitive_count: highCogSum,
+      high_cyclomatic_count: highCycSum,
     };
   });
+  const highCognitiveTotal = modules.reduce((acc, m) => acc + (m.high_cognitive_count ?? 0), 0);
+  const highCyclomaticTotal = modules.reduce((acc, m) => acc + (m.high_cyclomatic_count ?? 0), 0);
   return {
     ...report,
     complexityTool: complexity?.tool ?? null,
@@ -258,6 +285,8 @@ export function mergeComplexity(report, complexity) {
       modules,
       folders,
       complexityDistribution: summarizeComplexity(modules),
+      high_cognitive_count: highCognitiveTotal,
+      high_cyclomatic_count: highCyclomaticTotal,
     },
   };
 }
@@ -298,7 +327,8 @@ export function mergeApssTopology(report, apss) {
       apss: {
         ...metrics,
         functions: functionList,
-        function_count: functionList.length > 0 ? functionList.length : metrics.function_count ?? null,
+        function_count:
+          functionList.length > 0 ? functionList.length : (metrics.function_count ?? null),
       },
     };
   });
@@ -313,8 +343,12 @@ export function mergeApssTopology(report, apss) {
       .map((m) => m.apss?.efferent_coupling ?? m.apss?.ce)
       .filter((v) => typeof v === 'number');
     const functionValues = withApss.flatMap((m) => m.apss?.functions ?? []);
-    const cognitiveValues = functionValues.map((fn) => fn.cognitive).filter((v) => typeof v === 'number');
-    const cyclomaticValues = functionValues.map((fn) => fn.cyclomatic).filter((v) => typeof v === 'number');
+    const cognitiveValues = functionValues
+      .map((fn) => fn.cognitive)
+      .filter((v) => typeof v === 'number');
+    const cyclomaticValues = functionValues
+      .map((fn) => fn.cyclomatic)
+      .filter((v) => typeof v === 'number');
     return {
       ...f,
       apss_modules: withApss.length,
@@ -454,7 +488,9 @@ export function renderMarkdown(report) {
     lines.push('| module | Ca | Ce | I | A | D |');
     lines.push('|---|---:|---:|---:|---:|---:|');
     for (const m of report.workspace.modules) {
-      lines.push(`| \`${m.source}\` | ${m.Ca} | ${m.Ce} | ${fmtI(m.I)} | ${fmtI(m.A)} | ${fmtI(m.D)} |`);
+      lines.push(
+        `| \`${m.source}\` | ${m.Ca} | ${m.Ce} | ${fmtI(m.I)} | ${fmtI(m.A)} | ${fmtI(m.D)} |`,
+      );
     }
   } else {
     lines.push('| module | Ca | Ce | I |');
@@ -476,10 +512,14 @@ export function renderMarkdown(report) {
     const a = report.workspace.abstractnessDistribution;
     lines.push('');
     if (a.definedA === 0) {
-      lines.push('_No modules with a defined A value (ts-morph saw no class/interface declarations)._');
+      lines.push(
+        '_No modules with a defined A value (ts-morph saw no class/interface declarations)._',
+      );
     } else {
       lines.push(`- modules with defined A: **${a.definedA} / ${a.count}**`);
-      lines.push(`- min / median / max A: **${fmtI(a.minA)} / ${fmtI(a.medianA)} / ${fmtI(a.maxA)}**`);
+      lines.push(
+        `- min / median / max A: **${fmtI(a.minA)} / ${fmtI(a.medianA)} / ${fmtI(a.maxA)}**`,
+      );
       lines.push(
         `- main-sequence: **${a.nearMainSequence}** near (D ≤ 0.3), **${a.farFromMainSequence}** far (D > 0.7), ${a.definedD} with defined D`,
       );
@@ -577,7 +617,9 @@ export async function main(
     try {
       abstractness = JSON.parse(io.readFile(abstractnessPath));
     } catch (err) {
-      process.stderr.write(`aggregate: failed to read --abstractness=${abstractnessPath} (${err.message})\n`);
+      process.stderr.write(
+        `aggregate: failed to read --abstractness=${abstractnessPath} (${err.message})\n`,
+      );
       return 2;
     }
     report = mergeAbstractness(report, abstractness);
@@ -588,7 +630,9 @@ export async function main(
     try {
       complexity = JSON.parse(io.readFile(complexityPath));
     } catch (err) {
-      process.stderr.write(`aggregate: failed to read --complexity=${complexityPath} (${err.message})\n`);
+      process.stderr.write(
+        `aggregate: failed to read --complexity=${complexityPath} (${err.message})\n`,
+      );
       return 2;
     }
     report = mergeComplexity(report, complexity);
