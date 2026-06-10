@@ -156,6 +156,50 @@ const FITNESS_METRICS = {
       fail_on_regression: true,
       value: (report) => maxNumber(apssFunctionValues(report, 'halstead_volume')),
     },
+    {
+      id: 'sentrux-quality-signal',
+      name: 'Sentrux Composite Quality Signal',
+      objective:
+        'Geometric mean of sentrux 5 root-cause sub-scores (modularity, acyclicity, depth, equality, redundancy). Direction is min (larger-is-better). Sentrux is the 2nd architectural lens alongside APSS topology per ADR-0017; the metric ratchets up as the project improves so the floor only ever tightens.',
+      source: '.sentrux/baseline.json quality_signal (via harness/sensors/sentrux_scan.mjs)',
+      direction: 'min',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: (_report, options) => sentruxMetricValue(options, 'quality_signal'),
+    },
+    {
+      id: 'sentrux-god-file-count',
+      name: 'Sentrux God-File Count',
+      objective:
+        'Count of files sentrux flags as god-files (excessive responsibility / fan-in). Smaller is better; the ratchet pins the floor so a refactor that lowers the count cannot silently regress.',
+      source: '.sentrux/baseline.json god_file_count (via harness/sensors/sentrux_scan.mjs)',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: (_report, options) => sentruxMetricValue(options, 'god_file_count'),
+    },
+    {
+      id: 'sentrux-hotspot-count',
+      name: 'Sentrux Hotspot Count',
+      objective:
+        'Count of code hotspots sentrux flags via its 52-language tree-sitter overlay. Smaller is better.',
+      source: '.sentrux/baseline.json hotspot_count (via harness/sensors/sentrux_scan.mjs)',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: (_report, options) => sentruxMetricValue(options, 'hotspot_count'),
+    },
+    {
+      id: 'sentrux-complex-fn-count',
+      name: 'Sentrux Complex Function Count',
+      objective:
+        'Count of functions sentrux flags as overly complex across 52 supported languages. Complements the APSS-derived max-cognitive metric: max-cognitive watches the peak, this watches the spread.',
+      source: '.sentrux/baseline.json complex_fn_count (via harness/sensors/sentrux_scan.mjs)',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: (_report, options) => sentruxMetricValue(options, 'complex_fn_count'),
+    },
   ],
   MD01: [
     {
@@ -200,6 +244,28 @@ const FITNESS_METRICS = {
           (v) => typeof v === 'number' && (v < 0.1 || v > 0.9),
         ).length,
     },
+    {
+      id: 'sentrux-coupling-score',
+      name: 'Sentrux Coupling Score',
+      objective:
+        'Sentrux composite coupling ratio derived from cross-module imports vs. total import edges. Smaller is better; the ratchet pins it so the modularity gain a refactor produces stays gained (no broken windows).',
+      source: '.sentrux/baseline.json coupling_score (via harness/sensors/sentrux_scan.mjs)',
+      direction: 'max',
+      default_threshold: 1,
+      fail_on_regression: true,
+      value: (_report, options) => sentruxMetricValue(options, 'coupling_score'),
+    },
+    {
+      id: 'sentrux-max-depth',
+      name: 'Sentrux Maximum Import/Call Depth',
+      objective:
+        'Maximum nesting depth across the sentrux import/call graph. Smaller is better; complements MD01 by watching nesting (a known AI-coding regression pattern) rather than per-module fan-out.',
+      source: '.sentrux/baseline.json max_depth (via harness/sensors/sentrux_scan.mjs)',
+      direction: 'max',
+      default_threshold: 10,
+      fail_on_regression: true,
+      value: (_report, options) => sentruxMetricValue(options, 'max_depth'),
+    },
   ],
   ST01: [
     {
@@ -215,6 +281,17 @@ const FITNESS_METRICS = {
         const v = report?.workspace?.circular_edges;
         return typeof v === 'number' ? v : null;
       },
+    },
+    {
+      id: 'sentrux-cycle-count',
+      name: 'Sentrux Cycle Count',
+      objective:
+        'Cross-language strongly-connected-component count from sentrux. Overlaps with the dependency-cruiser circular_edges metric but lights up across all 52 sentrux tree-sitter language plugins, not just JS/TS. The two metrics jointly enforce ST01.',
+      source: '.sentrux/baseline.json cycle_count (via harness/sensors/sentrux_scan.mjs)',
+      direction: 'max',
+      default_threshold: 0,
+      fail_on_regression: true,
+      value: (_report, options) => sentruxMetricValue(options, 'cycle_count'),
     },
   ],
   SC01: [
@@ -376,6 +453,42 @@ function licenseDeniedCount(options) {
     return report.denied.length;
   }
   return null;
+}
+
+/**
+ * Read a single metric from the sentrux adapter envelope the MT01 /
+ * MD01 / ST01 dimensions watch. Accepts a pre-parsed envelope on
+ * options.sentrux or a filesystem reader pair on options.io pointing
+ * at options.sentruxPath. Returns the numeric metric value (or null
+ * when the envelope is absent, the adapter reported unavailable, or
+ * the metric is missing). null degrades the gate to "no reading"
+ * rather than a false zero — same shape as SC01/LG01/PF01 readers.
+ *
+ * Sentrux is the SECOND architectural lens reconciled into the same
+ * upward ratchet as APSS topology per ADR-0017 (preserve sentrux as
+ * an opt-in available adapter, do not retire). The adapter is
+ * implemented at harness/sensors/sentrux_scan.mjs and wired through
+ * harness/sensors/bin/sensors `gate` via --sentrux=<envelope-path>.
+ */
+function sentruxMetricValue(options, field) {
+  let envelope = options?.sentrux;
+  if (!envelope && options?.io && options?.sentruxPath) {
+    if (options.io.fileExists?.(options.sentruxPath)) {
+      try {
+        envelope = JSON.parse(options.io.readFile(options.sentruxPath));
+      } catch {
+        envelope = null;
+      }
+    }
+  }
+  if (!envelope || envelope.available === false) {
+    return null;
+  }
+  const value = envelope?.metrics?.[field];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
 }
 
 /**
@@ -1398,6 +1511,13 @@ function jsonPayload(base, policy) {
  *                          suppressed. Useful for replay / dry-run / CI
  *                          jobs that should not produce a git change.
  *                          Equivalent: `--ratchet=off` or env `RATCHET=off`.
+ *   --sentrux=<path>       Optional sentrux adapter envelope (produced
+ *                          by harness/sensors/sentrux_scan.mjs). When
+ *                          present, the MT01/MD01/ST01 sentrux metrics
+ *                          (quality_signal, coupling_score,
+ *                          cycle_count, etc.) read from this file.
+ *                          Activates sentrux as the 2nd architectural
+ *                          lens alongside APSS topology (ADR-0017).
  *   --policy=<path>        governance TOML policy. Defaults to
  *                          `harness/.harness/governance.toml`.
  *   --readings-from=<path> replay policy readings from JSON instead of
@@ -1426,6 +1546,7 @@ export async function main(
   let perfPath = 'harness/perf/baseline.json';
   let securityPath = null;
   let licensesPath = null;
+  let sentruxPath = null;
   let policyPath = DEFAULT_POLICY_PATH;
   let explicitPolicy = false;
   let readingsFromPath = null;
@@ -1446,6 +1567,11 @@ export async function main(
       securityPath = a.slice('--security='.length);
     } else if (a.startsWith('--licenses=')) {
       licensesPath = a.slice('--licenses='.length);
+    } else if (a.startsWith('--sentrux=')) {
+      sentruxPath = a.slice('--sentrux='.length);
+    } else if (a === '--sentrux') {
+      sentruxPath = argv[i + 1] ?? sentruxPath;
+      i += 1;
     } else if (a.startsWith('--policy=')) {
       policyPath = a.slice('--policy='.length);
       explicitPolicy = true;
@@ -1484,7 +1610,7 @@ export async function main(
     return 2;
   }
 
-  const fitnessOptions = { perfPath, securityPath, licensesPath, io };
+  const fitnessOptions = { perfPath, securityPath, licensesPath, sentruxPath, io };
   let policy;
   try {
     policy = policyState(policyPath, explicitPolicy, io);
