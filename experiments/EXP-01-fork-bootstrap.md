@@ -12,3 +12,31 @@ The bootstrap command will complete end-to-end and a minimal Markdown doc change
 2. Create one trivial documentation-only commit in that clean clone.
 3. Run APSS/doc validation gates used for docs.
 4. Record exact command output and gate message behavior.
+
+## Probe output
+```text
+bootstrap in clean clone:
+bootstrap: vendor symlink CLAUDE.md ok
+...
+bootstrap: complete
+EXIT_BOOTSTRAP:0
+
+trivial commit:
+[feat/apss-integration ...] docs(exp): probe EXP-01 trivial docs change
+
+APSS doc gate:
+Composed binary not found at /tmp/harness-exp01-YrWa/.apss/bin/apss
+Run 'apss install' first to build the project CLI.
+EXIT_DOC_APSS:1
+```
+
+## Verdict
+FALSIFIED
+
+Prediction outcome:
+- bootstrap succeeded in a clean clone.
+- APSS doc gate did not pass because `.apss/bin/apss` was missing.
+- This is a documented blocker for the claimed adopter promise.
+
+Evidence count:
+- N=1, low
