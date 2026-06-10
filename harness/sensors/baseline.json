@@ -28,8 +28,8 @@
       "D": 1
     },
     "ws_apps/example-typescript/src": {
-      "I": 0,
-      "D": 0
+      "I": 0.25,
+      "D": 0.25
     },
     "ws_apps/example-typescript/tests": {
       "I": 1,
