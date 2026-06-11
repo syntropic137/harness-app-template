@@ -26,6 +26,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { isMainEntry } from './lib/entrypoint';
 
 const SOURCE_ROOT = process.cwd();
 const PROJECT_NAME = process.env.FORK_CHECK_NAME ?? 'forkcheck';
@@ -190,6 +191,6 @@ function main(): void {
 }
 
 /* v8 ignore next 3 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   main();
 }

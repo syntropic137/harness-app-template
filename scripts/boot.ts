@@ -1,3 +1,4 @@
+import { isMainEntry } from './lib/entrypoint';
 import { runInherit } from './lib/git';
 
 const DETACH_ARGS = new Set(['-d', '--detach']);
@@ -37,6 +38,6 @@ export function main(argv: string[]): void {
 }
 
 /* v8 ignore next 3 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   main(process.argv.slice(2));
 }

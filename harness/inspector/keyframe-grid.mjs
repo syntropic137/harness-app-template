@@ -10,7 +10,24 @@
 // single tileable image (~5,000 tokens vs ~50,000 for full webm).
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+// Canonicalize both sides of the entrypoint check so the script runs
+// when invoked through a path containing spaces (Bun/Node URL-encode
+// the space as %20 in import.meta.url but leave process.argv[1] raw)
+// or a symlinked checkout. See scripts/lib/entrypoint.ts.
+/* v8 ignore start -- entrypoint guard; covered by scripts/tests/entrypoint.test.ts via the TS helper sibling. */
+function isScriptEntry() {
+  const argv = process.argv[1];
+  if (!argv) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(argv);
+  } catch {
+    return false;
+  }
+}
+/* v8 ignore stop */
 
 export function main(argv = process.argv.slice(2), deps = { console, existsSync, spawnSync }) {
   const [input, output] = argv;
@@ -49,6 +66,6 @@ export function main(argv = process.argv.slice(2), deps = { console, existsSync,
 }
 
 /* v8 ignore next 4 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isScriptEntry()) {
   process.exit(main());
 }

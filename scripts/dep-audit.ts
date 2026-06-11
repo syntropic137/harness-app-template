@@ -17,6 +17,7 @@ import type { SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from 'node:
 import { spawnSync as nodeSpawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { isMainEntry } from './lib/entrypoint';
 
 export interface SpawnResult {
   status: number | null;
@@ -361,7 +362,7 @@ const defaultFs: FsLike = {
   },
 };
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   main({
     spawn: defaultSpawn,
     fs: defaultFs,

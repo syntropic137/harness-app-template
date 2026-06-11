@@ -1,3 +1,4 @@
+import { isMainEntry } from './lib/entrypoint';
 import { runInherit } from './lib/git';
 import { resolveSlotInvocation } from './lib/slots';
 
@@ -15,6 +16,6 @@ export function main(argv: string[]): void {
 }
 
 /* v8 ignore next 3 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   main(process.argv.slice(2));
 }

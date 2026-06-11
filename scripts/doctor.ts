@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isMainEntry } from './lib/entrypoint';
 
 const required = ['bun', 'pnpm', 'git', 'cargo', 'uv', 'just'];
 const provenanceFile = '.harness-provenance.json';
@@ -313,7 +314,7 @@ export function main(deps: DoctorDeps): void {
 }
 
 /* v8 ignore next 9 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   main({
     spawn: spawnSync,
     stdout: console,

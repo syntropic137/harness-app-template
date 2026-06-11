@@ -1,7 +1,24 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Canonicalize both sides of the entrypoint check so the script runs
+// when invoked through a path containing spaces (Bun/Node URL-encode
+// the space as %20 in import.meta.url but leave process.argv[1] raw)
+// or a symlinked checkout. See scripts/lib/entrypoint.ts.
+/* v8 ignore start -- entrypoint guard; covered by scripts/tests/entrypoint.test.ts via the TS helper sibling. */
+function isScriptEntry() {
+  const argv = process.argv[1];
+  if (!argv) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(argv);
+  } catch {
+    return false;
+  }
+}
+/* v8 ignore stop */
 
 /* v8 ignore next 3 -- CLI-only optional dependency loaded outside unit tests. */
 async function loadChromium() {
@@ -232,7 +249,7 @@ export async function main(
 }
 
 /* v8 ignore next 6 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isScriptEntry()) {
   const code = await main();
   if (code !== 0) {
     process.exit(code);

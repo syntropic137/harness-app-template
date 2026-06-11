@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isMainEntry } from './lib/entrypoint';
 import { git, shortSha } from './lib/git';
 
 /**
@@ -239,7 +240,7 @@ export function parseCli(argv: string[]): UpdateOptions {
 }
 
 /* v8 ignore next 8 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   try {
     console.log(updateProject(parseCli(process.argv.slice(2))));
   } catch (error) {
