@@ -109,8 +109,10 @@ pre-commit:
       # hygiene-critical surface: lefthook.yml, justfile, harness/hooks/,
       # scripts/{init,update,bootstrap}.ts, scripts/lib/. Short-circuits in
       # <100 ms otherwise. The deep scaffold-and-smoke equivalent stays in
-      # `just fork-check` (CI tier). Soft-skips when node is absent so
-      # first-clone state stays bootable.
+      # `just fork-check` (CI tier). Inside the gate, a git failure or a
+      # missing tool (pnpm, just) FAILS the run rather than skipping; the
+      # node guard below is the only soft-skip, so first-clone state stays
+      # bootable before any runtime exists.
       # Bypass for emergency one-offs: HARNESS_HYGIENE_SKIP=1 git commit ...
       run: |
         sh -eu -c '
@@ -122,11 +124,19 @@ pre-commit:
         '
 
     hook-tests:
-      # Unit tests for the harness/hooks scripts (node:test, sub-second).
-      # Glob-gated so only commits that touch harness/hooks pay the cost.
-      # Before this command existed the tests under harness/hooks/tests/
-      # were run manually only; now any staged hook change re-runs them.
-      glob: "harness/hooks/**.mjs"
+      # node:test suites under harness/hooks/tests/ (sub-second). Glob-gated
+      # so only commits that touch harness/hooks pay the cost. Both patterns
+      # are listed because lefthook globs are not bash globstar: a bare
+      # `harness/hooks/**/*.mjs` does NOT match top-level files like
+      # harness/hooks/track-perf.mjs (verified empirically on lefthook
+      # 1.13), so the first pattern covers the scripts and the second
+      # covers nested test files. The template-hygiene gate itself is NOT
+      # tested here; its suite lives at
+      # scripts/tests/template-hygiene-gate.test.ts inside the enforced
+      # vitest coverage gate.
+      glob:
+        - "harness/hooks/*.mjs"
+        - "harness/hooks/**/*.mjs"
       run: |
         sh -eu -c '
           if ! command -v node >/dev/null 2>&1; then
