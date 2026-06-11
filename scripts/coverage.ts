@@ -5,6 +5,7 @@
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { COVERAGE_LANES, type CoverageLane, commandsForLane, isCoverageLane } from './lib/coverage';
+import { isMainEntry } from './lib/entrypoint';
 
 export interface CoverageDeps {
   spawn: typeof spawnSync;
@@ -42,7 +43,7 @@ export function main(argv: string[], deps: CoverageDeps): void {
 }
 
 /* v8 ignore next 9 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   main(process.argv.slice(2), {
     spawn: spawnSync,
     stdout: console,
