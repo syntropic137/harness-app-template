@@ -32,6 +32,7 @@ describe('thin script wrappers', () => {
     ['lint', ['pnpm', ['turbo', 'run', 'lint', '--filter=...']]],
     ['inspector', ['harness/inspector/bin/inspector', ['--help']]],
     ['sensors', ['harness/sensors/bin/sensors', ['--help']]],
+    ['profiling', ['harness/profiling/bin/profile', ['--help']]],
     ['stack', ['harness/stack/bin/stack', ['inspect']]],
     ['versioning', ['harness/versioning/bin/versioning', ['check']]],
     ['cargo', ['cargo', ['check']]],
@@ -167,10 +168,55 @@ describe('thin script wrappers', () => {
       'lint-fix *args:\n    bun run scripts/lint.ts --fix {{args}}',
       'doctor-explain check_id:\n    @bun run scripts/stack.ts doctor --explain {{check_id}}',
       'doctor-json *probe:\n    @bun run scripts/stack.ts doctor --json {{probe}}',
+      'profile *args:\n    bun run scripts/profiling.ts {{args}}',
     ];
 
     for (const recipe of expectedRecipes) {
       expect(justfile).toContain(recipe);
+    }
+  });
+
+  test('profiling wrapper honors the manifest none plugin swap', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-slot-'));
+    const logs: string[] = [];
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+    const log = vi.spyOn(console, 'log').mockImplementation((message: string) => {
+      logs.push(message);
+    });
+
+    try {
+      writeFileSync(
+        join(root, 'harness.manifest.json'),
+        `${JSON.stringify({
+          slots: {
+            profiling: {
+              contract: 'profiling',
+              plugin: 'none',
+              version: '0.1.0',
+              required: false,
+              swappable: true,
+              interface: {
+                type: 'cli',
+                entrypoint: 'harness/profiling/bin/profile',
+                commands: ['startup', 'api', 'ui', 'summary', 'gate'],
+              },
+              decisionAt: 'docs/adrs/ADR-0026-profiling-slot.md',
+            },
+          },
+        })}\n`,
+      );
+
+      const main = await loadMain('profiling');
+      main(['startup']);
+
+      expect(calls).toEqual([]);
+      expect(logs).toEqual([
+        'Slot profiling skipped because harness.manifest.json sets plugin to none.',
+      ]);
+    } finally {
+      cwd.mockRestore();
+      log.mockRestore();
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
