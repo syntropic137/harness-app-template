@@ -44,20 +44,53 @@ function unquote(value: string): string {
   return value;
 }
 
-export function parseSkillFrontmatter(content: string): Partial<SkillEntry> {
+// This parser is deliberately line-based instead of a YAML dependency, so
+// multiline values (block scalars and indented plain-scalar continuations)
+// are rejected explicitly rather than silently truncated to their first line.
+const YAML_BLOCK_SCALARS = new Set(['|', '|-', '|+', '>', '>-', '>+']);
+
+export interface ParsedFrontmatter extends Partial<SkillEntry> {
+  problems: string[];
+}
+
+function readSingleLineScalar(
+  lines: string[],
+  index: number,
+  key: 'name' | 'description',
+  parsed: ParsedFrontmatter,
+): void {
+  const raw = lines[index].slice(`${key}:`.length).trim();
+  if (raw === '' || YAML_BLOCK_SCALARS.has(raw)) {
+    parsed.problems.push(
+      `frontmatter ${key} must be a single-line value (empty and block-scalar YAML values are not supported)`,
+    );
+    return;
+  }
+  const next = lines[index + 1];
+  if (next !== undefined && /^[ \t]+\S/.test(next)) {
+    parsed.problems.push(
+      `frontmatter ${key} continues onto an indented line (multiline YAML values are not supported)`,
+    );
+    return;
+  }
+  parsed[key] = unquote(raw);
+}
+
+export function parseSkillFrontmatter(content: string): ParsedFrontmatter {
+  const parsed: ParsedFrontmatter = { problems: [] };
   const frontmatter = content.match(/^---\n([\s\S]*?)\n---/);
   if (!frontmatter) {
-    return {};
+    return parsed;
   }
-  const entry: Partial<SkillEntry> = {};
-  for (const line of frontmatter[1].split('\n')) {
-    if (line.startsWith('name:')) {
-      entry.name = unquote(line.slice('name:'.length).trim());
-    } else if (line.startsWith('description:')) {
-      entry.description = unquote(line.slice('description:'.length).trim());
+  const lines = frontmatter[1].split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].startsWith('name:')) {
+      readSingleLineScalar(lines, i, 'name', parsed);
+    } else if (lines[i].startsWith('description:')) {
+      readSingleLineScalar(lines, i, 'description', parsed);
     }
   }
-  return entry;
+  return parsed;
 }
 
 export function discoverSkills(
@@ -76,6 +109,12 @@ export function discoverSkills(
       continue;
     }
     const entry = parseSkillFrontmatter(content);
+    if (entry.problems.length > 0) {
+      for (const problem of entry.problems) {
+        issues.push(`${dirName}: ${problem}`);
+      }
+      continue;
+    }
     if (entry.name === undefined || entry.description === undefined) {
       issues.push(`${dirName}: SKILL.md frontmatter must declare name and description`);
       continue;
@@ -106,6 +145,14 @@ export function replaceGeneratedBlock(document: string, body: string): string {
   return `${head}\n${body}\n${tail}`;
 }
 
+function requirePathValue(argv: string[], index: number, flag: string): string {
+  const value = argv[index + 1];
+  if (value === undefined || value.startsWith('--')) {
+    throw new Error(`${flag} requires a path value (usage: ${flag} <path>)`);
+  }
+  return value;
+}
+
 export function parseArgs(argv: string[]): AgentsSkillsOptions {
   const options: AgentsSkillsOptions = {
     mode: 'check',
@@ -119,10 +166,10 @@ export function parseArgs(argv: string[]): AgentsSkillsOptions {
     } else if (arg === '--check') {
       options.mode = 'check';
     } else if (arg === '--skills-dir') {
-      options.skillsDir = argv[i + 1];
+      options.skillsDir = requirePathValue(argv, i, '--skills-dir');
       i += 1;
     } else if (arg === '--agents-md') {
-      options.agentsMd = argv[i + 1];
+      options.agentsMd = requirePathValue(argv, i, '--agents-md');
       i += 1;
     } else {
       throw new Error(`unknown argument: ${arg}`);

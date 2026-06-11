@@ -60,6 +60,7 @@ describe('parseSkillFrontmatter', () => {
     expect(parseSkillFrontmatter(skillMd('alpha', 'does alpha things'))).toEqual({
       name: 'alpha',
       description: 'does alpha things',
+      problems: [],
     });
   });
 
@@ -68,6 +69,7 @@ describe('parseSkillFrontmatter', () => {
     expect(parseSkillFrontmatter(content)).toEqual({
       name: 'alpha',
       description: 'colon: heavy, value',
+      problems: [],
     });
   });
 
@@ -76,13 +78,58 @@ describe('parseSkillFrontmatter', () => {
     expect(parseSkillFrontmatter(content).description).toBe('"');
   });
 
-  test('returns empty object without frontmatter', () => {
-    expect(parseSkillFrontmatter('# no frontmatter here')).toEqual({});
+  test('returns no fields without frontmatter', () => {
+    expect(parseSkillFrontmatter('# no frontmatter here')).toEqual({ problems: [] });
   });
 
   test('ignores unrelated frontmatter keys', () => {
     const content = '---\nname: alpha\nallowed-tools: Bash, Read\ndescription: d\n---\n';
-    expect(parseSkillFrontmatter(content)).toEqual({ name: 'alpha', description: 'd' });
+    expect(parseSkillFrontmatter(content)).toEqual({
+      name: 'alpha',
+      description: 'd',
+      problems: [],
+    });
+  });
+
+  test.each([
+    '|',
+    '|-',
+    '|+',
+    '>',
+    '>-',
+    '>+',
+  ])('rejects the %s block scalar instead of truncating', (indicator) => {
+    const content = `---\nname: alpha\ndescription: ${indicator}\n  folded body line\n---\n`;
+    const parsed = parseSkillFrontmatter(content);
+    expect(parsed.description).toBeUndefined();
+    expect(parsed.problems).toEqual([
+      'frontmatter description must be a single-line value (empty and block-scalar YAML values are not supported)',
+    ]);
+  });
+
+  test('rejects an empty value', () => {
+    const parsed = parseSkillFrontmatter('---\nname:\ndescription: d\n---\n');
+    expect(parsed.name).toBeUndefined();
+    expect(parsed.description).toBe('d');
+    expect(parsed.problems).toEqual([
+      'frontmatter name must be a single-line value (empty and block-scalar YAML values are not supported)',
+    ]);
+  });
+
+  test('rejects a plain scalar that continues onto an indented line', () => {
+    const content = '---\ndescription: starts here\n  and continues here\nname: alpha\n---\n';
+    const parsed = parseSkillFrontmatter(content);
+    expect(parsed.description).toBeUndefined();
+    expect(parsed.name).toBe('alpha');
+    expect(parsed.problems).toEqual([
+      'frontmatter description continues onto an indented line (multiline YAML values are not supported)',
+    ]);
+  });
+
+  test('accepts a key on the last frontmatter line', () => {
+    const parsed = parseSkillFrontmatter('---\nname: alpha\ndescription: last line\n---');
+    expect(parsed.description).toBe('last line');
+    expect(parsed.problems).toEqual([]);
   });
 });
 
@@ -127,6 +174,20 @@ describe('discoverSkills', () => {
     });
     expect(discoverSkills('.claude/skills', deps).issues).toEqual([
       'actual: frontmatter name is other, expected actual',
+    ]);
+  });
+
+  test('reports multiline frontmatter values as per-skill issues', () => {
+    const deps = makeDeps({
+      dirs: ['folded'],
+      files: new Map([
+        ['.claude/skills/folded/SKILL.md', '---\nname: folded\ndescription: >-\n  body\n---\n'],
+      ]),
+    });
+    const result = discoverSkills('.claude/skills', deps);
+    expect(result.skills).toEqual([]);
+    expect(result.issues).toEqual([
+      'folded: frontmatter description must be a single-line value (empty and block-scalar YAML values are not supported)',
     ]);
   });
 });
@@ -182,6 +243,18 @@ describe('parseArgs', () => {
 
   test('rejects unknown arguments', () => {
     expect(() => parseArgs(['--bogus'])).toThrow('unknown argument: --bogus');
+  });
+
+  test('rejects a path flag with no value', () => {
+    expect(() => parseArgs(['--skills-dir'])).toThrow(
+      '--skills-dir requires a path value (usage: --skills-dir <path>)',
+    );
+  });
+
+  test('rejects a path flag whose value is another flag', () => {
+    expect(() => parseArgs(['--agents-md', '--check'])).toThrow(
+      '--agents-md requires a path value (usage: --agents-md <path>)',
+    );
   });
 });
 
