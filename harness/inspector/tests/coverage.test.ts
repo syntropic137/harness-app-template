@@ -1,15 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { main as keyframeMain } from '../keyframe-grid.mjs';
-import {
-  detectIsoKey as detectFlowIsoKey,
-  parseArgs as parseRecordArgs,
-  main as recordFlowMain,
-} from '../record-flow.mjs';
-import {
-  detectIsoKey as detectScreenshotIsoKey,
-  parseArgs as parseScreenshotArgs,
-  main as screenshotPairMain,
-} from '../screenshot-pair.mjs';
+import { FLOWS, loadFlowFile, main as recordFlowMain } from '../record-flow.mjs';
+import { main as screenshotPairMain } from '../screenshot-pair.mjs';
 
 function fakeConsole() {
   const errors: string[] = [];
@@ -24,11 +16,16 @@ function fakeConsole() {
   };
 }
 
-function createScreenshotDeps() {
+function createScreenshotDeps(options: { ffmpeg?: string | null; gotoRejects?: boolean } = {}) {
   const io = fakeConsole();
   const calls: Array<[string, unknown]> = [];
   const page = {
-    goto: vi.fn(async (...args) => calls.push(['goto', args])),
+    goto: vi.fn(async (...args) => {
+      calls.push(['goto', args]);
+      if (options.gotoRejects) {
+        throw new Error('nav failed');
+      }
+    }),
     screenshot: vi.fn(async (...args) => calls.push(['screenshot', args])),
   };
   const browser = {
@@ -49,6 +46,7 @@ function createScreenshotDeps() {
         calls.push(['execFileSync', [command, args]]);
         return 'Project\nIso key: detected-iso\n';
       }),
+      ffmpeg: () => (options.ffmpeg === undefined ? 'ffmpeg' : options.ffmpeg),
       mkdirSync: vi.fn((...args) => calls.push(['mkdirSync', args])),
       writeFileSync: vi.fn((...args) => calls.push(['writeFileSync', args])),
     },
@@ -62,7 +60,10 @@ function createRecordDeps(
     completeRejects?: boolean;
     eventFixtures?: boolean;
     execThrowsOnCall?: number;
+    ffmpeg?: string | null;
     gotoRejects?: boolean;
+    newContextRejects?: boolean;
+    importFlow?: (href: string) => Promise<unknown>;
     screenshotRejects?: boolean;
     videoPath?: string | null;
   } = {},
@@ -160,6 +161,9 @@ function createRecordDeps(
     close: vi.fn(async () => calls.push(['browser.close', null])),
     newContext: vi.fn(async (...args) => {
       calls.push(['newContext', args]);
+      if (options.newContextRejects) {
+        throw new Error('context failed');
+      }
       return context;
     }),
   };
@@ -179,6 +183,12 @@ function createRecordDeps(
         }
         return 'Project\nIso key: detected-flow\n';
       }),
+      ffmpeg: () => (options.ffmpeg === undefined ? 'ffmpeg' : options.ffmpeg),
+      importFlow:
+        options.importFlow ??
+        (async () => {
+          throw new Error('importFlow not stubbed');
+        }),
       mkdirSync: vi.fn((...args) => calls.push(['mkdirSync', args])),
       now: () => 1_717_392_000_000,
       renameSync: vi.fn((...args) => calls.push(['renameSync', args])),
@@ -193,12 +203,18 @@ describe('keyframe-grid coverage', () => {
   it('returns usage and missing-input errors before spawning ffmpeg', () => {
     const io = fakeConsole();
     expect(
-      keyframeMain([], { console: io.console, existsSync: () => true, spawnSync: vi.fn() }),
+      keyframeMain([], {
+        console: io.console,
+        existsSync: () => true,
+        ffmpeg: () => 'ffmpeg',
+        spawnSync: vi.fn(),
+      }),
     ).toBe(2);
     expect(
       keyframeMain(['missing.webm', 'out.jpg'], {
         console: io.console,
         existsSync: () => false,
+        ffmpeg: () => 'ffmpeg',
         spawnSync: vi.fn(),
       }),
     ).toBe(2);
@@ -208,12 +224,29 @@ describe('keyframe-grid coverage', () => {
     ]);
   });
 
+  it('returns 127 with install hints when no ffmpeg is resolvable', () => {
+    const io = fakeConsole();
+    const spawnSync = vi.fn();
+    expect(
+      keyframeMain(['in.webm', 'out.jpg'], {
+        console: io.console,
+        existsSync: () => true,
+        ffmpeg: () => null,
+        spawnSync,
+      }),
+    ).toBe(127);
+    expect(spawnSync).not.toHaveBeenCalled();
+    expect(io.errors[0]).toContain('ffmpeg not found');
+    expect(io.errors[1]).toContain('HARNESS_FFMPEG');
+  });
+
   it('returns ffmpeg launch failures and process statuses', () => {
     const io = fakeConsole();
     expect(
       keyframeMain(['in.webm', 'out.jpg'], {
         console: io.console,
         existsSync: () => true,
+        ffmpeg: () => 'ffmpeg',
         spawnSync: () => ({ error: new Error('ENOENT') }),
       }),
     ).toBe(127);
@@ -221,13 +254,18 @@ describe('keyframe-grid coverage', () => {
       keyframeMain(['in.webm', 'out.jpg'], {
         console: io.console,
         existsSync: () => true,
-        spawnSync: () => ({ status: 0 }),
+        ffmpeg: () => '/custom/ffmpeg',
+        spawnSync: vi.fn((bin: string) => {
+          expect(bin).toBe('/custom/ffmpeg');
+          return { status: 0 };
+        }),
       }),
     ).toBe(0);
     expect(
       keyframeMain(['in.webm', 'out.jpg'], {
         console: io.console,
         existsSync: () => true,
+        ffmpeg: () => 'ffmpeg',
         spawnSync: () => ({ status: null }),
       }),
     ).toBe(1);
@@ -236,20 +274,6 @@ describe('keyframe-grid coverage', () => {
 });
 
 describe('screenshot-pair coverage', () => {
-  it('parses equals signs and detects iso keys', () => {
-    expect(parseScreenshotArgs(['--url=http://app?a=b', '--phase=before'])).toMatchObject({
-      phase: 'before',
-      url: 'http://app?a=b',
-    });
-    expect(detectScreenshotIsoKey(() => 'Project\nIso key: abc123\n')).toBe('abc123');
-    expect(detectScreenshotIsoKey(() => 'Project only\n')).toBeNull();
-    expect(
-      detectScreenshotIsoKey(() => {
-        throw new Error('no harness');
-      }),
-    ).toBeNull();
-  });
-
   it('returns usage errors for missing url or phase', async () => {
     const { deps, io } = createScreenshotDeps();
     await expect(screenshotPairMain(['--url=http://app'], deps)).resolves.toBe(2);
@@ -258,6 +282,30 @@ describe('screenshot-pair coverage', () => {
       'usage: screenshot-pair.mjs --phase=before|after --url=<url> [--isoKey=<key>]',
       'usage: screenshot-pair.mjs --phase=before|after --url=<url> [--isoKey=<key>]',
     ]);
+  });
+
+  it('rejects unknown phases and unsafe iso keys before any capture', async () => {
+    const badPhase = createScreenshotDeps();
+    await expect(
+      screenshotPairMain(['--phase=mid', '--url=http://app', '--isoKey=iso-1'], badPhase.deps),
+    ).resolves.toBe(2);
+    expect(badPhase.io.errors[0]).toContain('invalid phase: mid');
+
+    const badIso = createScreenshotDeps();
+    await expect(
+      screenshotPairMain(['--phase=before', '--url=http://app', '--isoKey=../../evil'], badIso.deps),
+    ).resolves.toBe(2);
+    expect(badIso.io.errors[0]).toContain('invalid iso key');
+    expect(badIso.calls.some(([name]) => name === 'mkdirSync')).toBe(false);
+  });
+
+  it('closes the browser when navigation fails', async () => {
+    const { calls, deps } = createScreenshotDeps({ gotoRejects: true });
+    await expect(
+      screenshotPairMain(['--phase=before', '--url=http://app', '--isoKey=iso-1'], deps),
+    ).rejects.toThrow('nav failed');
+    expect(calls).toContainEqual(['browser.close', null]);
+    expect(calls.some(([name]) => name === 'screenshot')).toBe(false);
   });
 
   it('captures screenshots with an explicit iso key', async () => {
@@ -275,8 +323,33 @@ describe('screenshot-pair coverage', () => {
     });
   });
 
+  it('degrades to PNG-only when the JPEG conversion fails', async () => {
+    const { deps, io } = createScreenshotDeps();
+    deps.execFileSync = vi.fn(() => {
+      throw new Error('limited ffmpeg build');
+    });
+    await expect(
+      screenshotPairMain(['--phase=after', '--url=http://app', '--isoKey=iso-1'], deps),
+    ).resolves.toBe(0);
+
+    expect(io.errors[0]).toContain('JPEG conversion failed (limited ffmpeg build)');
+    expect(JSON.parse(io.logs[0])).toMatchObject({ jpg: null, phase: 'after' });
+  });
+
+  it('degrades to PNG-only when ffmpeg is unavailable', async () => {
+    const { calls, deps, io } = createScreenshotDeps({ ffmpeg: null });
+    await expect(
+      screenshotPairMain(['--phase=after', '--url=http://app', '--isoKey=iso-1'], deps),
+    ).resolves.toBe(0);
+
+    expect(calls.some(([name]) => name === 'execFileSync')).toBe(false);
+    expect(io.errors[0]).toContain('skipping JPEG copy');
+    expect(JSON.parse(io.logs[0])).toMatchObject({ jpg: null, phase: 'after' });
+  });
+
   it('detects iso keys when omitted and throws when detection fails', async () => {
     const detected = createScreenshotDeps();
+    detected.deps.execFileSync = vi.fn(() => 'Branch: x\nIso key: detected-iso\n');
     await expect(
       screenshotPairMain(['--phase=before', '--url=http://app'], detected.deps),
     ).resolves.toBe(0);
@@ -293,22 +366,7 @@ describe('screenshot-pair coverage', () => {
 });
 
 describe('record-flow coverage', () => {
-  it('parses args, detects iso keys, and validates command inputs', async () => {
-    expect(
-      parseRecordArgs(['--url=http://app?a=b', '--phase=before', '--flow=task-crud']),
-    ).toMatchObject({
-      flow: 'task-crud',
-      phase: 'before',
-      url: 'http://app?a=b',
-    });
-    expect(detectFlowIsoKey(() => 'Project\nIso key: flow123\n')).toBe('flow123');
-    expect(detectFlowIsoKey(() => 'No key\n')).toBeNull();
-    expect(
-      detectFlowIsoKey(() => {
-        throw new Error('no inspect');
-      }),
-    ).toBeNull();
-
+  it('validates command inputs', async () => {
     const { deps, io } = createRecordDeps();
     await expect(recordFlowMain(['--url=http://app', '--phase=before'], deps)).resolves.toBe(2);
     await expect(
@@ -320,7 +378,97 @@ describe('record-flow coverage', () => {
     await expect(
       recordFlowMain(['--url=http://app', '--phase=before', '--flow=bogus'], deps),
     ).resolves.toBe(2);
-    expect(io.errors).toHaveLength(3);
+    await expect(
+      recordFlowMain(['--url=http://app', '--phase=mid', '--flow=navigate'], deps),
+    ).resolves.toBe(2);
+    await expect(
+      recordFlowMain(
+        ['--url=http://app', '--phase=before', '--flow=navigate', '--isoKey=../../evil'],
+        deps,
+      ),
+    ).resolves.toBe(2);
+    expect(io.errors).toHaveLength(5);
+    expect(io.errors[2]).toContain('navigate');
+    expect(io.errors[3]).toContain('invalid phase: mid');
+    expect(io.errors[4]).toContain('invalid iso key');
+    expect(deps.mkdirSync).not.toHaveBeenCalled();
+  });
+
+  it('closes the browser when context creation fails', async () => {
+    const { calls, deps } = createRecordDeps({ newContextRejects: true });
+    await expect(
+      recordFlowMain(
+        ['--url=http://app', '--phase=before', '--flow=navigate', '--isoKey=iso-11'],
+        deps,
+      ),
+    ).rejects.toThrow('context failed');
+    expect(calls).toContainEqual(['browser.close', null]);
+    expect(calls.some(([name]) => name === 'context.close')).toBe(false);
+  });
+
+  it('loads scripted flows from a flow file', async () => {
+    const flowFn = vi.fn(async () => {});
+    const importFlow = vi.fn(async (href: string) => {
+      expect(href).toMatch(/^file:\/\/.*custom-flow\.mjs$/);
+      return { default: flowFn };
+    });
+    const { deps, io } = createRecordDeps({ eventFixtures: false, importFlow });
+    await expect(
+      recordFlowMain(
+        [
+          '--url=http://app',
+          '--phase=before',
+          '--flowFile=/flows/custom-flow.mjs',
+          '--isoKey=iso-7',
+          '--evidenceMode=network',
+        ],
+        deps,
+      ),
+    ).resolves.toBe(0);
+    expect(flowFn).toHaveBeenCalledWith(expect.anything(), 'http://app');
+    expect(JSON.parse(io.logs[0])).toMatchObject({ flow: '/flows/custom-flow.mjs' });
+  });
+
+  it('accepts a named flow export and rejects non-function flow files', async () => {
+    const named = vi.fn(async () => {});
+    await expect(loadFlowFile('/flows/named.mjs', async () => ({ flow: named }))).resolves.toBe(
+      named,
+    );
+    await expect(loadFlowFile('/flows/bad.mjs', async () => ({ default: 42 }))).rejects.toThrow(
+      'must default-export',
+    );
+
+    const { deps, io } = createRecordDeps({
+      importFlow: async () => {
+        throw new Error('ENOENT: no such file');
+      },
+    });
+    await expect(
+      recordFlowMain(
+        ['--url=http://app', '--phase=before', '--flowFile=/flows/missing.mjs', '--isoKey=iso-8'],
+        deps,
+      ),
+    ).resolves.toBe(2);
+    expect(io.errors[0]).toContain('could not load flow file');
+  });
+
+  it('runs the generic navigate flow', async () => {
+    const { calls, deps, io } = createRecordDeps({ eventFixtures: false });
+    await expect(
+      recordFlowMain(
+        [
+          '--url=http://app',
+          '--phase=before',
+          '--flow=navigate',
+          '--isoKey=iso-9',
+          '--evidenceMode=network',
+        ],
+        deps,
+      ),
+    ).resolves.toBe(0);
+    expect(calls).toContainEqual(['goto', ['http://app', { waitUntil: 'networkidle' }]]);
+    expect(calls).toContainEqual(['waitForTimeout', 1000]);
+    expect(JSON.parse(io.logs[0])).toMatchObject({ flow: 'navigate' });
   });
 
   it('records visual-static evidence without video', async () => {
@@ -368,7 +516,55 @@ describe('record-flow coverage', () => {
     });
   });
 
-  it('records flow, screenshot, and keyframe failures as events', async () => {
+  it('degrades animation evidence when ffmpeg is unavailable', async () => {
+    const { calls, deps, io } = createRecordDeps({ eventFixtures: false, ffmpeg: null });
+    await expect(
+      recordFlowMain(
+        [
+          '--url=http://app',
+          '--phase=after',
+          '--flow=navigate',
+          '--isoKey=iso-10',
+          '--evidenceMode=animation',
+        ],
+        deps,
+      ),
+    ).resolves.toBe(0);
+
+    expect(calls.some(([, args]) => JSON.stringify(args).includes('ffmpeg-missing'))).toBe(true);
+    expect(calls.some(([name]) => name === 'renameSync')).toBe(true);
+    expect(JSON.parse(io.logs[0])).toMatchObject({
+      keyframeGrid: null,
+      screenshots: { jpg: null, png: '/repo/.harness/artifacts/iso-10/screenshots/after.png' },
+      webm: '/repo/.harness/artifacts/iso-10/video/flow-after.webm',
+    });
+  });
+
+  it('keeps the captured PNG when only the JPEG conversion fails', async () => {
+    const { calls, deps, io } = createRecordDeps({
+      eventFixtures: false,
+      execThrowsOnCall: 1,
+    });
+    await expect(
+      recordFlowMain(
+        [
+          '--url=http://app',
+          '--phase=before',
+          '--flow=navigate',
+          '--isoKey=iso-12',
+          '--evidenceMode=visual-static',
+        ],
+        deps,
+      ),
+    ).resolves.toBe(0);
+
+    expect(calls.some(([, args]) => JSON.stringify(args).includes('jpeg-error'))).toBe(true);
+    expect(JSON.parse(io.logs[0])).toMatchObject({
+      screenshots: { jpg: null, png: '/repo/.harness/artifacts/iso-12/screenshots/before.png' },
+    });
+  });
+
+  it('reports flow failures with exit 1 while still capturing evidence', async () => {
     const flowFailure = createRecordDeps({ eventFixtures: false, gotoRejects: true });
     await expect(
       recordFlowMain(
@@ -381,10 +577,15 @@ describe('record-flow coverage', () => {
         ],
         flowFailure.deps,
       ),
-    ).resolves.toBe(0);
+    ).resolves.toBe(1);
     expect(flowFailure.calls.some(([, args]) => JSON.stringify(args).includes('flow-error'))).toBe(
       true,
     );
+    expect(flowFailure.calls).toContainEqual(['context.close', null]);
+    expect(flowFailure.calls).toContainEqual(['browser.close', null]);
+    expect(JSON.parse(flowFailure.io.logs[0])).toMatchObject({
+      flowError: 'Error: flow failed',
+    });
 
     const shotFailure = createRecordDeps({ screenshotRejects: true });
     await expect(
@@ -459,5 +660,9 @@ describe('record-flow coverage', () => {
     await expect(
       recordFlowMain(['--url=http://app', '--phase=before', '--flow=task-crud'], noIso.deps),
     ).rejects.toThrow('could not determine iso key');
+  });
+
+  it('exports the built-in flow table with navigate and task-crud', () => {
+    expect(Object.keys(FLOWS).sort()).toEqual(['navigate', 'task-crud']);
   });
 });

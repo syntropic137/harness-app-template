@@ -80,6 +80,72 @@ pre-commit:
     ubs-staged:
       run: mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
 
+    agents-skills-drift:
+      # AGENTS.md advertises the shipped .claude/skills set through a
+      # generated block (bead create-harness-app-64l). This gate fails
+      # when that block drifts from the skills directory; regenerate
+      # with `just agents skills --write`. Glob-gated so commits that
+      # touch neither surface skip instantly; soft-skips when bun is
+      # absent so first-clone commits still go through. CI re-runs the
+      # same check in the `scripts` job as the hard gate.
+      glob: "{AGENTS.md,.claude/skills/**/*}"
+      run: |
+        sh -eu -c '
+          if ! command -v bun >/dev/null 2>&1; then
+            printf "%s\n" "warning: bun not found; skipping AGENTS.md skills drift gate" >&2
+            exit 0
+          fi
+          bun run scripts/agents-skills.ts --check
+        '
+
+    template-hygiene:
+      # Ported from the lab's pre-push template-hygiene gate (bead
+      # create-harness-app-port-template-hygiene-hook-rh2). The lab variant
+      # scaffolds templates/polyglot-monorepo into a temp dir and smoke-tests
+      # the result; this repo has no scaffolder, the repo itself is the
+      # template consumers fork, so the port runs a fast structural
+      # validation (lefthook config validity, justfile parse, syntax-check
+      # of every harness/hooks script) whenever a staged change touches a
+      # hygiene-critical surface: lefthook.yml, justfile, harness/hooks/,
+      # scripts/{init,update,bootstrap}.ts, scripts/lib/. Short-circuits in
+      # <100 ms otherwise. The deep scaffold-and-smoke equivalent stays in
+      # `just fork-check` (CI tier). Inside the gate, a git failure or a
+      # missing tool (pnpm, just) FAILS the run rather than skipping; the
+      # node guard below is the only soft-skip, so first-clone state stays
+      # bootable before any runtime exists.
+      # Bypass for emergency one-offs: HARNESS_HYGIENE_SKIP=1 git commit ...
+      run: |
+        sh -eu -c '
+          if ! command -v node >/dev/null 2>&1; then
+            printf "%s\n" "warning: node not found; skipping template-hygiene gate" >&2
+            exit 0
+          fi
+          node harness/hooks/template-hygiene-gate.mjs
+        '
+
+    hook-tests:
+      # node:test suites under harness/hooks/tests/ (sub-second). Glob-gated
+      # so only commits that touch harness/hooks pay the cost. Both patterns
+      # are listed because lefthook globs are not bash globstar: a bare
+      # `harness/hooks/**/*.mjs` does NOT match top-level files like
+      # harness/hooks/track-perf.mjs (verified empirically on lefthook
+      # 1.13), so the first pattern covers the scripts and the second
+      # covers nested test files. The template-hygiene gate itself is NOT
+      # tested here; its suite lives at
+      # scripts/tests/template-hygiene-gate.test.ts inside the enforced
+      # vitest coverage gate.
+      glob:
+        - "harness/hooks/*.mjs"
+        - "harness/hooks/**/*.mjs"
+      run: |
+        sh -eu -c '
+          if ! command -v node >/dev/null 2>&1; then
+            printf "%s\n" "warning: node not found; skipping hook unit tests" >&2
+            exit 0
+          fi
+          node --test "harness/hooks/tests/*.test.mjs"
+        '
+
     fitness-summary:
       # Agent-facing fitness one-liner (bead
       # create-harness-app-feat-fitness-feedback-report). Reads
@@ -202,18 +268,41 @@ pre-push:
             printf "%s\n" "warning: just not found; skipping Rust coverage hook" >&2
             exit 0
           fi
+          if ! command -v bun >/dev/null 2>&1; then
+            printf "%s\n" "warning: bun not found; skipping Rust coverage hook" >&2
+            exit 0
+          fi
           just cov-rust
         '
 
     cov-py:
       # Python pytest-cov gate for ws_apps/example-python. The package keeps
-      # its 100 percent threshold in pyproject.toml; this hook soft-skips
-      # when uv is missing so first-clone pushes fail only once the Python
-      # toolchain is present.
+      # its 100 percent threshold in pyproject.toml; this hook runs the same
+      # `scripts/coverage.ts py` lane CI uses (the lane defers to with-uv.sh,
+      # which soft-skips when uv is missing outside CI). Soft-skips when bun
+      # is missing so first-clone pushes fail only once the toolchain is
+      # present.
       run: |
         sh -eu -c '
-          cd ws_apps/example-python
-          sh scripts/with-uv.sh uv run pytest
+          if ! command -v bun >/dev/null 2>&1; then
+            printf "%s\n" "warning: bun not found; skipping Python coverage hook" >&2
+            exit 0
+          fi
+          bun run scripts/coverage.ts py
+        '
+
+    cov-sensors:
+      # Sensors slot node:test coverage gate at the measured floor pinned in
+      # scripts/lib/coverage.ts (ADR-0013). Soft-skips when bun is missing so
+      # first-clone pushes fail only once the toolchain is present; CI runs
+      # the same `just cov-sensors` recipe as the hard gate.
+      run: |
+        sh -eu -c '
+          if ! command -v bun >/dev/null 2>&1; then
+            printf "%s\n" "warning: bun not found; skipping sensors coverage hook" >&2
+            exit 0
+          fi
+          bun run scripts/coverage.ts sensors
         '
 
     doc-validator:

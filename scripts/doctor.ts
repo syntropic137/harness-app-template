@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isMainEntry } from './lib/entrypoint';
 
 const required = ['bun', 'pnpm', 'git', 'cargo', 'uv', 'just'];
 const provenanceFile = '.harness-provenance.json';
@@ -14,6 +15,16 @@ const requiredProvenanceFields = [
   'canonical_commit',
   'forked_at',
 ] as const;
+
+const INSTALL_HINTS: Record<string, string> = {
+  bun: 'curl -fsSL https://bun.sh/install | bash',
+  pnpm: 'npm install -g pnpm  (or: corepack enable && corepack prepare pnpm@latest --activate)',
+  git: 'install via your OS package manager (apt install git / brew install git)',
+  cargo: 'install Rust via https://rustup.rs',
+  uv: 'curl -LsSf https://astral.sh/uv/install.sh | sh',
+  just: 'cargo install just  (or: brew install just / apt install just)',
+  'docker|podman': 'install Docker Desktop (https://docker.com) or podman (https://podman.io)',
+};
 
 export interface DoctorDeps {
   spawn: typeof spawnSync;
@@ -142,24 +153,231 @@ export function provenanceIssues(
   return issues;
 }
 
+// Profiling-slot probe (bead create-harness-app-z41): the slot is
+// advisory at runtime, but its wiring must be intact, so doctor checks
+// that the manifest entry, the bin entrypoint, and the committed baseline
+// agree. A deliberate `plugin: none` swap silences the probe entirely.
+export function profilingIssues(
+  cwd = process.cwd(),
+  exists: (path: string) => boolean = existsSync,
+  readText: (path: string) => string = (path) => readFileSync(path, 'utf8'),
+): string[] {
+  const manifestPath = join(cwd, 'harness.manifest.json');
+  if (!exists(manifestPath)) {
+    // provenanceIssues already reports the missing manifest; do not double up.
+    return [];
+  }
+  const manifest = parseJsonObject(manifestPath, readText);
+  if (typeof manifest === 'string') {
+    return [];
+  }
+  const slots = manifest['slots'];
+  if (!isRecord(slots) || !isRecord(slots['profiling'])) {
+    return ['harness.manifest.json has no profiling slot; restore it or run just update'];
+  }
+  const slot = slots['profiling'];
+  if (slot['plugin'] === 'none') {
+    return [];
+  }
+  const issues: string[] = [];
+  const slotInterface = slot['interface'];
+  const entrypoint = isRecord(slotInterface) ? stringField(slotInterface, 'entrypoint') : undefined;
+  if (!entrypoint) {
+    issues.push('profiling slot does not declare interface.entrypoint');
+  } else if (!exists(join(cwd, entrypoint))) {
+    issues.push(`profiling entrypoint ${entrypoint} is missing`);
+  }
+  const baselinePath = join(cwd, 'harness/profiling/baseline.json');
+  if (!exists(baselinePath)) {
+    issues.push(
+      'harness/profiling/baseline.json is missing; restore it or re-run a profile with --update-baseline',
+    );
+  } else {
+    const baseline = parseJsonObject(baselinePath, readText);
+    if (typeof baseline === 'string') {
+      issues.push(baseline);
+    } else if (!isRecord(baseline['signals'])) {
+      issues.push('harness/profiling/baseline.json must contain a signals object');
+    }
+  }
+  return issues;
+}
+
+export interface RuntimeCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+  hint?: string;
+}
+
+export function runtimeChecks(
+  cwd = process.cwd(),
+  exists: (path: string) => boolean = existsSync,
+): RuntimeCheck[] {
+  const checks: RuntimeCheck[] = [];
+  const nodeModules = join(cwd, 'node_modules');
+  if (exists(nodeModules)) {
+    checks.push({ name: 'node_modules', ok: true, detail: 'installed' });
+  } else {
+    checks.push({
+      name: 'node_modules',
+      ok: false,
+      detail: 'missing (root pnpm install has not run)',
+      hint: 'just bootstrap',
+    });
+  }
+  return checks;
+}
+
+export function toolVersion(spawn: typeof spawnSync, tool: string): string | undefined {
+  const result = spawn(tool, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] });
+  if (result.status !== 0) return undefined;
+  const stdout = result.stdout?.toString().trim() ?? '';
+  const first = stdout.split('\n')[0]?.trim();
+  return first ? first : undefined;
+}
+
+export interface ToolCheck {
+  name: string;
+  ok: boolean;
+  version?: string;
+  hint?: string;
+}
+
+export function toolChecks(spawn: typeof spawnSync): ToolCheck[] {
+  const out: ToolCheck[] = [];
+  for (const tool of required) {
+    const version = toolVersion(spawn, tool);
+    out.push({
+      name: tool,
+      ok: Boolean(version),
+      version,
+      hint: version ? undefined : INSTALL_HINTS[tool],
+    });
+  }
+  const docker = toolVersion(spawn, 'docker');
+  const podman = docker ? undefined : toolVersion(spawn, 'podman');
+  const containerOk = Boolean(docker || podman);
+  out.push({
+    name: 'docker|podman',
+    ok: containerOk,
+    version: docker || podman,
+    hint: containerOk ? undefined : INSTALL_HINTS['docker|podman'],
+  });
+  return out;
+}
+
+interface Sink {
+  log: (line: string) => void;
+}
+
+function emitRow(sink: Sink, status: string, name: string, detail: string, width: number): void {
+  sink.log(`  ${status}  ${name.padEnd(width)}  ${detail}`);
+}
+
+function emitHint(sink: Sink, width: number, hint: string): void {
+  sink.log(`         ${' '.repeat(width)}  fix: ${hint}`);
+}
+
+function reportTools(sink: Sink, tools: ToolCheck[], width: number): number {
+  let failed = 0;
+  for (const t of tools) {
+    if (t.ok) {
+      // version is always set when toolChecks marks ok=true, but the field
+      // is typed optional so consumers can pass synthetic checks for tests.
+      emitRow(sink, '[ OK ]', t.name, t.version ?? 'present', width);
+    } else {
+      failed++;
+      emitRow(sink, '[FAIL]', t.name, 'not found on PATH', width);
+      if (t.hint) emitHint(sink, width, t.hint);
+    }
+  }
+  return failed;
+}
+
+function reportRuntime(sink: Sink, runtime: RuntimeCheck[], width: number): number {
+  let failed = 0;
+  for (const r of runtime) {
+    if (r.ok) {
+      emitRow(sink, '[ OK ]', r.name, r.detail, width);
+    } else {
+      failed++;
+      emitRow(sink, '[FAIL]', r.name, r.detail, width);
+      if (r.hint) emitHint(sink, width, r.hint);
+    }
+  }
+  return failed;
+}
+
+function reportIssues(
+  sink: Sink,
+  name: string,
+  okDetail: string,
+  issues: string[],
+  width: number,
+): number {
+  const [head, ...rest] = issues;
+  if (head === undefined) {
+    emitRow(sink, '[ OK ]', name, okDetail, width);
+    return 0;
+  }
+  emitRow(sink, '[FAIL]', name, head, width);
+  for (const extra of rest) {
+    sink.log(`         ${' '.repeat(width)}  ${extra}`);
+  }
+  return 1;
+}
+
+export function printReport(
+  tools: ToolCheck[],
+  runtime: RuntimeCheck[],
+  provenance: string[],
+  log: (line: string) => void,
+  profiling: string[] = [],
+): { passed: number; failed: number; total: number } {
+  const sink: Sink = { log };
+  const width = Math.max(
+    ...tools.map((t) => t.name.length),
+    ...runtime.map((r) => r.name.length),
+    'provenance'.length,
+  );
+  sink.log('preflight checks:');
+  sink.log('');
+  const failed =
+    reportTools(sink, tools, width) +
+    reportRuntime(sink, runtime, width) +
+    reportIssues(sink, 'provenance', 'valid', provenance, width) +
+    reportIssues(sink, 'profiling', 'slot wired', profiling, width);
+  sink.log('');
+  const total = tools.length + runtime.length + 2;
+  return { passed: total - failed, failed, total };
+}
+
 export function main(deps: DoctorDeps): void {
-  const missing = missingTools(deps.spawn);
-  const provenance = provenanceIssues(deps.cwd, deps.exists, deps.readText);
-  if (missing.length > 0) {
-    deps.stderr.error(`missing required tools: ${missing.join(', ')}`);
-  }
-  for (const issue of provenance) {
-    deps.stderr.error(`provenance: ${issue}`);
-  }
-  if (missing.length > 0 || provenance.length > 0) {
+  const exists = deps.exists ?? existsSync;
+  const readText = deps.readText ?? ((path: string) => readFileSync(path, 'utf8'));
+  const tools = toolChecks(deps.spawn);
+  const runtime = runtimeChecks(deps.cwd, exists);
+  const provenance = provenanceIssues(deps.cwd, exists, readText);
+  const profiling = profilingIssues(deps.cwd, exists, readText);
+  const { passed, failed, total } = printReport(
+    tools,
+    runtime,
+    provenance,
+    (line) => deps.stdout.log(line),
+    profiling,
+  );
+  if (failed > 0) {
+    deps.stderr.error(
+      `doctor: ${failed} of ${total} checks failed (${passed} passed). Fix the items above and re-run.`,
+    );
     deps.exit(1);
   }
-  deps.stdout.log('doctor: required tools present');
-  deps.stdout.log('doctor: provenance valid');
+  deps.stdout.log(`doctor: all ${passed} checks passed.`);
 }
 
 /* v8 ignore next 9 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   main({
     spawn: spawnSync,
     stdout: console,

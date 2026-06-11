@@ -1,6 +1,6 @@
 ---
 name: "Merge gating — main is protected with required status checks, no required approvals"
-description: "Enable GitHub branch protection on `main` so that auto-merge MUST wait for every PR-time CI check (workspace qa × 2, check, scripts, rust-coverage, python-coverage, documentation, fitness, fork-check) before the merge can land. Do NOT require human PR approvals — the autonomous loop has no reviewer to gate against. Codify the required-check set in `scripts/protect-main.ts` and expose it as the idempotent `just protect-main` recipe so a fresh fork can re-apply the policy."
+description: "Enable GitHub branch protection on `main` so that auto-merge MUST wait for every PR-time CI check (workspace qa × 2, check, scripts, rust-coverage, python-coverage, sensors-coverage, documentation, fitness, fork-check, dep-audit) before the merge can land. Do NOT require human PR approvals — the autonomous loop has no reviewer to gate against. Codify the required-check set in `scripts/protect-main.ts` and expose it as the idempotent `just protect-main` recipe so a fresh fork can re-apply the policy."
 status: accepted
 ---
 
@@ -58,6 +58,7 @@ Three related decisions, all accepted:
    - `scripts` (test workflow — `pnpm test:coverage`, 100% TS coverage)
    - `rust-coverage` (test workflow — `just cov-rust`, 100% lines/functions)
    - `python-coverage` (test workflow — `just cov-py`, 100% coverage)
+   - `sensors-coverage` (test workflow: `just cov-sensors`, measured floor per ADR-0013)
    - `documentation` (test workflow — APSS APS-V1-0003 doc validator)
    - `fitness` (test workflow — APSS fitness + perf gate + ratchet)
    - `fork-check` (test workflow — fresh-fork E2E onboarding)

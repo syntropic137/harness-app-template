@@ -52,12 +52,37 @@ jobs:
         with:
           version: 11.5.1
       - run: pnpm install --no-frozen-lockfile
+      # The inspector live integration test (harness/inspector/tests/
+      # integration.test.ts) drives real chromium against a local page.
+      # It self-skips where browsers are absent, EXCEPT when
+      # CI_REQUIRE_BROWSERS=1: this lane installs chromium and sets the
+      # flag so the live test is fail-closed here rather than silently
+      # skipped everywhere.
+      # playwright is a dependency of the @harness/inspector workspace
+      # package (not the root), so the exec must be scoped with --dir or
+      # the binary is not on the root .bin path.
+      - name: Install Playwright chromium (inspector live integration test)
+        run: pnpm --dir harness/inspector exec playwright install --with-deps chromium
+      # Real ffmpeg so the live test exercises the JPEG conversion path:
+      # the runner image ships no ffmpeg and Playwright's bundled build
+      # cannot decode PNG or encode JPEG (it would degrade to PNG-only).
+      - name: Install ffmpeg (inspector JPEG conversion path)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - run: pnpm test:coverage
+        env:
+          CI_REQUIRE_BROWSERS: '1'
+      # AGENTS.md skill-list drift gate (bead create-harness-app-64l):
+      # the block between the agents-skills markers must match the
+      # .claude/skills directory. Regenerate locally with
+      # `just agents skills --write`.
+      - run: bun run scripts/agents-skills.ts --check
 
   rust-coverage:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The cov-* recipes dispatch through `bun run scripts/coverage.ts`.
+      - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
@@ -76,6 +101,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The cov-* recipes dispatch through `bun run scripts/coverage.ts`.
+      - uses: oven-sh/setup-bun@v2
       - uses: astral-sh/setup-uv@v5
       - uses: taiki-e/install-action@v2
         with:
@@ -84,6 +111,32 @@ jobs:
       - run: sh scripts/with-uv.sh uv run mypy src
         working-directory: ws_apps/example-python
       - run: just cov-py
+
+  sensors-coverage:
+    # node:test built-in coverage gate for the harness/sensors slot
+    # (`just cov-sensors`, ADR-0013 measured floor pinned in
+    # scripts/lib/coverage.ts). Mirrors the lefthook pre-push cov-sensors
+    # hook so a fork that bypasses local hooks still hits the gate at PR
+    # time. Installs the slot's npm deps (ts-morph) and sentrux so the
+    # adapter and sentrux-scan code paths execute the same way they do in
+    # the local measurement environment; without sentrux those modules
+    # soft-skip and the measured coverage shifts.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - name: Install sensors slot deps (ts-morph)
+        working-directory: harness/sensors
+        run: npm install --no-package-lock --no-audit --no-fund --silent
+      - name: Install sentrux (pinned + checksum-verified)
+        run: bash .github/scripts/install-sentrux.sh
+      - run: just cov-sensors
 
   documentation:
     # APSS APS-V1-0003 documentation gate. Validates documentation
@@ -139,6 +192,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch origin main for baseline guard comparison
+        run: git fetch --depth=1 origin main
       - uses: oven-sh/setup-bun@v2
       - uses: actions/setup-node@v4
         with:

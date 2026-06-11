@@ -166,6 +166,7 @@ test('sentrux: main() with --sentrux flag — tightens baseline.json on improvem
   const code = await main(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
       '--sentrux=/tmp/sentrux.json',
@@ -202,6 +203,7 @@ test('sentrux: main() with --sentrux flag — regression fails and leaves floor 
   const code = await main(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
       '--sentrux=/tmp/sentrux.json',

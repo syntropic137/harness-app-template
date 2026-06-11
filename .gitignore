@@ -21,6 +21,11 @@
 # crashed run could leave it behind.
 .dep-audit/
 
+# Profiling perf budgets are per-fork policy: local experiments keep them
+# untracked; consumers that want CI-binding budgets delete this line and
+# commit harness/profiling/budgets.toml (template: budgets.example.toml).
+harness/profiling/budgets.toml
+
 # Harness internals
 # Top-level consumer-side .harness/ is local-only (per-fork policy / scratch).
 # The slot-side governance file at harness/.harness/governance.toml is the
@@ -72,3 +77,4 @@ uv.lock
 # Go
 go.sum
 .claude/settings.local.json
+ws_apps/example-python/.coverage

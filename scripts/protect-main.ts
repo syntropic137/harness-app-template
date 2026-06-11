@@ -1,5 +1,6 @@
 import type { SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from 'node:child_process';
 import { spawnSync as nodeSpawnSync } from 'node:child_process';
+import { isMainEntry } from './lib/entrypoint';
 
 // The full set of PR-time status check contexts that MUST pass before a PR
 // can merge into `main`. Names are verbatim from `gh pr view <n> --json
@@ -16,6 +17,7 @@ export const REQUIRED_PR_CONTEXTS: readonly string[] = Object.freeze([
   'scripts',
   'rust-coverage',
   'python-coverage',
+  'sensors-coverage',
   'documentation',
   'fitness',
   'fork-check',
@@ -192,7 +194,7 @@ function defaultSpawn(command: string, args: string[], input?: string): SpawnRes
   };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   main({
     spawn: defaultSpawn,
     stdout: console,

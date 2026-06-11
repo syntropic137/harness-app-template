@@ -6,6 +6,7 @@ import {
   upstreamHarnessEngineeringSkillsUrl,
   validateHarnessEngineeringSkills,
 } from './harness-engineering-skills';
+import { isMainEntry } from './lib/entrypoint';
 
 export interface HarnessReviewOptions {
   dryRun: boolean;
@@ -132,7 +133,7 @@ export function runHarnessReview(options: HarnessReviewOptions, deps: HarnessRev
 }
 
 /* v8 ignore start */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   try {
     const code = runHarnessReview(parseReviewArgs(process.argv.slice(2)), {
       exists: existsSync,

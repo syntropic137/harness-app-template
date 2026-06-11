@@ -349,6 +349,7 @@ test('coverage: main() with --coverage flag tightens baseline.json on improvemen
   const code = await main(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--baseline-reference=none',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
       '--coverage=/tmp/coverage.json',
@@ -428,6 +429,7 @@ test('coverage: main() with absent --coverage flag stays PASS when CV01 floor is
   const code = await main(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--baseline-reference=none',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
     ],

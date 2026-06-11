@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { isMainEntry } from './lib/entrypoint';
 import { defaultVendorFs, type VendorFs, verifyAndRepairVendorLinks } from './lib/vendor-links';
 
 export {
@@ -281,7 +282,7 @@ export function main(deps: BootstrapDeps): void {
 }
 
 /* v8 ignore next 9 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   main({
     spawn: spawnSync,
     stdout: console,

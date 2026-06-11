@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# harness/profiling/bin/profile - profiling slot dispatcher
+# (bead create-harness-app-z41).
+#
+# Thin shell front door over the Node runners in harness/profiling/src/.
+# Mirrors harness/sensors/bin/sensors: subcommand -> module, everything
+# else is usage. The slot is ADVISORY by default; budgets in
+# harness/profiling/budgets.toml opt individual signals into hard gating.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+harness profiling - backend, frontend, and startup performance profiles
+
+Subcommands:
+  startup [--update-baseline]
+      Run the hyperfine cold-start bench (harness/perf/bench.sh) and gate
+      the mean wall-clock per benchmark against the profiling baseline.
+  api --url=<endpoint> [--requests=N] [--concurrency=N] [--warmup=N]
+      [--cpu-prof-dir=DIR] [--vm-url=URL] [--vm-metric=NAME]
+      Measure API latency p50/p95/p99 + throughput. Sends a W3C
+      traceparent on every request so server-side OTEL spans correlate
+      with this run; the trace id is in the artifact directory name.
+      --cpu-prof-dir collects *.cpuprofile files (start the server with
+      `node --cpu-prof --cpu-prof-dir=DIR`) as the flamegraph path.
+      --vm-url snapshots http.server.duration quantiles from
+      VictoriaMetrics next to the local measurements.
+  ui --url=<page> [--bundle-dir=DIR] [--no-trace]
+      Navigation timing, Core Web Vitals (LCP/CLS, INP when present),
+      bundle size, and a CDP performance trace (chrome-devtools-deep
+      recipe) via Playwright. Skips cleanly when Playwright is missing.
+  summary [<artifact dir>]
+      Print the verdict table for a run (default: the newest run).
+  gate [--update-baseline] [--baseline=PATH] [--budgets=PATH]
+      Evaluate a signals JSON document from stdin against the baseline
+      and budgets. Used by runners internally and by CI compositions.
+
+Common flags: --baseline=PATH --budgets=PATH --artifact-root=DIR
+Artifacts land under .harness/artifacts/profile/<iso_key>--<trace_id>/.
+Budgets: harness/profiling/budgets.toml (see budgets.example.toml).
+EOF
+}
+
+cmd="${1:-}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+case "$cmd" in
+  api)
+    # The module is api-runner.mjs, not api.mjs: a file named api.mjs makes
+    # the sentrux import resolver suffix-bind the example apps'
+    # @opentelemetry/api imports onto this slot, chaining their import
+    # depth onto ours and tripping the MD01 sentrux-max-depth ratchet.
+    exec node "$HERE/src/api-runner.mjs" "$@"
+    ;;
+  startup|ui|summary|gate)
+    exec node "$HERE/src/$cmd.mjs" "$@"
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    echo "profile: unknown subcommand: $cmd" >&2
+    usage >&2
+    exit 64
+    ;;
+esac

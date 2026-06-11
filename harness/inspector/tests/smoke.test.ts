@@ -25,6 +25,7 @@ describe('inspector slot smoke test', () => {
   });
 
   it.each([
+    'common.mjs',
     'screenshot-pair.mjs',
     'record-flow.mjs',
     'keyframe-grid.mjs',

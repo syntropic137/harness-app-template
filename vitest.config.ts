@@ -12,7 +12,12 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json-summary'],
       all: true,
-      include: ['scripts/**/*.ts'],
+      // template-hygiene-gate.mjs rides the scripts coverage gate even
+      // though it lives under harness/hooks/: it is dependency-injected
+      // and unit-tested from scripts/tests/template-hygiene-gate.test.ts
+      // so the enforced 100 percent thresholds apply to it (its node:test
+      // siblings under harness/hooks/tests/ predate this arrangement).
+      include: ['scripts/**/*.ts', 'harness/hooks/template-hygiene-gate.mjs'],
       // fork-check.ts is an E2E orchestrator that snapshots the repo
       // into a temp dir and shells out to `just`; it has no
       // unit-testable surface, and its correctness is asserted by the

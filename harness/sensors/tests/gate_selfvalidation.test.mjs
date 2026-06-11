@@ -22,7 +22,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-
+import {
+  BASELINE_RELAXATION_APPROVAL_KEY,
+  dimensionRelaxationPath,
+  evaluateBaselineRelaxationGuard,
+  folderRelaxationPath,
+} from '../baseline_guard.mjs';
 import { main as cxGateMain } from '../cx_gate.mjs';
 import { compareBaseline, extractApssFitnessBaseline, main as fitnessGateMain } from '../gate.mjs';
 
@@ -37,6 +42,13 @@ function record(entry) {
   MATRIX.push(entry);
 }
 
+function hasViolation(result, path, reason) {
+  if (reason === undefined) {
+    return result.violations.some((v) => v.path === path);
+  }
+  return result.violations.some((v) => v.path === path && v.reason === reason);
+}
+
 // ---------------------------------------------------------------------
 // Helpers shared by every lens test.
 // ---------------------------------------------------------------------
@@ -46,6 +58,38 @@ function makeTempRoot(label) {
   mkdirSync(join(root, 'ws_apps', 'fixture', 'src'), { recursive: true });
   mkdirSync(join(root, 'harness', 'sensors'), { recursive: true });
   return root;
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function relaxationReferenceBaseline() {
+  return {
+    schema_version: '1.0.0',
+    standard: 'APS-V1-0002',
+    generated_by: 'harness/sensors/gate.mjs',
+    folders: {
+      'ws_apps/fixture/src': {
+        I: 0.4,
+        D: 0.4,
+      },
+    },
+    dimensions: {
+      MT01: {
+        metrics: {
+          'max-cyclomatic': {
+            direction: 'max',
+            baseline: 6,
+          },
+          'sentrux-quality-signal': {
+            direction: 'min',
+            baseline: 0.8,
+          },
+        },
+      },
+    },
+  };
 }
 
 function writeBaseline(root, baseline) {
@@ -352,6 +396,7 @@ test('lens=apss-topology: gate.mjs FAILS on coupling regression, PASSES on clean
   const regCode = await fitnessGateMain(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
     ],
@@ -382,6 +427,7 @@ test('lens=apss-topology: gate.mjs FAILS on coupling regression, PASSES on clean
   const cleanCode = await fitnessGateMain(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
     ],
@@ -441,6 +487,7 @@ test('lens=sentrux: gate.mjs FAILS on new cycle regression, PASSES on clean', as
   const regCode = await fitnessGateMain(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
       '--sentrux=/tmp/sentrux-selfval.json',
@@ -465,6 +512,7 @@ test('lens=sentrux: gate.mjs FAILS on new cycle regression, PASSES on clean', as
   const cleanCode = await fitnessGateMain(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
       '--sentrux=/tmp/sentrux-selfval.json',
@@ -491,6 +539,7 @@ test('lens=sentrux: gate.mjs FAILS on new cycle regression, PASSES on clean', as
   const qualCode = await fitnessGateMain(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
       '--sentrux=/tmp/sentrux-selfval.json',
@@ -511,6 +560,164 @@ test('lens=sentrux: gate.mjs FAILS on new cycle regression, PASSES on clean', as
   });
 });
 
+test('lens=baseline-relaxation-guard: fails on untagged regression and passes on tightening/justified edits', () => {
+  const reference = relaxationReferenceBaseline();
+
+  const regressed = cloneJson(reference);
+  regressed.folders['ws_apps/fixture/src'].I = 0.9;
+  regressed.dimensions.MT01.metrics['max-cyclomatic'].baseline = 12;
+  regressed.dimensions.MT01.metrics['sentrux-quality-signal'].baseline = 0.5;
+  const regressedResult = evaluateBaselineRelaxationGuard({
+    workingBaseline: regressed,
+    referenceBaseline: reference,
+    generatedBaseline: cloneJson(regressed),
+  });
+  assert.equal(regressedResult.ok, false);
+  assert.equal(
+    hasViolation(regressedResult, folderRelaxationPath('ws_apps/fixture/src', 'I')),
+    true,
+  );
+
+  const tightened = cloneJson(reference);
+  tightened.folders['ws_apps/fixture/src'].I = 0.2;
+  tightened.dimensions.MT01.metrics['max-cyclomatic'].baseline = 3;
+  tightened.dimensions.MT01.metrics['sentrux-quality-signal'].baseline = 0.95;
+  const tightenedResult = evaluateBaselineRelaxationGuard({
+    workingBaseline: tightened,
+    referenceBaseline: reference,
+    generatedBaseline: cloneJson(tightened),
+  });
+  assert.equal(tightenedResult.ok, true);
+
+  const deletedFolder = cloneJson(reference);
+  delete deletedFolder.folders['ws_apps/fixture/src'];
+  const deletedFolderResult = evaluateBaselineRelaxationGuard({
+    workingBaseline: deletedFolder,
+    referenceBaseline: reference,
+    generatedBaseline: cloneJson(deletedFolder),
+  });
+  assert.equal(deletedFolderResult.ok, false);
+  assert.equal(
+    hasViolation(
+      deletedFolderResult,
+      folderRelaxationPath('ws_apps/fixture/src', 'I'),
+      'floor-replaced-with-null',
+    ),
+    true,
+  );
+  assert.equal(
+    hasViolation(
+      deletedFolderResult,
+      folderRelaxationPath('ws_apps/fixture/src', 'D'),
+      'floor-replaced-with-null',
+    ),
+    true,
+  );
+
+  const directionFlip = cloneJson(reference);
+  directionFlip.dimensions.MT01.metrics['max-cyclomatic'].direction = 'min';
+  const directionFlipResult = evaluateBaselineRelaxationGuard({
+    workingBaseline: directionFlip,
+    referenceBaseline: reference,
+    generatedBaseline: cloneJson(directionFlip),
+  });
+  assert.equal(directionFlipResult.ok, false);
+  assert.equal(
+    hasViolation(
+      directionFlipResult,
+      dimensionRelaxationPath('MT01', 'max-cyclomatic'),
+      'direction-flip',
+    ),
+    true,
+  );
+
+  const missingDirection = cloneJson(reference);
+  delete missingDirection.dimensions.MT01.metrics['max-cyclomatic'].direction;
+  const missingDirectionResult = evaluateBaselineRelaxationGuard({
+    workingBaseline: missingDirection,
+    referenceBaseline: reference,
+    generatedBaseline: cloneJson(missingDirection),
+  });
+  assert.equal(missingDirectionResult.ok, false);
+  assert.equal(
+    hasViolation(
+      missingDirectionResult,
+      dimensionRelaxationPath('MT01', 'max-cyclomatic'),
+      'missing-direction',
+    ),
+    true,
+  );
+
+  const invalidDirection = cloneJson(reference);
+  invalidDirection.dimensions.MT01.metrics['max-cyclomatic'].direction = 'auto';
+  const invalidDirectionResult = evaluateBaselineRelaxationGuard({
+    workingBaseline: invalidDirection,
+    referenceBaseline: reference,
+    generatedBaseline: cloneJson(invalidDirection),
+  });
+  assert.equal(invalidDirectionResult.ok, false);
+  assert.equal(
+    hasViolation(
+      invalidDirectionResult,
+      dimensionRelaxationPath('MT01', 'max-cyclomatic'),
+      'invalid-direction',
+    ),
+    true,
+  );
+
+  const justifiedMissingDirection = cloneJson(reference);
+  delete justifiedMissingDirection.dimensions.MT01.metrics['max-cyclomatic'].direction;
+  justifiedMissingDirection[BASELINE_RELAXATION_APPROVAL_KEY] = {
+    [dimensionRelaxationPath('MT01', 'max-cyclomatic')]:
+      'BASELINE-RELAX-OK: intentional metric direction migration',
+  };
+  const justifiedMissingDirectionResult = evaluateBaselineRelaxationGuard({
+    workingBaseline: justifiedMissingDirection,
+    referenceBaseline: reference,
+    generatedBaseline: cloneJson(justifiedMissingDirection),
+  });
+  assert.equal(justifiedMissingDirectionResult.ok, true);
+
+  const justified = cloneJson(reference);
+  justified.folders['ws_apps/fixture/src'].I = 0.9;
+  justified.dimensions.MT01.metrics['max-cyclomatic'].baseline = 12;
+  justified.dimensions.MT01.metrics['sentrux-quality-signal'].baseline = 0.5;
+  justified[BASELINE_RELAXATION_APPROVAL_KEY] = {
+    [folderRelaxationPath('ws_apps/fixture/src', 'I')]:
+      'BASELINE-RELAX-OK: intentional architecture shift',
+    [dimensionRelaxationPath('MT01', 'max-cyclomatic')]:
+      'BASELINE-RELAX-OK: intentional architecture shift',
+    [dimensionRelaxationPath('MT01', 'sentrux-quality-signal')]:
+      'BASELINE-RELAX-OK: intentional architecture shift',
+  };
+  const justifiedResult = evaluateBaselineRelaxationGuard({
+    workingBaseline: justified,
+    referenceBaseline: reference,
+    generatedBaseline: cloneJson(justified),
+  });
+  assert.equal(justifiedResult.ok, true);
+
+  const justifiedDirectionFlip = cloneJson(reference);
+  justifiedDirectionFlip.dimensions.MT01.metrics['max-cyclomatic'].direction = 'min';
+  justifiedDirectionFlip[BASELINE_RELAXATION_APPROVAL_KEY] = {
+    [dimensionRelaxationPath('MT01', 'max-cyclomatic')]:
+      'BASELINE-RELAX-OK: intentional direction flip for gate',
+  };
+  const justifiedDirectionFlipResult = evaluateBaselineRelaxationGuard({
+    workingBaseline: justifiedDirectionFlip,
+    referenceBaseline: reference,
+    generatedBaseline: cloneJson(justifiedDirectionFlip),
+  });
+  assert.equal(justifiedDirectionFlipResult.ok, true);
+  record({
+    lens: 'baseline-relaxation-guard',
+    failsOnRegression: true,
+    passesOnClean: true,
+    failureFingerprint: 'folders/ws_apps/fixture/src/I 0.4->0.9',
+    durationMs: { test: 0 },
+  });
+});
+
 // ---------------------------------------------------------------------
 // Matrix render + invariants. Runs last (node:test preserves source
 // order within a file). Prints the closed-loop matrix to stdout for
@@ -519,7 +726,13 @@ test('lens=sentrux: gate.mjs FAILS on new cycle regression, PASSES on clean', as
 // ---------------------------------------------------------------------
 
 test('self-validation matrix: every lens closes the loop in both directions', () => {
-  const expected = ['cyclomatic', 'cognitive', 'apss-topology', 'sentrux'];
+  const expected = [
+    'cyclomatic',
+    'cognitive',
+    'apss-topology',
+    'sentrux',
+    'baseline-relaxation-guard',
+  ];
   for (const lens of expected) {
     const row = MATRIX.find((r) => r.lens === lens);
     assert.ok(row, `matrix missing row for lens=${lens}`);

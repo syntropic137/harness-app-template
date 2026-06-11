@@ -4,11 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node --check screenshot-pair.mjs && node --check record-flow.mjs && node --check keyframe-grid.mjs",
-    "typecheck": "node --check screenshot-pair.mjs && node --check record-flow.mjs && node --check keyframe-grid.mjs",
+    "build": "node --check common.mjs && node --check screenshot-pair.mjs && node --check record-flow.mjs && node --check keyframe-grid.mjs",
+    "typecheck": "node --check common.mjs && node --check screenshot-pair.mjs && node --check record-flow.mjs && node --check keyframe-grid.mjs",
     "test": "vitest run",
-    "lint": "node --check screenshot-pair.mjs && node --check record-flow.mjs && node --check keyframe-grid.mjs",
+    "lint": "node --check common.mjs && node --check screenshot-pair.mjs && node --check record-flow.mjs && node --check keyframe-grid.mjs",
     "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "playwright": "^1.60"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.0",

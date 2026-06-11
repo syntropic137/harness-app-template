@@ -24,6 +24,27 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 DEPCRUISER_VERSION="17.4.0"
 
+# Every node-based subcommand below imports gate.mjs which imports
+# `@iarna/toml`. On a fresh clone where the operator has not run
+# `just bootstrap` yet, that import throws `ERR_MODULE_NOT_FOUND` with a
+# multi-line node stacktrace - an opaque first-clone wound. Catch the
+# missing dependency early and replace the stacktrace with the one-line
+# fix.
+require_node_modules() {
+  if [ ! -d "$REPO_ROOT/node_modules/@iarna/toml" ]; then
+    cat >&2 <<EOF
+error: harness sensors requires node_modules to be installed at the repo root.
+       (looked for: $REPO_ROOT/node_modules/@iarna/toml)
+       fix: just bootstrap
+       why: gate.mjs imports @iarna/toml for the governance.toml policy
+            envelope; the import resolves through the root pnpm-installed
+            tree, so a fresh clone with no install fails here before any
+            sensor can run.
+EOF
+    exit 1
+  fi
+}
+
 usage() {
   cat <<'EOF'
 harness sensors - workspace architecture-quality metrics
@@ -181,6 +202,7 @@ case "${1:-}" in
     usage
     ;;
   report)
+    require_node_modules
     shift
     fmt="json"
     workspace_root="$REPO_ROOT"
@@ -234,6 +256,7 @@ case "${1:-}" in
     build_report "$fmt" "-" "$workspace_root" "$skip_tier"
     ;;
   gate)
+    require_node_modules
     shift
     gate_args=()
     readings_from=""
@@ -480,6 +503,7 @@ case "${1:-}" in
     node "$HERE/gate.mjs" "${gate_args[@]+"${gate_args[@]}"}" < "$report_tmp"
     ;;
   fitness)
+    require_node_modules
     shift
     # Read-only fitness report (bead create-harness-app-feat-fitness-feedback-report).
     # Reuses the same readings pipeline as `gate` so the report sees the
@@ -654,14 +678,17 @@ case "${1:-}" in
     fi
     ;;
   adapters)
+    require_node_modules
     shift
     node "$HERE/adapters.mjs" manifest "$@"
     ;;
   sentrux)
+    require_node_modules
     shift
     node "$HERE/adapters.mjs" run-sentrux "$@"
     ;;
   deadcode)
+    require_node_modules
     shift
     workspace_root="$REPO_ROOT"
     while [ "$#" -gt 0 ]; do
@@ -684,6 +711,7 @@ case "${1:-}" in
     node "$HERE/deadcode_scan.mjs" --workspace-root="$workspace_root"
     ;;
   coverage)
+    require_node_modules
     shift
     workspace_root="$REPO_ROOT"
     coverage_passthrough=()
@@ -714,10 +742,12 @@ case "${1:-}" in
     # root). Exits 0 on PASS / advisory-mode timing-only WARN; exits
     # non-zero on coverage failure (any mode), enforce timing failure,
     # or suite-command failure.
+    require_node_modules
     shift
     node "$HERE/suite_duration.mjs" "$@"
     ;;
   grimp)
+    require_node_modules
     shift
     node "$HERE/adapters.mjs" run-grimp "$@"
     ;;

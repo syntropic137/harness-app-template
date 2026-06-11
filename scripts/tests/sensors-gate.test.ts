@@ -371,7 +371,7 @@ describe('sensors gate - CLI main', () => {
       stdin: report,
       files: { 'harness/sensors/baseline.json': baseline },
     });
-    const code = await main([], io);
+    const code = await main(['--baseline-reference=none'], io);
     expect(code).toBe(0);
     expect(stdout.join('')).toContain('VERDICT: PASS sensors gate');
   });
@@ -397,7 +397,7 @@ describe('sensors gate - CLI main', () => {
       stdin: report,
       files: { 'harness/sensors/baseline.json': baseline },
     });
-    const code = await main(['--update-baseline'], io);
+    const code = await main(['--baseline-reference=none', '--update-baseline'], io);
     expect(code).toBe(0);
     expect(stdout.join('')).toContain('baseline updated');
     let written: { folders?: Record<string, { I: number; D: number }> } = {};
@@ -510,7 +510,11 @@ describe('sensors gate - CLI main', () => {
       },
     });
     const code = await main(
-      ['--policy=/tmp/policy.toml', '--readings-from=/tmp/readings.json'],
+      [
+        '--baseline-reference=none',
+        '--policy=/tmp/policy.toml',
+        '--readings-from=/tmp/readings.json',
+      ],
       io,
     );
     expect(code).toBe(0);

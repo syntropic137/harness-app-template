@@ -1,0 +1,47 @@
+# harness/profiling/budgets.example.toml - per-signal perf budgets template
+# (bead create-harness-app-z41).
+#
+# Copy to harness/profiling/budgets.toml to opt signals into HARD gating.
+# Without a budgets.toml every profiling verdict is ADVISORY: regressions
+# are reported, exit code stays 0, nothing blocks a commit or a CI run.
+#
+# Per-signal keys (all optional):
+#   budget    = absolute ceiling in the signal's own unit; exceeding it is
+#               always a gated failure ("lower" direction; a floor for
+#               direction = "higher")
+#   tolerance = allowed drift vs the committed baseline, as a fraction
+#               (default 0.25)
+#   gate      = true turns a baseline regression into a gated failure
+#               (default false = advisory)
+#   direction = "lower" (default; smaller is better) or "higher"
+#               (throughput-style signals)
+#
+# Only the TOML subset shown here is supported: [signals."name"] tables
+# with number / boolean / quoted-string values, one key per line.
+
+# Cold-start: mirror the harness/perf/gate.mjs 25 percent ratchet.
+# [signals."startup.example-typescript-start.mean"]
+# tolerance = 0.25
+# gate = true
+
+# API tail latency: design default is a wider 50 percent tolerance on p99
+# plus an absolute budget in milliseconds.
+# [signals."api.latency.p99"]
+# budget = 250.0
+# tolerance = 0.5
+# gate = true
+
+# Throughput is higher-is-better; budget acts as a floor.
+# [signals."api.throughput.rps"]
+# direction = "higher"
+# budget = 50.0
+
+# Core Web Vitals: gate LCP when a budget is set (design section 1.2).
+# [signals."ui.vitals.lcp"]
+# budget = 2500.0
+# gate = true
+
+# Bundle size: advisory until a budget file exists (design section 1.2).
+# [signals."ui.bundle.gzipBytes"]
+# budget = 350000
+# gate = true
