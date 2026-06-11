@@ -1,24 +1,9 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-// Canonicalize both sides of the entrypoint check so the script runs
-// when invoked through a path containing spaces (Bun/Node URL-encode
-// the space as %20 in import.meta.url but leave process.argv[1] raw)
-// or a symlinked checkout. See scripts/lib/entrypoint.ts.
-/* v8 ignore start -- entrypoint guard; covered by scripts/tests/entrypoint.test.ts via the TS helper sibling. */
-function isScriptEntry() {
-  const argv = process.argv[1];
-  if (!argv) return false;
-  try {
-    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(argv);
-  } catch {
-    return false;
-  }
-}
-/* v8 ignore stop */
+import { pathToFileURL } from 'node:url';
+import { detectIsoKey, isScriptEntry, parseArgs, resolveFfmpeg } from './common.mjs';
 
 /* v8 ignore next 3 -- CLI-only optional dependency loaded outside unit tests. */
 async function loadChromium() {
@@ -44,6 +29,15 @@ export const EVIDENCE_MODES = {
 };
 
 export const FLOWS = {
+  // Generic flow that works against any URL: load the page, let the network
+  // settle, give animations a beat. The zero-config entry point for a fresh
+  // template fork with no app-specific testids yet.
+  navigate: async (page, baseUrl) => {
+    await page.goto(baseUrl, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(1000);
+  },
+  // Example app-specific flow (CRUD against the lab's task demo). Forks with
+  // their own UI should pass --flowFile instead of growing this table.
   'task-crud': async (page, baseUrl) => {
     // Unique per-run title prevents strict-mode locator collisions across reruns.
     const title = `record-flow-${Date.now()}`;
@@ -65,25 +59,16 @@ export const FLOWS = {
   },
 };
 
-export function parseArgs(argv = process.argv.slice(2)) {
-  return Object.fromEntries(
-    argv.map((a) => {
-      const [k, ...v] = a.replace(/^--/, '').split('=');
-      return [k, v.join('=')];
-    }),
-  );
-}
-
-export function detectIsoKey(execFileSyncImpl = execFileSync) {
-  try {
-    const out = execFileSyncImpl('pnpm', ['--silent', 'harness', 'inspect'], {
-      encoding: 'utf8',
-    });
-    const line = out.split('\n').find((l) => l.startsWith('Iso key:'));
-    return line?.split(/\s+/)[2] ?? null;
-  } catch {
-    return null;
+// A flow file is an ES module whose default export (or named `flow` export)
+// is `async (page, baseUrl) => void`. Lets consumers script app-specific
+// flows without editing the inspector slot.
+export async function loadFlowFile(flowFile, importImpl) {
+  const mod = await importImpl(pathToFileURL(flowFile).href);
+  const fn = mod.default ?? mod.flow;
+  if (typeof fn !== 'function') {
+    throw new Error(`flow file ${flowFile} must default-export an async (page, baseUrl) function`);
   }
+  return fn;
 }
 
 export async function main(
@@ -95,6 +80,10 @@ export async function main(
     /* v8 ignore next */
     cwd: () => process.cwd(),
     execFileSync,
+    /* v8 ignore next */
+    ffmpeg: () => resolveFfmpeg(),
+    /* v8 ignore next */
+    importFlow: (href) => import(href),
     mkdirSync,
     /* v8 ignore next */
     now: () => Date.now(),
@@ -102,10 +91,10 @@ export async function main(
     writeFileSync,
   },
 ) {
-  const { url, phase, flow, isoKey: isoKeyArg, evidenceMode = 'all' } = parseArgs(argv);
-  if (!url || !phase || !flow) {
+  const { url, phase, flow, flowFile, isoKey: isoKeyArg, evidenceMode = 'all' } = parseArgs(argv);
+  if (!url || !phase || (!flow && !flowFile)) {
     deps.console.error(
-      'usage: record-flow.mjs --phase=before|after --url=<url> --flow=<name> [--isoKey=<key>] [--evidenceMode=network|visual-interaction|visual-static|animation|all]',
+      'usage: record-flow.mjs --phase=before|after --url=<url> (--flow=<name> | --flowFile=<path>) [--isoKey=<key>] [--evidenceMode=network|visual-interaction|visual-static|animation|all]',
     );
     return 2;
   }
@@ -116,10 +105,23 @@ export async function main(
     );
     return 2;
   }
-  const flowFn = FLOWS[flow];
-  if (!flowFn) {
-    deps.console.error(`unknown flow: ${flow}. known: ${Object.keys(FLOWS).join(', ')}`);
-    return 2;
+  let flowFn;
+  let flowLabel;
+  if (flowFile) {
+    flowLabel = flowFile;
+    try {
+      flowFn = await loadFlowFile(flowFile, deps.importFlow);
+    } catch (e) {
+      deps.console.error(`could not load flow file: ${e.message}`);
+      return 2;
+    }
+  } else {
+    flowLabel = flow;
+    flowFn = FLOWS[flow];
+    if (!flowFn) {
+      deps.console.error(`unknown flow: ${flow}. known: ${Object.keys(FLOWS).join(', ')}`);
+      return 2;
+    }
   }
   const isoKey = isoKeyArg ?? detectIsoKey(deps.execFileSync);
   if (!isoKey) throw new Error('could not determine iso key; pass --isoKey=<key>');
@@ -130,6 +132,8 @@ export async function main(
   deps.mkdirSync(videoDir, { recursive: true });
   deps.mkdirSync(reviewDir, { recursive: true });
   if (mode.screenshots) deps.mkdirSync(shotDir, { recursive: true });
+
+  const ffmpeg = mode.screenshots || mode.keyframeGrid ? deps.ffmpeg() : null;
 
   /* v8 ignore next 3 -- CLI fallback requires Playwright at runtime. */
   if (!deps.chromium) {
@@ -170,6 +174,10 @@ export async function main(
     }
   });
 
+  if ((mode.screenshots || mode.keyframeGrid) && !ffmpeg) {
+    writeEvent({ type: 'ffmpeg-missing', text: 'ffmpeg not found; JPEG/grid steps skipped' });
+  }
+
   try {
     await flowFn(page, url);
   } catch (e) {
@@ -180,23 +188,26 @@ export async function main(
   let screenshotPaths = null;
   if (mode.screenshots) {
     const png = join(shotDir, `${phase}.png`);
-    const jpg = join(shotDir, `${phase}.jpg`);
     try {
       await page.screenshot({ path: png, type: 'png', fullPage: false });
-      deps.execFileSync('ffmpeg', [
-        '-y',
-        '-i',
-        png,
-        '-vf',
-        'scale=1280:720',
-        '-frames:v',
-        '1',
-        '-update',
-        '1',
-        '-q:v',
-        '3',
-        jpg,
-      ]);
+      let jpg = null;
+      if (ffmpeg) {
+        jpg = join(shotDir, `${phase}.jpg`);
+        deps.execFileSync(ffmpeg, [
+          '-y',
+          '-i',
+          png,
+          '-vf',
+          'scale=1280:720',
+          '-frames:v',
+          '1',
+          '-update',
+          '1',
+          '-q:v',
+          '3',
+          jpg,
+        ]);
+      }
       screenshotPaths = { png, jpg };
     } catch (e) {
       writeEvent({ type: 'screenshot-error', text: String(e) });
@@ -211,10 +222,10 @@ export async function main(
   let gridPath = null;
   if (tempVideoPath && webmPath) {
     deps.renameSync(tempVideoPath, webmPath);
-    if (mode.keyframeGrid) {
+    if (mode.keyframeGrid && ffmpeg) {
       gridPath = join(reviewDir, `keyframe-grid-${phase}.jpg`);
       try {
-        deps.execFileSync('ffmpeg', [
+        deps.execFileSync(ffmpeg, [
           '-y',
           '-i',
           webmPath,
@@ -238,6 +249,7 @@ export async function main(
   deps.console.log(
     JSON.stringify({
       phase,
+      flow: flowLabel,
       evidenceMode,
       events: eventsPath,
       webm: webmPath,
@@ -249,7 +261,7 @@ export async function main(
 }
 
 /* v8 ignore next 6 */
-if (isScriptEntry()) {
+if (isScriptEntry(import.meta.url)) {
   const code = await main();
   if (code !== 0) {
     process.exit(code);

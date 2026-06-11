@@ -1,50 +1,12 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-// Canonicalize both sides of the entrypoint check so the script runs
-// when invoked through a path containing spaces (Bun/Node URL-encode
-// the space as %20 in import.meta.url but leave process.argv[1] raw)
-// or a symlinked checkout. See scripts/lib/entrypoint.ts.
-/* v8 ignore start -- entrypoint guard; covered by scripts/tests/entrypoint.test.ts via the TS helper sibling. */
-function isScriptEntry() {
-  const argv = process.argv[1];
-  if (!argv) return false;
-  try {
-    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(argv);
-  } catch {
-    return false;
-  }
-}
-/* v8 ignore stop */
+import { detectIsoKey, isScriptEntry, parseArgs, resolveFfmpeg } from './common.mjs';
 
 /* v8 ignore next 3 -- CLI-only optional dependency loaded outside unit tests. */
 async function loadChromium() {
   return (await import('playwright')).chromium;
-}
-
-export function parseArgs(argv = process.argv.slice(2)) {
-  const args = Object.fromEntries(
-    argv.map((a) => {
-      const [k, ...v] = a.replace(/^--/, '').split('=');
-      return [k, v.join('=')];
-    }),
-  );
-  return args;
-}
-
-export function detectIsoKey(execFileSyncImpl = execFileSync) {
-  try {
-    const out = execFileSyncImpl('pnpm', ['--silent', 'harness', 'inspect'], {
-      encoding: 'utf8',
-    });
-    const line = out.split('\n').find((l) => l.startsWith('Iso key:'));
-    return line?.split(/\s+/)[2] ?? null;
-  } catch {
-    return null;
-  }
 }
 
 export async function main(
@@ -57,6 +19,8 @@ export async function main(
     /* v8 ignore next */
     date: () => new Date(),
     execFileSync,
+    /* v8 ignore next */
+    ffmpeg: () => resolveFfmpeg(),
     mkdirSync,
     writeFileSync,
   },
@@ -84,24 +48,38 @@ export async function main(
   await page.goto(url, { waitUntil: 'networkidle' });
 
   const pngPath = join(dir, `${phase}.png`);
-  const jpgPath = join(dir, `${phase}.jpg`);
   await page.screenshot({ path: pngPath, type: 'png', fullPage: false });
-  deps.execFileSync('ffmpeg', [
-    '-y',
-    '-i',
-    pngPath,
-    '-vf',
-    'scale=1280:720',
-    '-frames:v',
-    '1',
-    '-update',
-    '1',
-    '-q:v',
-    '3',
-    jpgPath,
-  ]);
-
   await browser.close();
+
+  // The JPEG copy is an LLM-token optimization, not the evidence itself;
+  // a missing or limited ffmpeg (Playwright's bundled build cannot decode
+  // PNG) degrades to PNG-only instead of failing the capture.
+  let jpgPath = null;
+  const ffmpeg = deps.ffmpeg();
+  if (ffmpeg) {
+    try {
+      const candidate = join(dir, `${phase}.jpg`);
+      deps.execFileSync(ffmpeg, [
+        '-y',
+        '-i',
+        pngPath,
+        '-vf',
+        'scale=1280:720',
+        '-frames:v',
+        '1',
+        '-update',
+        '1',
+        '-q:v',
+        '3',
+        candidate,
+      ]);
+      jpgPath = candidate;
+    } catch (e) {
+      deps.console.error(`JPEG conversion failed (${e.message}); PNG still captured`);
+    }
+  } else {
+    deps.console.error('ffmpeg not found; skipping JPEG copy (PNG still captured)');
+  }
 
   deps.writeFileSync(
     join(dir, `${phase}.meta.json`),
@@ -122,7 +100,7 @@ export async function main(
 }
 
 /* v8 ignore next 6 */
-if (isScriptEntry()) {
+if (isScriptEntry(import.meta.url)) {
   const code = await main();
   if (code !== 0) {
     process.exit(code);
