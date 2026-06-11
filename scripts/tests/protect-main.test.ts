@@ -62,15 +62,16 @@ function mkDeps(
 }
 
 describe('REQUIRED_PR_CONTEXTS', () => {
-  test('contains the ten PR-time check contexts and excludes release', () => {
+  test('contains the eleven PR-time check contexts and excludes release', () => {
     const set = new Set(REQUIRED_PR_CONTEXTS);
-    expect(REQUIRED_PR_CONTEXTS.length).toBe(10);
+    expect(REQUIRED_PR_CONTEXTS.length).toBe(11);
     expect(set.has('check')).toBe(true);
     expect(set.has('workspace qa (ubuntu-latest)')).toBe(true);
     expect(set.has('workspace qa (macos-latest)')).toBe(true);
     expect(set.has('scripts')).toBe(true);
     expect(set.has('rust-coverage')).toBe(true);
     expect(set.has('python-coverage')).toBe(true);
+    expect(set.has('sensors-coverage')).toBe(true);
     expect(set.has('documentation')).toBe(true);
     expect(set.has('fitness')).toBe(true);
     expect(set.has('fork-check')).toBe(true);

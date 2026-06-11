@@ -63,6 +63,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The cov-* recipes dispatch through `bun run scripts/coverage.ts`.
+      - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
@@ -81,6 +83,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The cov-* recipes dispatch through `bun run scripts/coverage.ts`.
+      - uses: oven-sh/setup-bun@v2
       - uses: astral-sh/setup-uv@v5
       - uses: taiki-e/install-action@v2
         with:
@@ -89,6 +93,32 @@ jobs:
       - run: sh scripts/with-uv.sh uv run mypy src
         working-directory: ws_apps/example-python
       - run: just cov-py
+
+  sensors-coverage:
+    # node:test built-in coverage gate for the harness/sensors slot
+    # (`just cov-sensors`, ADR-0013 measured floor pinned in
+    # scripts/lib/coverage.ts). Mirrors the lefthook pre-push cov-sensors
+    # hook so a fork that bypasses local hooks still hits the gate at PR
+    # time. Installs the slot's npm deps (ts-morph) and sentrux so the
+    # adapter and sentrux-scan code paths execute the same way they do in
+    # the local measurement environment; without sentrux those modules
+    # soft-skip and the measured coverage shifts.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - name: Install sensors slot deps (ts-morph)
+        working-directory: harness/sensors
+        run: npm install --no-package-lock --no-audit --no-fund --silent
+      - name: Install sentrux (pinned + checksum-verified)
+        run: bash .github/scripts/install-sentrux.sh
+      - run: just cov-sensors
 
   documentation:
     # APSS APS-V1-0003 documentation gate. Validates documentation
