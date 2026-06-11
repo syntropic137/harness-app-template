@@ -101,7 +101,7 @@
           "source": ".sentrux/baseline.json quality_signal (via harness/sensors/sentrux_scan.mjs)",
           "direction": "min",
           "default_threshold": 0,
-          "baseline": 0.6741525415966925,
+          "baseline": 0.6738940309827149,
           "fail_on_regression": true
         },
         "sentrux-god-file-count": {
