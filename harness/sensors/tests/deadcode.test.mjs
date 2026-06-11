@@ -365,6 +365,7 @@ test('deadcode: main() with --deadcode flag tightens baseline.json on improvemen
   const code = await main(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
       '--deadcode=/tmp/deadcode.json',
@@ -401,6 +402,7 @@ test('deadcode: main() with --deadcode flag — regression fails and leaves floo
   const code = await main(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
       '--deadcode=/tmp/deadcode.json',

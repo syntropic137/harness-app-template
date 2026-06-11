@@ -21,11 +21,12 @@ case "$cmd" in
 harness inspector
 
 Usage:
-  just inspector screenshot-pair [args]
-  just inspector record-flow [args]
-  just inspector keyframe-grid [args]
+  just inspector screenshot-pair --phase=before|after --url=<url> [--isoKey=<key>]
+  just inspector record-flow --phase=before|after --url=<url> (--flow=<name> | --flowFile=<path>) [--evidenceMode=<mode>] [--isoKey=<key>]
+  just inspector keyframe-grid <input.webm> <output.jpg>
 
-This is the thin dispatcher for the shipped Node evidence-capture scripts.
+Built-in flows: navigate (generic, any URL), task-crud (example app).
+See harness/inspector/README.md for flow-file authoring and evidence modes.
 EOF
     ;;
   *)

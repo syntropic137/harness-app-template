@@ -6,7 +6,15 @@
 // optional sentrux / grimp entrypoints that fail soft when their tools are not
 // installed.
 
-import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import {
+  accessSync,
+  constants,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
 import { basename, delimiter, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -419,8 +427,23 @@ export function runCli(
   throw new Error(`unknown adapters command: ${command}`);
 }
 
+/** True when this module is being executed directly (not imported).
+ *  Resolves symlinks on both sides for the same reason aggregate.mjs and
+ *  sentrux_scan.mjs do: ntm/proj-style checkouts symlink the repo in
+ *  from /data/projects/<org>--<repo>, Node resolves import.meta.url
+ *  through realpath but argv[1] keeps the symlinked path, so a raw
+ *  comparison fails and adapters runs as a no-op when bin/sensors
+ *  invokes it through the symlinked tree.
+ */
 function isScriptEntry() {
-  return process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+  if (!process.argv[1]) {
+    return false;
+  }
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
 }
 
 if (isScriptEntry()) {

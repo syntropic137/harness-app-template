@@ -52,7 +52,7 @@ The policy cites harness-engineering principles 1, measured not assumed, and
 5, eat our own dogfood. The coverage gates are part of pre-push and CI-ready
 local recipes, not comments that agents must remember.
 
-## Policy as of 2026-06-04
+## Policy as of 2026-06-11
 
 | Surface | Recipe or config | Threshold | Enforcement |
 |---|---|---|---|
@@ -60,10 +60,11 @@ local recipes, not comments that agents must remember.
 | TypeScript example app | `ws_apps/example-typescript/vitest.config.ts`; `pnpm --dir ws_apps/example-typescript exec vitest run --coverage --exclude tests/integration/**` | 100 lines, branches, functions, statements | `pnpm test:coverage`; pre-push `cov-ts` |
 | Inspector slot | `harness/inspector/vitest.config.ts`; `pnpm --dir harness/inspector exec vitest run --coverage` | 100 lines, branches, functions, statements | `pnpm test:coverage`; pre-push `cov-ts` |
 | Stack slot | `harness/stack/vitest.config.ts`; `pnpm --dir harness/stack exec vitest run --coverage` | Report-only, no threshold | `pnpm test:coverage`; pre-push `cov-ts` |
-| Python example app | `ws_apps/example-python/pyproject.toml`; `just cov-py` | 100 total coverage with branch coverage enabled | pre-push `cov-py`; package `test` |
-| Rust example app | `just cov-example-rust` | 100 lines, functions, regions | `just cov-rust`; pre-push `cov-rust` |
-| Doc-validator slot | `just cov-doc-validator` | 100 lines, 100 functions over the library target | `just cov-rust`; pre-push `cov-rust` |
-| Versioning slot | `just cov-versioning` | 100 lines, 100 functions over the library target | `just cov-rust`; pre-push `cov-rust` |
+| Python example app | `ws_apps/example-python/pyproject.toml`; `just cov-py` | 100 total coverage with branch coverage enabled | pre-push `cov-py`; package `test`; CI `python-coverage` |
+| Rust example app | `just cov-example-rust` | 100 lines, functions, regions | `just cov-rust`; pre-push `cov-rust`; CI `rust-coverage` |
+| Doc-validator slot | `just cov-doc-validator` | 100 lines, 100 functions over the library target | `just cov-rust`; pre-push `cov-rust`; CI `rust-coverage` |
+| Versioning slot | `just cov-versioning` | 100 lines, 100 functions over the library target | `just cov-rust`; pre-push `cov-rust`; CI `rust-coverage` |
+| Sensors slot | `just cov-sensors`; floor pinned in `scripts/lib/coverage.ts` | Measured floor: 67 lines, 70 branches, 62 functions (node:test built-in coverage over the slot suite) | pre-push `cov-sensors`; CI `sensors-coverage` |
 
 `pnpm test:coverage` is the TypeScript umbrella. It runs root scripts,
 `ws_apps/example-typescript`, `harness/stack`, and `harness/inspector`.
@@ -71,6 +72,13 @@ local recipes, not comments that agents must remember.
 doc-validator, and versioning gates. Rust slot gates build their CLI shell
 first, then run `cargo llvm-cov --lib` so integration smoke tests do not
 double-count library instantiations as missed business logic.
+
+Every `just cov-*` recipe is a thin dispatch into `scripts/coverage.ts`;
+the lane definitions, thresholds, and the CARGO_TARGET_DIR worktree
+isolation live in `scripts/lib/coverage.ts`, which is itself covered at
+100 percent by `scripts/tests/coverage.test.ts`. Changing a threshold is
+therefore a reviewable edit to one typed module plus this ADR, never a
+quiet recipe tweak.
 
 ## What this protects against
 
@@ -104,7 +112,7 @@ add it to this table first, then add the comment in code.
 | `harness/versioning/src/main.rs` | Binary build plus `--lib --ignore-filename-regex 'main\.rs'` in `just cov-versioning` | CLI shell. Business logic lives in `lib.rs`. |
 | `harness/stack` | Coverage report with no threshold | Real tests exist, but no ratcheted coverage floor has landed yet. Treat as policy debt, not a protected exemption. |
 | `ws_packages/telemetry` | `vitest run` without coverage threshold | Shared telemetry package is tested and typechecked but not yet a coverage-gated surface. Treat as policy debt. |
-| `harness/sensors` | Package syntax checks plus sensor/gate tests outside package coverage | Sensors are guarded by focused tests and `just sensors gate`. A package-local coverage threshold is not declared. |
+| `harness/sensors` | `just cov-sensors` measured floor below 100 percent | The slot's node:test suite gates at a measured floor (67 lines, 70 branches, 62 functions; observed 69-70 / 72-73 / 64-65 across runs on 2026-06-11) because environment-probing adapters (license scan, sentrux scan) have error paths only reachable with broken-tool fixtures, and their coverage varies run to run. Ratchet the floor in `scripts/lib/coverage.ts` as fixtures land. |
 | `harness/stack/rust-stub` | Listed under root `Cargo.toml` `excluded_surfaces` | Stub crate is not part of the current Rust coverage gate. |
 
 ### Not current template surfaces
@@ -121,8 +129,8 @@ gate.
    measured floor is intentionally ratcheted.
 2. Add a coverage gate for `ws_packages/telemetry`, or record why shared
    telemetry remains a tested-but-ungated package.
-3. Decide whether `harness/sensors` needs a package-local coverage gate in
-   addition to the architectural sensors gate.
+3. Ratchet the `cov-sensors` measured floor in `scripts/lib/coverage.ts`
+   upward as broken-tool fixtures bring adapter error paths under test.
 4. Keep `docs/sensors/coverage-and-gate.md` as the per-app policy source for
    new Vitest apps.
 

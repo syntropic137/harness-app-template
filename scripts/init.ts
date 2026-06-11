@@ -1,5 +1,6 @@
 import { chmodSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { isMainEntry } from './lib/entrypoint';
 import { readText, removeIfExists, renameIfExists, replaceInTree, writeText } from './lib/fs';
 import { git, isGitRepo, runInherit } from './lib/git';
 
@@ -84,7 +85,7 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/* v8 ignore next 24 */
+/* v8 ignore start */
 function installGitHooks(cwd: string): void {
   const globalHooksPath = git(['config', '--global', '--get', 'core.hooksPath'], { cwd, allowFailure: true });
   runInherit('pnpm', ['exec', 'lefthook', 'install', '--force'], cwd);
@@ -109,6 +110,7 @@ fi
   chmodSync(hookPath, 0o755);
   console.log(`hooks: chained global prepare-commit-msg from ${globalHooksPath}; local .git/hooks remains active`);
 }
+/* v8 ignore stop */
 
 /**
  * Resolve the canonical repo URL. Priority:
@@ -212,7 +214,7 @@ export function parseCli(argv: string[]): { projectName: string; force: boolean;
 }
 
 /* v8 ignore next 11 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   try {
     const { projectName, force, verify } = parseCli(process.argv.slice(2));
     initProject(projectName, { force, verify });

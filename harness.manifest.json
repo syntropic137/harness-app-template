@@ -3,7 +3,7 @@
   "name": "polyglot-monorepo",
   "version": "0.4.0",
   "standard": "0.2",
-  "description": "Polyglot monorepo with the 11-slot tool-belt harness wired in.",
+  "description": "Polyglot monorepo with the 12-slot tool-belt harness wired in.",
   "slots": {
     "stack-manager": {
       "contract": "stack-manager",
@@ -22,7 +22,7 @@
     "inspector": {
       "contract": "inspector",
       "plugin": "playwright-node",
-      "version": "1.60-stub",
+      "version": "1.60",
       "required": false,
       "swappable": true,
       "interface": {
@@ -30,7 +30,7 @@
         "entrypoint": "harness/inspector/bin/inspector",
         "commands": ["screenshot-pair", "record-flow", "keyframe-grid"]
       },
-      "implementation": "Node evidence-capture scripts with a thin bin dispatcher.",
+      "implementation": "Playwright-based browser evidence capture: screenshot pairs, scripted flow recording (built-in flows plus --flowFile), keyframe grids; iso key via the stack-manager slot, ffmpeg resolved from PATH or the Playwright bundle.",
       "decisionAt": "docs/adrs/ADR-0002-inspector.md"
     },
     "hooks": {
@@ -85,6 +85,20 @@
       },
       "implementation": "TypeScript adapter pair: dependency-cruiser 17.4.0 (Ca/Ce/I) + ts-morph 23.0.0 (Abstractness A), merged by a Node aggregator that emits per-folder and per-module Martin Ca/Ce/I/A/D where D = |A + I - 1|. APS-V1-0001 topology shards are now merged through `apss_topology.mjs` and consumed by the baseline gate as the canonical fitness signal under ADR-0017.",
       "decisionAt": "docs/adrs/ADR-0006-sensors.md"
+    },
+    "profiling": {
+      "contract": "profiling",
+      "plugin": "harness-profiling",
+      "version": "0.1.0",
+      "required": false,
+      "swappable": true,
+      "interface": {
+        "type": "cli",
+        "entrypoint": "harness/profiling/bin/profile",
+        "commands": ["startup", "api", "ui", "summary", "gate"]
+      },
+      "implementation": "Harness-native profiling slot: backend API latency p50/p95/p99 + cpu-prof flamegraph path, frontend CDP performance traces + Core Web Vitals + bundle size via Playwright, startup hyperfine bench re-exposed. Advisory by default; per-signal budgets in harness/profiling/budgets.toml opt into hard gating. OTEL-linked: traceparent per request, trace id in the artifact directory name. Deliberately a slot input, not an APSS dimension.",
+      "decisionAt": "docs/adrs/ADR-0026-profiling-slot.md"
     },
     "agent-plugins": {
       "contract": "agent-plugins",
