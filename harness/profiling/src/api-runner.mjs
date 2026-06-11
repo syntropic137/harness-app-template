@@ -1,5 +1,13 @@
-// harness/profiling/src/api.mjs - backend API profile runner
+// harness/profiling/src/api-runner.mjs - backend API profile runner
 // (bead create-harness-app-z41).
+//
+// Filename note: this is deliberately NOT api.mjs. The sentrux fitness
+// adapter resolves imports by path suffix, so a repo file named api.mjs
+// captures the example apps' `@opentelemetry/api` imports and grafts
+// their import chain onto this slot's (runner -> gate -> budgets),
+// regressing MD01 sentrux-max-depth from 3 to 6. The CLI surface is
+// still `just profile api`; only the module file carries the suffix-safe
+// name.
 //
 // Closes the EXP-11 backend gap: API latency p50/p95/p99 + throughput,
 // regression detection through the shared gate, and a flamegraph/pprof

@@ -49,7 +49,14 @@ if [[ $# -gt 0 ]]; then
 fi
 
 case "$cmd" in
-  startup|api|ui|summary|gate)
+  api)
+    # The module is api-runner.mjs, not api.mjs: a file named api.mjs makes
+    # the sentrux import resolver suffix-bind the example apps'
+    # @opentelemetry/api imports onto this slot, chaining their import
+    # depth onto ours and tripping the MD01 sentrux-max-depth ratchet.
+    exec node "$HERE/src/api-runner.mjs" "$@"
+    ;;
+  startup|ui|summary|gate)
     exec node "$HERE/src/$cmd.mjs" "$@"
     ;;
   -h|--help|help|"")

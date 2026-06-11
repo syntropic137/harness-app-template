@@ -8,7 +8,7 @@ import {
   queryVmQuantiles,
   runLoad,
   // @ts-expect-error - plain ESM, no .d.ts ships with the slot.
-} from '../../harness/profiling/src/api.mjs';
+} from '../../harness/profiling/src/api-runner.mjs';
 import {
   hyperfineToSignals,
   main as startupMain,
