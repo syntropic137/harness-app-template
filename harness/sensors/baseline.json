@@ -101,7 +101,7 @@
           "source": ".sentrux/baseline.json quality_signal (via harness/sensors/sentrux_scan.mjs)",
           "direction": "min",
           "default_threshold": 0,
-          "baseline": 0.6736487049871436,
+          "baseline": 0.6741525415966925,
           "fail_on_regression": true
         },
         "sentrux-god-file-count": {
@@ -181,7 +181,7 @@
           "source": ".sentrux/baseline.json coupling_score (via harness/sensors/sentrux_scan.mjs)",
           "direction": "max",
           "default_threshold": 1,
-          "baseline": 0.2087378640776699,
+          "baseline": 0.2028985507246377,
           "fail_on_regression": true
         },
         "sentrux-max-depth": {
