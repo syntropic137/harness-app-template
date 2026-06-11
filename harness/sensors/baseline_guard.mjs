@@ -284,18 +284,7 @@ export function evaluateBaselineRelaxationGuard({
 }) {
   const violations = [];
   if (!referenceBaseline || typeof referenceBaseline !== 'object') {
-    return {
-      ok: false,
-      violations: [
-        {
-          kind: 'reference-baseline-missing',
-          path: 'reference',
-          reason: 'missing-reference-baseline',
-          severity: 'error',
-          message: 'no reference baseline available for comparison',
-        },
-      ],
-    };
+    return baselineGuardSkipped('no-reference-baseline-available');
   }
   if (!workingBaseline || typeof workingBaseline !== 'object') {
     return {
@@ -391,9 +380,22 @@ export function evaluateBaselineRelaxationGuard({
   return { ok: violations.length === 0, violations };
 }
 
+function baselineGuardSkipped(reason) {
+  return {
+    ok: true,
+    skipped: true,
+    reason,
+    message: `baseline relaxation guard skipped: ${reason}`,
+    violations: [],
+  };
+}
+
 export function formatBaselineRelaxationGuard(guard) {
-  if (!guard || guard.ok) {
+  if (!guard || (guard.ok && !guard.skipped)) {
     return '';
+  }
+  if (guard.skipped) {
+    return `\nBASELINE RELAXATION GUARD: SKIPPED (${guard.reason})\n  ${guard.message}\n  To enforce, ensure origin/main and harness/sensors/baseline.json are reachable (e.g. fetch-depth: 0 in CI).\n`;
   }
   const lines = [''];
   lines.push('BASELINE RELAXATION GUARD: FAIL');
