@@ -1,6 +1,6 @@
 ---
 name: chrome-devtools-deep
-description: Reach for raw Chrome DevTools Protocol when Playwright's high-level API isn't enough — performance traces, source-mapped console stacks, heap snapshots, deep network introspection. Stay inside Playwright via `newCDPSession` rather than running raw websocat.
+description: Reach for raw Chrome DevTools Protocol when Playwright's high-level API isn't enough: performance traces, source-mapped console stacks, heap snapshots, deep network introspection. Stay inside Playwright via `newCDPSession` rather than running raw websocat.
 ---
 
 # Chrome DevTools Protocol — escape hatch

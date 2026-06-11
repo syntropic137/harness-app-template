@@ -80,6 +80,24 @@ pre-commit:
     ubs-staged:
       run: mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
 
+    agents-skills-drift:
+      # AGENTS.md advertises the shipped .claude/skills set through a
+      # generated block (bead create-harness-app-64l). This gate fails
+      # when that block drifts from the skills directory; regenerate
+      # with `just agents skills --write`. Glob-gated so commits that
+      # touch neither surface skip instantly; soft-skips when bun is
+      # absent so first-clone commits still go through. CI re-runs the
+      # same check in the `scripts` job as the hard gate.
+      glob: "{AGENTS.md,.claude/skills/**/*}"
+      run: |
+        sh -eu -c '
+          if ! command -v bun >/dev/null 2>&1; then
+            printf "%s\n" "warning: bun not found; skipping AGENTS.md skills drift gate" >&2
+            exit 0
+          fi
+          bun run scripts/agents-skills.ts --check
+        '
+
     fitness-summary:
       # Agent-facing fitness one-liner (bead
       # create-harness-app-feat-fitness-feedback-report). Reads

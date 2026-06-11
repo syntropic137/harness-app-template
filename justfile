@@ -28,10 +28,10 @@ bootstrap *args:
 doctor *args:
     bun run scripts/doctor.ts {{args}}
 
-# Link agent vendor manifests (.cursor.mcp.json, .gemini.mcp.json, etc.).
+# Link agent vendor manifests (`link`) or sync the generated AGENTS.md skill list (`skills`, `--write` to regenerate).
 [group('setup')]
 agents action="link" *args:
-    @if [ "{{action}}" = "link" ]; then bun run scripts/agents-link.ts {{args}}; else echo "unknown agents action: {{action}}" >&2; exit 64; fi
+    @if [ "{{action}}" = "link" ]; then bun run scripts/agents-link.ts {{args}}; elif [ "{{action}}" = "skills" ]; then bun run scripts/agents-skills.ts {{args}}; else echo "unknown agents action: {{action}}" >&2; exit 64; fi
 
 # Pull latest harness changes from the upstream template.
 [group('setup')]

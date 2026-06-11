@@ -1,6 +1,6 @@
 ---
 name: playwright-debug
-description: Drive your app via Playwright for UI debugging — navigation, console errors, network failures, accessibility-tree DOM snapshots, JS evaluation. Use when investigating UI bugs, validating fixes, or capturing what the user sees.
+description: Drive your app via Playwright for UI debugging: navigation, console errors, network failures, accessibility-tree DOM snapshots, JS evaluation. Use when investigating UI bugs, validating fixes, or capturing what the user sees.
 ---
 
 # Playwright debugging recipes
