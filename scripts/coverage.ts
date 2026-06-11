@@ -23,9 +23,10 @@ function runLane(lane: CoverageLane, root: string, deps: CoverageDeps): void {
       env: cmd.env ? { ...process.env, ...cmd.env } : process.env,
     });
     if (result.status !== 0) {
-      deps.stderr.error(
-        `[cov:${lane}] FAIL: ${cmd.command} exited with ${result.status ?? 'signal'}`,
-      );
+      const detail = result.error
+        ? `failed to run (${result.error.message})`
+        : `exited with ${result.status ?? 'signal'}`;
+      deps.stderr.error(`[cov:${lane}] FAIL: ${cmd.command} ${detail}`);
       deps.exit(result.status ?? 1);
     }
   }

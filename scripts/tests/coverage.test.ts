@@ -197,4 +197,12 @@ describe('coverage entrypoint', () => {
     expect(() => main(['sensors'], d)).toThrow('exit 1');
     expect(d.errors[0]).toContain('exited with signal');
   });
+
+  test('reports the spawn error when the command cannot be executed at all', () => {
+    const d = deps({
+      spawn: vi.fn(() => ({ status: null, error: new Error('spawnSync node ENOENT') })) as never,
+    });
+    expect(() => main(['sensors'], d)).toThrow('exit 1');
+    expect(d.errors[0]).toContain('failed to run (spawnSync node ENOENT)');
+  });
 });

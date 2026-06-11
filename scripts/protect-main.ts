@@ -17,6 +17,7 @@ export const REQUIRED_PR_CONTEXTS: readonly string[] = Object.freeze([
   'scripts',
   'rust-coverage',
   'python-coverage',
+  'sensors-coverage',
   'documentation',
   'fitness',
   'fork-check',

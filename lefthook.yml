@@ -220,18 +220,27 @@ pre-push:
             printf "%s\n" "warning: just not found; skipping Rust coverage hook" >&2
             exit 0
           fi
+          if ! command -v bun >/dev/null 2>&1; then
+            printf "%s\n" "warning: bun not found; skipping Rust coverage hook" >&2
+            exit 0
+          fi
           just cov-rust
         '
 
     cov-py:
       # Python pytest-cov gate for ws_apps/example-python. The package keeps
-      # its 100 percent threshold in pyproject.toml; this hook soft-skips
-      # when uv is missing so first-clone pushes fail only once the Python
-      # toolchain is present.
+      # its 100 percent threshold in pyproject.toml; this hook runs the same
+      # `scripts/coverage.ts py` lane CI uses (the lane defers to with-uv.sh,
+      # which soft-skips when uv is missing outside CI). Soft-skips when bun
+      # is missing so first-clone pushes fail only once the toolchain is
+      # present.
       run: |
         sh -eu -c '
-          cd ws_apps/example-python
-          sh scripts/with-uv.sh uv run pytest
+          if ! command -v bun >/dev/null 2>&1; then
+            printf "%s\n" "warning: bun not found; skipping Python coverage hook" >&2
+            exit 0
+          fi
+          bun run scripts/coverage.ts py
         '
 
     cov-sensors:
