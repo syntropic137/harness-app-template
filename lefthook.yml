@@ -1,4 +1,25 @@
-# Fast, diff-scoped hooks only. Do not replace these with full-repo sweeps.
+# Lefthook gate configuration.
+# Docs: https://lefthook.dev/
+#
+# Philosophy: fast, diff-scoped hooks only. Full-repo sweeps belong in CI, not
+# in the local commit/push path. Every command that requires an external tool
+# uses the soft-skip pattern (command -v <tool> || exit 0) so a freshly-cloned
+# environment without the full toolchain can still commit and push — the same
+# gate runs as a hard failure in CI where the tool is always installed.
+#
+# Two stages:
+#   pre-commit  — cheap, staged-file-scoped checks (format, lint, secret scan,
+#                 doc validation, UBS staged). All run in parallel.
+#   pre-push    — heavier gates (typecheck, tests, coverage, perf, sensors,
+#                 versioning, UBS diff). All run in parallel against the diff
+#                 between HEAD and the configured base ref (default: main).
+#
+# Base ref resolution (used by typecheck-affected, test-affected, ubs-diff,
+# versioning-release-check):
+#   git config harness.hookBaseRef    → branch name (e.g. main)
+#   git config harness.hookBaseRemote → remote name (e.g. upstream)
+#   Falls back to origin/main if neither is set.
+#
 # `scripts/init.ts` installs lefthook into .git/hooks and chains any global
 # attribution prepare-commit-msg hook configured through core.hooksPath.
 

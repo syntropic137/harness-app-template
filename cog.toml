@@ -1,15 +1,35 @@
+# Cocogitto configuration — enforces Conventional Commits, drives semver bumps,
+# and generates CHANGELOG.md. The `cog-verify` lefthook gate runs `cog check`
+# on every commit so malformed messages are rejected before they land.
+# Docs: https://docs.cocogitto.io/
+
+# Don't derive the base version from the latest tag; use the explicit version in
+# cog.toml / package manifests instead.
 from_latest_tag = false
+
+# All version tags are prefixed "v" (e.g. v1.2.3).
 tag_prefix = "v"
+
 ignore_merge_commits = false
 ignore_fixup_commits = false
 disable_changelog = false
 disable_bump_commit = false
+
+# Monorepo mode: emit one global tag AND per-package tags on each bump.
 generate_mono_repository_global_tag = true
 generate_mono_repository_package_tags = true
+
+# Version bumps may only be triggered from main, preventing accidental releases
+# from feature branches.
 branch_whitelist = ["main"]
+
+# Pre-release label appended to versions during alpha (e.g. v1.0.0-alpha.1).
 pre = "alpha.*"
+
 skip_ci = "[skip ci]"
 skip_untracked = false
+
+# Hook arrays are empty; add shell commands here to run before/after a bump.
 pre_bump_hooks = []
 post_bump_hooks = []
 pre_package_bump_hooks = []
@@ -17,12 +37,15 @@ post_package_bump_hooks = []
 
 [git_hooks]
 
+# Project-specific commit types beyond the standard CC set (feat, fix, chore…).
+# Each maps to a changelog section title. Set omit_from_changelog = true for
+# types that are noise in the public changelog (e.g. internal scaffolding).
 [commit_types]
-experiments = { changelog_title = "Experiments", omit_from_changelog = false }
-plan = { changelog_title = "Plans", omit_from_changelog = false }
-proposal = { changelog_title = "Proposals", omit_from_changelog = false }
-scaffold = { changelog_title = "Scaffold", omit_from_changelog = true }
-retrospective = { changelog_title = "Retrospectives", omit_from_changelog = false }
+experiments    = { changelog_title = "Experiments",   omit_from_changelog = false }
+plan           = { changelog_title = "Plans",          omit_from_changelog = false }
+proposal       = { changelog_title = "Proposals",      omit_from_changelog = false }
+scaffold       = { changelog_title = "Scaffold",       omit_from_changelog = true  }
+retrospective  = { changelog_title = "Retrospectives", omit_from_changelog = false }
 
 [changelog]
 path = "CHANGELOG.md"
