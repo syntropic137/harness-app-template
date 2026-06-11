@@ -98,6 +98,44 @@ pre-commit:
           bun run scripts/agents-skills.ts --check
         '
 
+    template-hygiene:
+      # Ported from the lab's pre-push template-hygiene gate (bead
+      # create-harness-app-port-template-hygiene-hook-rh2). The lab variant
+      # scaffolds templates/polyglot-monorepo into a temp dir and smoke-tests
+      # the result; this repo has no scaffolder, the repo itself is the
+      # template consumers fork, so the port runs a fast structural
+      # validation (lefthook config validity, justfile parse, syntax-check
+      # of every harness/hooks script) whenever a staged change touches a
+      # hygiene-critical surface: lefthook.yml, justfile, harness/hooks/,
+      # scripts/{init,update,bootstrap}.ts, scripts/lib/. Short-circuits in
+      # <100 ms otherwise. The deep scaffold-and-smoke equivalent stays in
+      # `just fork-check` (CI tier). Soft-skips when node is absent so
+      # first-clone state stays bootable.
+      # Bypass for emergency one-offs: HARNESS_HYGIENE_SKIP=1 git commit ...
+      run: |
+        sh -eu -c '
+          if ! command -v node >/dev/null 2>&1; then
+            printf "%s\n" "warning: node not found; skipping template-hygiene gate" >&2
+            exit 0
+          fi
+          node harness/hooks/template-hygiene-gate.mjs
+        '
+
+    hook-tests:
+      # Unit tests for the harness/hooks scripts (node:test, sub-second).
+      # Glob-gated so only commits that touch harness/hooks pay the cost.
+      # Before this command existed the tests under harness/hooks/tests/
+      # were run manually only; now any staged hook change re-runs them.
+      glob: "harness/hooks/**.mjs"
+      run: |
+        sh -eu -c '
+          if ! command -v node >/dev/null 2>&1; then
+            printf "%s\n" "warning: node not found; skipping hook unit tests" >&2
+            exit 0
+          fi
+          node --test "harness/hooks/tests/*.test.mjs"
+        '
+
     fitness-summary:
       # Agent-facing fitness one-liner (bead
       # create-harness-app-feat-fitness-feedback-report). Reads
