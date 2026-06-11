@@ -58,8 +58,11 @@ jobs:
       # CI_REQUIRE_BROWSERS=1: this lane installs chromium and sets the
       # flag so the live test is fail-closed here rather than silently
       # skipped everywhere.
+      # playwright is a dependency of the @harness/inspector workspace
+      # package (not the root), so the exec must be scoped with --dir or
+      # the binary is not on the root .bin path.
       - name: Install Playwright chromium (inspector live integration test)
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm --dir harness/inspector exec playwright install --with-deps chromium
       - run: pnpm test:coverage
         env:
           CI_REQUIRE_BROWSERS: '1'
