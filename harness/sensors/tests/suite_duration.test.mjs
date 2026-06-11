@@ -672,6 +672,7 @@ test('PF01 gate reader returns p95 from a passing envelope, null on available=fa
   const gateCode = await gateMain(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--baseline-reference=none',
       '--suite-duration=adapter-report.json',
       '--no-ratchet',
       '--format=json',
@@ -771,6 +772,7 @@ test('PF01 gate keeps a noisy timing measurement above the baseline floor as PAS
   const gateCode = await gateMain(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--baseline-reference=none',
       '--suite-duration=adapter-report.json',
       '--no-ratchet',
       '--format=json',

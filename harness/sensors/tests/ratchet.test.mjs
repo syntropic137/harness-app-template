@@ -284,6 +284,7 @@ test('main: improving run auto-tightens baseline.json (writes the tighter floor)
   const code = await main(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
     ],
@@ -318,6 +319,7 @@ test('main: regression below floor fails AND does not move the baseline', async 
   const code = await main(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
     ],
@@ -352,6 +354,7 @@ test('main: --no-ratchet preserves comparison behaviour but skips the rewrite', 
   const code = await main(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--no-ratchet',
       '--perf-baseline=harness/perf/baseline.json',
@@ -383,6 +386,7 @@ test('main: --update-baseline is the escape hatch — relaxes the floor on a reg
   const code = await main(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--update-baseline',
       '--perf-baseline=harness/perf/baseline.json',
@@ -413,6 +417,7 @@ test('main: no improvement, no regression → ratchet does not churn the baselin
   const code = await main(
     [
       '--baseline=harness/sensors/baseline.json',
+      '--skip-baseline-relaxation-guard',
       '--policy=none',
       '--perf-baseline=harness/perf/baseline.json',
     ],
