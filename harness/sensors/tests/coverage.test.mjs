@@ -15,8 +15,8 @@
 //   - direction=min so the ratchet only ever tightens UPWARD (larger
 //     is better; floor at 100 is the operator invariant).
 //   - Regressions fail the gate WITHOUT moving the floor.
-//   - When the adapter envelope reports `available: false`, every CV01
-//     metric degrades to "no reading" rather than a false zero.
+//   - When the adapter envelope is requested but unavailable / malformed,
+//     CV01 hard-fails instead of degrading to a false zero.
 //
 // Run via: node --test harness/sensors/tests/coverage.test.mjs
 
@@ -25,6 +25,7 @@ import { test } from 'node:test';
 import {
   buildEnvelopeFromOptions,
   composeMetrics,
+  main as coverageMain,
   parseJavascriptCoverageSummary,
   parsePythonCoverageJson,
   parseRustLlvmCovJson,
@@ -216,6 +217,47 @@ test('buildEnvelopeFromOptions with no input returns available=false (no false z
   assert.equal(env.metrics.min_line_pct, null);
 });
 
+test('buildEnvelopeFromOptions treats missing lane JSON as hard-fail when that lane is requested', () => {
+  const env = buildEnvelopeFromOptions({
+    workspaceRoot: '/tmp/nowhere',
+    rustCovJsonPath: '/tmp/does-not-exist-rust-coverage.json',
+    pythonCovJsonPath: '/tmp/does-not-exist-python-coverage.json',
+    javascriptCovJsonPath: '/tmp/does-not-exist-js-coverage.json',
+    runRust: false,
+  });
+  assert.equal(env.available, false);
+  assert.equal(env.hard_fail, true);
+  assert.equal(env.scanned_lanes.length, 0);
+  assert.equal(env.metrics.min_line_pct, null);
+  assert.match(env.reason, /missing rust coverage JSON/);
+});
+
+test('buildEnvelopeFromOptions with --run-rust but no discovered Rust lanes hard-fails', () => {
+  const env = buildEnvelopeFromOptions({
+    workspaceRoot: '/tmp/nowhere',
+    rustCovJsonPath: null,
+    pythonCovJsonPath: null,
+    javascriptCovJsonPath: null,
+    runRust: true,
+  });
+  assert.equal(env.available, false);
+  assert.equal(env.hard_fail, true);
+  assert.equal(env.scanned_lanes.length, 0);
+  assert.equal(env.metrics.min_line_pct, null);
+  assert.match(env.reason, /no Rust lanes discovered for --run-rust/);
+});
+
+test('coverage_scan.main returns non-zero on missing lane JSON', async () => {
+  const stdout = [];
+  const io = { write: (s) => stdout.push(s) };
+  const code = await coverageMain(['--rust-cov-json=/tmp/does-not-exist-rust-coverage.json'], io);
+  assert.equal(code, 1);
+  const envelope = JSON.parse(stdout.join(''));
+  assert.equal(envelope.available, false);
+  assert.equal(envelope.hard_fail, true);
+  assert.match(envelope.reason, /missing rust coverage JSON/);
+});
+
 // ---------------------------------------------------------------------------
 // Gate integration: ratchet + regression + soft-skip
 // ---------------------------------------------------------------------------
@@ -258,15 +300,22 @@ test('coverage: 100 percent baseline at 100 percent current is PASS (no regressi
   assert.equal(changed, false, 'a floor already at 100 cannot tighten further');
 });
 
-test('coverage: absent envelope (available=false) degrades to no-reading, not a false zero', () => {
+test('coverage: explicit --coverage envelope unavailable / malformed hard-fails', () => {
   const baseline = baselineWithCoverage({});
   const cmp = compareBaseline(baseline, emptyReport(), {
     coverage: { tool: 'coverage-scan', available: false, reason: 'no input' },
   });
-  // No regression - when the adapter is unavailable every CV01 metric
-  // reads as null so worsened() returns false. Same shape as the
-  // SC01/LG01/sentrux/deadcode no-reading contract.
-  assert.equal(cmp.ok, true);
+  assert.equal(cmp.ok, false);
+  assert.ok(
+    cmp.regressions.some((r) => r.dimension === 'CV01' && r.metric === 'rust-line-coverage-pct'),
+  );
+  assert.ok(
+    cmp.regressions.some((r) => r.dimension === 'CV01' && r.metric === 'min-line-coverage-pct'),
+  );
+  assert.match(
+    cmp.regressions[0].diagnostic ?? '',
+    /coverage adapter reported unavailable: no input/,
+  );
 });
 
 test('coverage: main() with --coverage flag tightens baseline.json on improvement', async () => {

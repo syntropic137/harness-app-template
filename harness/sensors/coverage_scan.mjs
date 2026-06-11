@@ -37,10 +37,11 @@
 // test:coverage runs >2 minutes on a cold cache). The adapter is
 // invoked from bin/sensors gate only when SENSORS_COVERAGE=1 is set in
 // the environment. Pre-push leaves it off; CI's fitness job sets it.
-// When the adapter is skipped or the tools are absent, the envelope
-// reports `available: false` and the gate degrades CV01 metrics to "no
-// reading" (same shape as the SC01 / LG01 / sentrux / deadcode
-// soft-skips above), so a missing scanner cannot silently pass.
+// When the adapter is skipped (no coverage inputs were requested), the
+// envelope reports `available: false`. When requested inputs are present
+// but malformed or a lane scan fails, the envelope reports
+// `available: false` plus `hard_fail: true`, and the process exits
+// non-zero (never silent pass).
 //
 // CONTRACT  -  envelope shape consumed by gate.mjs:
 //   {
@@ -235,6 +236,7 @@ function emptyEnvelope(reason) {
     tool: 'coverage-scan',
     available: false,
     reason,
+    hard_fail: false,
     version: ADAPTER_VERSION,
     scanned_lanes: [],
     metrics: composeMetrics({ rust: null, python: null, javascript: null }),
@@ -327,35 +329,56 @@ const RUST_LANES = [
  * aggregated across crates whose RUST_LANES entry sets enforceRegions
  * so the CV01 region floor matches the existing cov-rust policy.
  */
-function runAllRustLanes({ workspaceRoot, env }) {
-  const lanes = RUST_LANES.filter((lane) => existsSync(join(workspaceRoot, lane.manifest)));
-  if (lanes.length === 0) {
-    return null;
+function discoverRustLanes(workspaceRoot) {
+  return RUST_LANES.filter((lane) => existsSync(join(workspaceRoot, lane.manifest)));
+}
+
+function runRustLane({ workspaceRoot, lane, env }) {
+  return runCargoLlvmCov({
+    workspaceRoot,
+    manifestRelPath: lane.manifest,
+    extraArgs: lane.extraArgs,
+    env,
+  });
+}
+
+function addRustValues(values, lane, metrics) {
+  if (typeof metrics.line_pct === 'number') {
+    values.line.push(metrics.line_pct);
   }
-  const lineValues = [];
-  const functionValues = [];
-  const regionValues = [];
+  if (typeof metrics.function_pct === 'number') {
+    values.function.push(metrics.function_pct);
+  }
+  if (lane.enforceRegions && typeof metrics.region_pct === 'number') {
+    values.region.push(metrics.region_pct);
+  }
+}
+
+function runAllRustLanes({ workspaceRoot, env }) {
+  const lanes = discoverRustLanes(workspaceRoot);
+  if (lanes.length === 0) {
+    return { ok: false, reason: 'no Rust lanes discovered for --run-rust' };
+  }
+  const values = {
+    line: [],
+    function: [],
+    region: [],
+  };
   for (const lane of lanes) {
-    const result = runCargoLlvmCov({
-      workspaceRoot,
-      manifestRelPath: lane.manifest,
-      extraArgs: lane.extraArgs,
-      env,
-    });
+    const result = runRustLane({ workspaceRoot, lane, env });
     if (!result.ok || !result.metrics) {
-      return null;
+      return {
+        ok: false,
+        reason: `cargo llvm-cov failed for ${lane.manifest}: ${result.reason ?? 'unknown error'}`,
+      };
     }
-    if (typeof result.metrics.line_pct === 'number') lineValues.push(result.metrics.line_pct);
-    if (typeof result.metrics.function_pct === 'number')
-      functionValues.push(result.metrics.function_pct);
-    if (lane.enforceRegions && typeof result.metrics.region_pct === 'number') {
-      regionValues.push(result.metrics.region_pct);
-    }
+    addRustValues(values, lane, result.metrics);
   }
   return {
-    line_pct: roundPct(minFinite(lineValues)),
-    function_pct: roundPct(minFinite(functionValues)),
-    region_pct: roundPct(minFinite(regionValues)),
+    ok: true,
+    line_pct: roundPct(minFinite(values.line)),
+    function_pct: roundPct(minFinite(values.function)),
+    region_pct: roundPct(minFinite(values.region)),
   };
 }
 
@@ -367,6 +390,61 @@ function commandExists(bin) {
   return result.status === 0;
 }
 
+function readCoverageJsonOrNull(path) {
+  if (!existsSync(path)) {
+    return null;
+  }
+  return readJsonFile(path);
+}
+
+function parseCoverageJsonFile(path, parse, failures, failuresKey) {
+  const payload = readCoverageJsonOrNull(path);
+  if (payload === null) {
+    failures.push(`missing ${failuresKey} coverage JSON at ${path}`);
+    return null;
+  }
+  const parsed = parse(payload);
+  if (!parsed) {
+    failures.push(`${failuresKey} coverage JSON malformed at ${path}`);
+    return null;
+  }
+  return parsed;
+}
+
+function resolveRustCoverageFromOptions(opts, failures) {
+  if (opts.rustCovJsonPath) {
+    return parseCoverageJsonFile(opts.rustCovJsonPath, parseRustLlvmCovJson, failures, 'rust');
+  }
+  if (!opts.runRust) {
+    return null;
+  }
+  const live = runAllRustLanes({ workspaceRoot: opts.workspaceRoot, env: opts.env });
+  if (live.ok) {
+    return live;
+  }
+  failures.push(live.reason ?? 'rust scanner failed');
+  return null;
+}
+
+function resolvePythonCoverageFromOptions(opts, failures) {
+  return parseCoverageJsonFile(opts.pythonCovJsonPath, parsePythonCoverageJson, failures, 'python');
+}
+
+function resolveJavascriptCoverageFromOptions(opts, failures) {
+  return parseCoverageJsonFile(
+    opts.javascriptCovJsonPath,
+    parseJavascriptCoverageSummary,
+    failures,
+    'javascript',
+  );
+}
+
+function markScannedIfPresent(scanned, laneName, value) {
+  if (value) {
+    scanned.push(laneName);
+  }
+}
+
 /**
  * Public entry: build an envelope from a mix of pre-rendered JSON
  * paths and (when --run flags are set) live tool runs. The CLI wrapper
@@ -374,46 +452,23 @@ function commandExists(bin) {
  */
 export function buildEnvelopeFromOptions(opts) {
   const scanned = [];
-  let rust = null;
-  let python = null;
-  let javascript = null;
+  const failures = [];
+  const rust = resolveRustCoverageFromOptions(opts, failures);
+  const python = opts.pythonCovJsonPath ? resolvePythonCoverageFromOptions(opts, failures) : null;
+  const javascript = opts.javascriptCovJsonPath
+    ? resolveJavascriptCoverageFromOptions(opts, failures)
+    : null;
+  markScannedIfPresent(scanned, 'rust', rust);
+  markScannedIfPresent(scanned, 'python', python);
+  markScannedIfPresent(scanned, 'javascript', javascript);
 
-  // Rust: pre-rendered JSON takes priority over a live run.
-  if (opts.rustCovJsonPath) {
-    const payload = readJsonFile(opts.rustCovJsonPath);
-    const parsed = parseRustLlvmCovJson(payload);
-    if (parsed) {
-      rust = parsed;
-      scanned.push('rust');
-    }
-  } else if (opts.runRust) {
-    const live = runAllRustLanes({ workspaceRoot: opts.workspaceRoot, env: opts.env });
-    if (live) {
-      rust = live;
-      scanned.push('rust');
-    }
-  }
-
-  // Python: only pre-rendered JSON is supported in this adapter; the
-  // live run is delegated to `just cov-py` which writes
-  // coverage.json under ws_apps/example-python/.
-  if (opts.pythonCovJsonPath) {
-    const payload = readJsonFile(opts.pythonCovJsonPath);
-    const parsed = parsePythonCoverageJson(payload);
-    if (parsed) {
-      python = parsed;
-      scanned.push('python');
-    }
-  }
-
-  // JavaScript: pre-rendered vitest coverage-summary.json
-  if (opts.javascriptCovJsonPath) {
-    const payload = readJsonFile(opts.javascriptCovJsonPath);
-    const parsed = parseJavascriptCoverageSummary(payload);
-    if (parsed) {
-      javascript = parsed;
-      scanned.push('javascript');
-    }
+  if (failures.length > 0) {
+    const reason = `coverage scan failure: ${failures.join('; ')}`;
+    return {
+      ...emptyEnvelope(reason),
+      hard_fail: true,
+      reason,
+    };
   }
 
   if (scanned.length === 0) {
@@ -470,7 +525,7 @@ export async function main(
   opts.workspaceRoot = resolve(opts.workspaceRoot);
   const envelope = buildEnvelopeFromOptions(opts);
   io.write(`${JSON.stringify(envelope, null, 2)}\n`);
-  return 0;
+  return envelope.hard_fail ? 1 : 0;
 }
 
 function isScriptEntry() {
