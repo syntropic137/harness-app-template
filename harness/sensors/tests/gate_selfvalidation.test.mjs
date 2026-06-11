@@ -584,6 +584,47 @@ test('lens=baseline-relaxation-guard: fails on untagged regression and passes on
   });
   assert.equal(tightenedResult.ok, true);
 
+  const deletedFolder = cloneJson(reference);
+  delete deletedFolder.folders['ws_apps/fixture/src'];
+  const deletedFolderResult = evaluateBaselineRelaxationGuard({
+    workingBaseline: deletedFolder,
+    referenceBaseline: reference,
+    generatedBaseline: cloneJson(deletedFolder),
+  });
+  assert.equal(deletedFolderResult.ok, false);
+  assert.equal(
+    deletedFolderResult.violations.some(
+      (v) =>
+        v.path === folderRelaxationPath('ws_apps/fixture/src', 'I') &&
+        v.reason === 'floor-replaced-with-null',
+    ),
+    true,
+  );
+  assert.equal(
+    deletedFolderResult.violations.some(
+      (v) =>
+        v.path === folderRelaxationPath('ws_apps/fixture/src', 'D') &&
+        v.reason === 'floor-replaced-with-null',
+    ),
+    true,
+  );
+
+  const directionFlip = cloneJson(reference);
+  directionFlip.dimensions.MT01.metrics['max-cyclomatic'].direction = 'min';
+  const directionFlipResult = evaluateBaselineRelaxationGuard({
+    workingBaseline: directionFlip,
+    referenceBaseline: reference,
+    generatedBaseline: cloneJson(directionFlip),
+  });
+  assert.equal(directionFlipResult.ok, false);
+  assert.equal(
+    directionFlipResult.violations.some(
+      (v) =>
+        v.path === dimensionRelaxationPath('MT01', 'max-cyclomatic') &&
+        v.reason === 'direction-flip',
+    ),
+    true,
+  );
   const justified = cloneJson(reference);
   justified.folders['ws_apps/fixture/src'].I = 0.9;
   justified.dimensions.MT01.metrics['max-cyclomatic'].baseline = 12;
@@ -603,6 +644,18 @@ test('lens=baseline-relaxation-guard: fails on untagged regression and passes on
   });
   assert.equal(justifiedResult.ok, true);
 
+  const justifiedDirectionFlip = cloneJson(reference);
+  justifiedDirectionFlip.dimensions.MT01.metrics['max-cyclomatic'].direction = 'min';
+  justifiedDirectionFlip[BASELINE_RELAXATION_APPROVAL_KEY] = {
+    [dimensionRelaxationPath('MT01', 'max-cyclomatic')]:
+      'BASELINE-RELAX-OK: intentional direction flip for gate',
+  };
+  const justifiedDirectionFlipResult = evaluateBaselineRelaxationGuard({
+    workingBaseline: justifiedDirectionFlip,
+    referenceBaseline: reference,
+    generatedBaseline: cloneJson(justifiedDirectionFlip),
+  });
+  assert.equal(justifiedDirectionFlipResult.ok, true);
   record({
     lens: 'baseline-relaxation-guard',
     failsOnRegression: true,

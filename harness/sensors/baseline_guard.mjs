@@ -228,9 +228,6 @@ export function evaluateBaselineRelaxationGuard({
 
   for (const [folderName, referenceFolder] of Object.entries(referenceBaseline.folders ?? {})) {
     const workingFolder = workingBaseline?.folders?.[folderName];
-    if (!workingFolder) {
-      continue;
-    }
     for (const metric of FOLDER_METRICS) {
       evaluateCandidate.call(
         { workingBaseline },
@@ -259,6 +256,7 @@ export function evaluateBaselineRelaxationGuard({
       const referenceValue = referenceMetric?.baseline;
       const workingMetric = workingBaseline?.dimensions?.[dimension]?.metrics?.[metricId];
       const workingValue = workingMetric?.baseline;
+      const workingDirection = workingMetric?.direction;
       if (direction !== 'max' && direction !== 'min') {
         if (isNumber(referenceValue)) {
           violations.push({
@@ -271,6 +269,57 @@ export function evaluateBaselineRelaxationGuard({
             severity: 'error',
             message: `unknown direction ${direction} for ${dimension} ${metricId}`,
           });
+        }
+        continue;
+      }
+      if (
+        (workingDirection === 'min' || workingDirection === 'max') &&
+        workingDirection !== direction
+      ) {
+        const path = dimensionRelaxationPath(dimension, metricId);
+        const note = hasRelaxationMarker(workingBaseline, path);
+        const current = readNumberFromGenerated(generatedBaseline, path);
+        if (!note) {
+          violations.push({
+            kind: 'metric-direction',
+            path,
+            direction: workingDirection,
+            reference: direction,
+            working: workingDirection,
+            reason: 'direction-flip',
+            severity: 'loosened',
+            message: `metric direction flipped from ${direction} to ${workingDirection} for ${path}`,
+          });
+          continue;
+        }
+        if (current === null) {
+          violations.push({
+            kind: 'metric-direction',
+            path,
+            direction: workingDirection,
+            reference: direction,
+            working: workingDirection,
+            reason: 'direction-flip-missing-regenerated-baseline-measurement',
+            severity: 'loosened',
+            message: 'no regenerated measurement to validate this metric direction flip',
+            note,
+          });
+          continue;
+        }
+        if (Math.abs(current - workingValue) > EPSILON) {
+          violations.push({
+            kind: 'metric-direction',
+            path,
+            direction: workingDirection,
+            reference: direction,
+            working: workingDirection,
+            reason: 'direction-flip-regenerated-baseline-mismatch',
+            severity: 'loosened',
+            message: `regenerated baseline mismatch for ${path}`,
+            note,
+            current,
+          });
+          continue;
         }
         continue;
       }
