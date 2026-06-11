@@ -157,6 +157,9 @@ describe('isScriptEntry', () => {
   });
 
   it('returns false with no argv or when canonicalization throws', () => {
+    // null bypasses the process.argv[1] default (undefined would not),
+    // exercising the no-argv guard; undefined exercises the default itself.
+    expect(isScriptEntry(url, null)).toBe(false);
     expect(isScriptEntry(url, undefined)).toBe(false);
     expect(
       isScriptEntry(url, '/missing.mjs', () => {
