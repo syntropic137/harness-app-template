@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { detectIsoKey, isScriptEntry, parseArgs, resolveFfmpeg } from './common.mjs';
+import { PHASES, detectIsoKey, isSafePathSegment, isScriptEntry, parseArgs, resolveFfmpeg } from './common.mjs';
 
 /* v8 ignore next 3 -- CLI-only optional dependency loaded outside unit tests. */
 async function loadChromium() {
@@ -32,9 +32,19 @@ export async function main(
     );
     return 2;
   }
+  if (!PHASES.includes(phase)) {
+    deps.console.error(`invalid phase: ${phase}. must be one of: ${PHASES.join(', ')}`);
+    return 2;
+  }
 
   const isoKey = isoKeyArg ?? detectIsoKey(deps.execFileSync);
   if (!isoKey) throw new Error('could not determine iso key; pass --isoKey=<key>');
+  if (!isSafePathSegment(isoKey)) {
+    deps.console.error(
+      `invalid iso key: ${isoKey}. must match [A-Za-z0-9][A-Za-z0-9._-]* (no path separators)`,
+    );
+    return 2;
+  }
 
   const dir = join(deps.cwd(), '.harness/artifacts', isoKey, 'screenshots');
   deps.mkdirSync(dir, { recursive: true });
@@ -43,13 +53,15 @@ export async function main(
   if (!deps.chromium) {
     deps.chromium = await loadChromium();
   }
-  const browser = await deps.chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-  await page.goto(url, { waitUntil: 'networkidle' });
-
   const pngPath = join(dir, `${phase}.png`);
-  await page.screenshot({ path: pngPath, type: 'png', fullPage: false });
-  await browser.close();
+  const browser = await deps.chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    await page.goto(url, { waitUntil: 'networkidle' });
+    await page.screenshot({ path: pngPath, type: 'png', fullPage: false });
+  } finally {
+    await browser.close();
+  }
 
   // The JPEG copy is an LLM-token optimization, not the evidence itself;
   // a missing or limited ffmpeg (Playwright's bundled build cannot decode

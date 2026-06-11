@@ -9,6 +9,16 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Phases are a closed two-value contract (the whole point is a diffable
+// before/after pair), and the iso key is embedded in artifact paths, so
+// both are validated before any filesystem write. The segment regex
+// excludes path separators entirely, which makes traversal impossible.
+export const PHASES = ['before', 'after'];
+
+export function isSafePathSegment(value) {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value ?? '');
+}
+
 export function parseArgs(argv = process.argv.slice(2)) {
   return Object.fromEntries(
     argv.map((a) => {

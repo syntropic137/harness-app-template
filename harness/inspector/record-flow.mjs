@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { detectIsoKey, isScriptEntry, parseArgs, resolveFfmpeg } from './common.mjs';
+import { PHASES, detectIsoKey, isSafePathSegment, isScriptEntry, parseArgs, resolveFfmpeg } from './common.mjs';
 
 /* v8 ignore next 3 -- CLI-only optional dependency loaded outside unit tests. */
 async function loadChromium() {
@@ -98,6 +98,10 @@ export async function main(
     );
     return 2;
   }
+  if (!PHASES.includes(phase)) {
+    deps.console.error(`invalid phase: ${phase}. must be one of: ${PHASES.join(', ')}`);
+    return 2;
+  }
   const mode = EVIDENCE_MODES[evidenceMode];
   if (!mode) {
     deps.console.error(
@@ -125,6 +129,12 @@ export async function main(
   }
   const isoKey = isoKeyArg ?? detectIsoKey(deps.execFileSync);
   if (!isoKey) throw new Error('could not determine iso key; pass --isoKey=<key>');
+  if (!isSafePathSegment(isoKey)) {
+    deps.console.error(
+      `invalid iso key: ${isoKey}. must match [A-Za-z0-9][A-Za-z0-9._-]* (no path separators)`,
+    );
+    return 2;
+  }
 
   const videoDir = join(deps.cwd(), '.harness/artifacts', isoKey, 'video');
   const reviewDir = join(deps.cwd(), '.harness/artifacts', isoKey, 'review');
@@ -139,84 +149,95 @@ export async function main(
   if (!deps.chromium) {
     deps.chromium = await loadChromium();
   }
-  const browser = await deps.chromium.launch();
-  const contextOpts = {
-    viewport: { width: 1280, height: 720 },
-  };
-  if (mode.video) {
-    contextOpts.recordVideo = { dir: videoDir, size: { width: 1280, height: 720 } };
-  }
-  const context = await browser.newContext(contextOpts);
-  const page = await context.newPage();
-
   const eventsPath = join(videoDir, `events-${phase}.jsonl`);
   deps.writeFileSync(eventsPath, '');
   const writeEvent = (e) =>
     deps.appendFileSync(eventsPath, `${JSON.stringify({ t: deps.now(), ...e })}\n`);
-  page.on('console', (m) => writeEvent({ type: 'console', level: m.type(), text: m.text() }));
-  page.on('pageerror', (e) => writeEvent({ type: 'pageerror', text: e.message, stack: e.stack }));
-  page.on('requestfailed', (r) =>
-    writeEvent({
-      type: 'requestfailed',
-      url: r.url(),
-      error: r.failure()?.errorText,
-    }),
-  );
-  page.on('response', (r) => {
-    if (r.status() >= 400) {
-      writeEvent({
-        type: 'response',
-        url: r.url(),
-        status: r.status(),
-        method: r.request().method(),
-        traceparent: r.request().headers().traceparent ?? null,
-      });
-    }
-  });
 
-  if ((mode.screenshots || mode.keyframeGrid) && !ffmpeg) {
-    writeEvent({ type: 'ffmpeg-missing', text: 'ffmpeg not found; JPEG/grid steps skipped' });
-  }
-
-  try {
-    await flowFn(page, url);
-  } catch (e) {
-    writeEvent({ type: 'flow-error', text: String(e) });
-  }
-
-  // Optional still-screenshot pair after the flow for visual-static and animation modes.
+  const browser = await deps.chromium.launch();
+  let context = null;
+  let flowError = null;
   let screenshotPaths = null;
-  if (mode.screenshots) {
-    const png = join(shotDir, `${phase}.png`);
-    try {
-      await page.screenshot({ path: png, type: 'png', fullPage: false });
-      let jpg = null;
-      if (ffmpeg) {
-        jpg = join(shotDir, `${phase}.jpg`);
-        deps.execFileSync(ffmpeg, [
-          '-y',
-          '-i',
-          png,
-          '-vf',
-          'scale=1280:720',
-          '-frames:v',
-          '1',
-          '-update',
-          '1',
-          '-q:v',
-          '3',
-          jpg,
-        ]);
-      }
-      screenshotPaths = { png, jpg };
-    } catch (e) {
-      writeEvent({ type: 'screenshot-error', text: String(e) });
+  let tempVideoPath = null;
+  try {
+    const contextOpts = {
+      viewport: { width: 1280, height: 720 },
+    };
+    if (mode.video) {
+      contextOpts.recordVideo = { dir: videoDir, size: { width: 1280, height: 720 } };
     }
-  }
+    context = await browser.newContext(contextOpts);
+    const page = await context.newPage();
 
-  const tempVideoPath = mode.video ? await page.video()?.path() : null;
-  await context.close();
-  await browser.close();
+    page.on('console', (m) => writeEvent({ type: 'console', level: m.type(), text: m.text() }));
+    page.on('pageerror', (e) => writeEvent({ type: 'pageerror', text: e.message, stack: e.stack }));
+    page.on('requestfailed', (r) =>
+      writeEvent({
+        type: 'requestfailed',
+        url: r.url(),
+        error: r.failure()?.errorText,
+      }),
+    );
+    page.on('response', (r) => {
+      if (r.status() >= 400) {
+        writeEvent({
+          type: 'response',
+          url: r.url(),
+          status: r.status(),
+          method: r.request().method(),
+          traceparent: r.request().headers().traceparent ?? null,
+        });
+      }
+    });
+
+    if ((mode.screenshots || mode.keyframeGrid) && !ffmpeg) {
+      writeEvent({ type: 'ffmpeg-missing', text: 'ffmpeg not found; JPEG/grid steps skipped' });
+    }
+
+    // A failing flow still produces the evidence captured so far (that
+    // failure evidence is often the point), but the exit code must not
+    // report success: callers gate on it.
+    try {
+      await flowFn(page, url);
+    } catch (e) {
+      flowError = String(e);
+      writeEvent({ type: 'flow-error', text: flowError });
+    }
+
+    // Optional still-screenshot pair after the flow for visual-static and animation modes.
+    if (mode.screenshots) {
+      const png = join(shotDir, `${phase}.png`);
+      try {
+        await page.screenshot({ path: png, type: 'png', fullPage: false });
+        let jpg = null;
+        if (ffmpeg) {
+          jpg = join(shotDir, `${phase}.jpg`);
+          deps.execFileSync(ffmpeg, [
+            '-y',
+            '-i',
+            png,
+            '-vf',
+            'scale=1280:720',
+            '-frames:v',
+            '1',
+            '-update',
+            '1',
+            '-q:v',
+            '3',
+            jpg,
+          ]);
+        }
+        screenshotPaths = { png, jpg };
+      } catch (e) {
+        writeEvent({ type: 'screenshot-error', text: String(e) });
+      }
+    }
+
+    tempVideoPath = mode.video ? await page.video()?.path() : null;
+  } finally {
+    if (context) await context.close();
+    await browser.close();
+  }
 
   const webmPath = mode.video ? join(videoDir, `flow-${phase}.webm`) : null;
   let gridPath = null;
@@ -251,13 +272,14 @@ export async function main(
       phase,
       flow: flowLabel,
       evidenceMode,
+      flowError,
       events: eventsPath,
       webm: webmPath,
       keyframeGrid: gridPath,
       screenshots: screenshotPaths,
     }),
   );
-  return 0;
+  return flowError ? 1 : 0;
 }
 
 /* v8 ignore next 6 */

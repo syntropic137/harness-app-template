@@ -52,7 +52,17 @@ jobs:
         with:
           version: 11.5.1
       - run: pnpm install --no-frozen-lockfile
+      # The inspector live integration test (harness/inspector/tests/
+      # integration.test.ts) drives real chromium against a local page.
+      # It self-skips where browsers are absent, EXCEPT when
+      # CI_REQUIRE_BROWSERS=1: this lane installs chromium and sets the
+      # flag so the live test is fail-closed here rather than silently
+      # skipped everywhere.
+      - name: Install Playwright chromium (inspector live integration test)
+        run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:coverage
+        env:
+          CI_REQUIRE_BROWSERS: '1'
       # AGENTS.md skill-list drift gate (bead create-harness-app-64l):
       # the block between the agents-skills markers must match the
       # .claude/skills directory. Regenerate locally with

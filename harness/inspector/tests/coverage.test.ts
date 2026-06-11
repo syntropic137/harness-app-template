@@ -16,11 +16,16 @@ function fakeConsole() {
   };
 }
 
-function createScreenshotDeps(options: { ffmpeg?: string | null } = {}) {
+function createScreenshotDeps(options: { ffmpeg?: string | null; gotoRejects?: boolean } = {}) {
   const io = fakeConsole();
   const calls: Array<[string, unknown]> = [];
   const page = {
-    goto: vi.fn(async (...args) => calls.push(['goto', args])),
+    goto: vi.fn(async (...args) => {
+      calls.push(['goto', args]);
+      if (options.gotoRejects) {
+        throw new Error('nav failed');
+      }
+    }),
     screenshot: vi.fn(async (...args) => calls.push(['screenshot', args])),
   };
   const browser = {
@@ -57,6 +62,7 @@ function createRecordDeps(
     execThrowsOnCall?: number;
     ffmpeg?: string | null;
     gotoRejects?: boolean;
+    newContextRejects?: boolean;
     importFlow?: (href: string) => Promise<unknown>;
     screenshotRejects?: boolean;
     videoPath?: string | null;
@@ -155,6 +161,9 @@ function createRecordDeps(
     close: vi.fn(async () => calls.push(['browser.close', null])),
     newContext: vi.fn(async (...args) => {
       calls.push(['newContext', args]);
+      if (options.newContextRejects) {
+        throw new Error('context failed');
+      }
       return context;
     }),
   };
@@ -275,6 +284,30 @@ describe('screenshot-pair coverage', () => {
     ]);
   });
 
+  it('rejects unknown phases and unsafe iso keys before any capture', async () => {
+    const badPhase = createScreenshotDeps();
+    await expect(
+      screenshotPairMain(['--phase=mid', '--url=http://app', '--isoKey=iso-1'], badPhase.deps),
+    ).resolves.toBe(2);
+    expect(badPhase.io.errors[0]).toContain('invalid phase: mid');
+
+    const badIso = createScreenshotDeps();
+    await expect(
+      screenshotPairMain(['--phase=before', '--url=http://app', '--isoKey=../../evil'], badIso.deps),
+    ).resolves.toBe(2);
+    expect(badIso.io.errors[0]).toContain('invalid iso key');
+    expect(badIso.calls.some(([name]) => name === 'mkdirSync')).toBe(false);
+  });
+
+  it('closes the browser when navigation fails', async () => {
+    const { calls, deps } = createScreenshotDeps({ gotoRejects: true });
+    await expect(
+      screenshotPairMain(['--phase=before', '--url=http://app', '--isoKey=iso-1'], deps),
+    ).rejects.toThrow('nav failed');
+    expect(calls).toContainEqual(['browser.close', null]);
+    expect(calls.some(([name]) => name === 'screenshot')).toBe(false);
+  });
+
   it('captures screenshots with an explicit iso key', async () => {
     const { calls, deps, io } = createScreenshotDeps();
     await expect(
@@ -345,8 +378,32 @@ describe('record-flow coverage', () => {
     await expect(
       recordFlowMain(['--url=http://app', '--phase=before', '--flow=bogus'], deps),
     ).resolves.toBe(2);
-    expect(io.errors).toHaveLength(3);
+    await expect(
+      recordFlowMain(['--url=http://app', '--phase=mid', '--flow=navigate'], deps),
+    ).resolves.toBe(2);
+    await expect(
+      recordFlowMain(
+        ['--url=http://app', '--phase=before', '--flow=navigate', '--isoKey=../../evil'],
+        deps,
+      ),
+    ).resolves.toBe(2);
+    expect(io.errors).toHaveLength(5);
     expect(io.errors[2]).toContain('navigate');
+    expect(io.errors[3]).toContain('invalid phase: mid');
+    expect(io.errors[4]).toContain('invalid iso key');
+    expect(deps.mkdirSync).not.toHaveBeenCalled();
+  });
+
+  it('closes the browser when context creation fails', async () => {
+    const { calls, deps } = createRecordDeps({ newContextRejects: true });
+    await expect(
+      recordFlowMain(
+        ['--url=http://app', '--phase=before', '--flow=navigate', '--isoKey=iso-11'],
+        deps,
+      ),
+    ).rejects.toThrow('context failed');
+    expect(calls).toContainEqual(['browser.close', null]);
+    expect(calls.some(([name]) => name === 'context.close')).toBe(false);
   });
 
   it('loads scripted flows from a flow file', async () => {
@@ -483,7 +540,7 @@ describe('record-flow coverage', () => {
     });
   });
 
-  it('records flow, screenshot, and keyframe failures as events', async () => {
+  it('reports flow failures with exit 1 while still capturing evidence', async () => {
     const flowFailure = createRecordDeps({ eventFixtures: false, gotoRejects: true });
     await expect(
       recordFlowMain(
@@ -496,10 +553,15 @@ describe('record-flow coverage', () => {
         ],
         flowFailure.deps,
       ),
-    ).resolves.toBe(0);
+    ).resolves.toBe(1);
     expect(flowFailure.calls.some(([, args]) => JSON.stringify(args).includes('flow-error'))).toBe(
       true,
     );
+    expect(flowFailure.calls).toContainEqual(['context.close', null]);
+    expect(flowFailure.calls).toContainEqual(['browser.close', null]);
+    expect(JSON.parse(flowFailure.io.logs[0])).toMatchObject({
+      flowError: 'Error: flow failed',
+    });
 
     const shotFailure = createRecordDeps({ screenshotRejects: true });
     await expect(

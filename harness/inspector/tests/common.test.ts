@@ -1,6 +1,27 @@
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { detectIsoKey, isScriptEntry, parseArgs, resolveFfmpeg } from '../common.mjs';
+import { PHASES, detectIsoKey, isSafePathSegment, isScriptEntry, parseArgs, resolveFfmpeg } from '../common.mjs';
+
+describe('phase and path-segment validation', () => {
+  it('exposes the closed before/after phase contract', () => {
+    expect(PHASES).toEqual(['before', 'after']);
+  });
+
+  it('accepts plain artifact path segments', () => {
+    expect(isSafePathSegment('58fda1d5')).toBe(true);
+    expect(isSafePathSegment('iso-1.worktree_A')).toBe(true);
+  });
+
+  it('rejects traversal, separators, and empty or non-string values', () => {
+    expect(isSafePathSegment('../../etc')).toBe(false);
+    expect(isSafePathSegment('a/b')).toBe(false);
+    expect(isSafePathSegment('a\\b')).toBe(false);
+    expect(isSafePathSegment('.hidden')).toBe(false);
+    expect(isSafePathSegment('')).toBe(false);
+    expect(isSafePathSegment(undefined)).toBe(false);
+    expect(isSafePathSegment(`x${'y'.repeat(64)}`)).toBe(false);
+  });
+});
 
 describe('parseArgs', () => {
   it('parses --key=value pairs and preserves embedded equals signs', () => {

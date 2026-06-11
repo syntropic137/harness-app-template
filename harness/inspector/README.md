@@ -54,6 +54,26 @@ export default async function flow(page, baseUrl) {
 `.claude/skills/before-after-evidence/SKILL.md`): `network`,
 `visual-interaction`, `visual-static`, `animation`, or `all` (default).
 
+## Exit codes and input validation
+
+- `0`: capture succeeded.
+- `1`: the flow itself threw (`record-flow` only). Evidence captured up to
+  the failure is still written and the summary JSON carries a `flowError`
+  field, but callers gating on the exit code see the failure.
+- `2`: usage or validation error. `--phase` must be exactly `before` or
+  `after`, and the iso key (passed or detected) must match
+  `[A-Za-z0-9][A-Za-z0-9._-]*` so it cannot escape the
+  `.harness/artifacts/` root.
+
+## Testing
+
+Unit tests mock Playwright and hold the protected 100 percent coverage
+thresholds. `tests/integration.test.ts` additionally drives the real
+scripts with a real chromium against a locally served page, writing
+artifacts to a temp dir; it skips when browsers are not installed unless
+`CI_REQUIRE_BROWSERS=1` (the `scripts` CI job installs chromium and sets
+the flag, so the live path is fail-closed there).
+
 ## Requirements
 
 - **Playwright** is a dependency of this package; `pnpm install` at the repo
