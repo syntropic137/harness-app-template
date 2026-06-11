@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { isMainEntry } from './lib/entrypoint';
 
 export const upstreamHarnessEngineeringRepo =
   'https://github.com/syntropic137/harness-engineering.git';
@@ -211,7 +212,7 @@ export function runSkillReachabilityCheck(
 }
 
 /* v8 ignore start */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   try {
     const code = runSkillReachabilityCheck(parseArgs(process.argv.slice(2)), {
       spawn: (command, args, options) =>

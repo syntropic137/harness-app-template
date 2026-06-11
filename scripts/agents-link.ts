@@ -1,3 +1,4 @@
+import { isMainEntry } from './lib/entrypoint';
 import type { VendorFs, VendorReport } from './lib/vendor-links';
 import {
   copySyncVendorMirrors,
@@ -49,7 +50,7 @@ export function main(deps: AgentsLinkDeps): void {
 }
 
 /* v8 ignore next 8 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   main({
     stdout: console,
     stderr: console,

@@ -1,3 +1,4 @@
+import { isMainEntry } from './lib/entrypoint';
 import { runInherit } from './lib/git';
 import { main as lintMain } from './lint';
 import { main as testMain } from './test';
@@ -24,6 +25,6 @@ export function main(argv: string[] = []): void {
 }
 
 /* v8 ignore next 3 */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   main(process.argv.slice(2));
 }
