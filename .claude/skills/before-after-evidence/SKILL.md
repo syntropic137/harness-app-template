@@ -75,6 +75,8 @@ node harness/inspector/record-flow.mjs --phase=after --url="$TARGET_URL" --flow=
 
 The script does: open browser -> record screencast -> run the named flow -> stop recording -> ffmpeg extract 3x3 keyframe grid -> write `events.jsonl` from console + network listeners.
 
+Flow selection: `--flow=navigate` is a built-in generic flow that works against any URL (load, network idle, settle). `--flow=task-crud` is the example app flow shown above. For app-specific journeys, pass `--flowFile=<path>` pointing at an ES module that default-exports `async (page, baseUrl) => void`; see `harness/inspector/README.md` for an authoring example. `--isoKey` may be omitted when the stack-manager slot is installed; the scripts auto-detect it via `harness/stack/bin/stack inspect`.
+
 LLM consumption: send the **keyframe grids** (1 JPEG each, ~2.7K tokens) plus the **screenshot pair**, NOT the WebM. Total budget ~8K vision tokens per validation.
 
 ## Recipe C: trace correlation

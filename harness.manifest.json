@@ -22,7 +22,7 @@
     "inspector": {
       "contract": "inspector",
       "plugin": "playwright-node",
-      "version": "1.60-stub",
+      "version": "1.60",
       "required": false,
       "swappable": true,
       "interface": {
@@ -30,7 +30,7 @@
         "entrypoint": "harness/inspector/bin/inspector",
         "commands": ["screenshot-pair", "record-flow", "keyframe-grid"]
       },
-      "implementation": "Node evidence-capture scripts with a thin bin dispatcher.",
+      "implementation": "Playwright-based browser evidence capture: screenshot pairs, scripted flow recording (built-in flows plus --flowFile), keyframe grids; iso key via the stack-manager slot, ffmpeg resolved from PATH or the Playwright bundle.",
       "decisionAt": "docs/adrs/ADR-0002-inspector.md"
     },
     "hooks": {
