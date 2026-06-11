@@ -204,14 +204,21 @@ export async function main(
       writeEvent({ type: 'flow-error', text: flowError });
     }
 
-    // Optional still-screenshot pair after the flow for visual-static and animation modes.
+    // Optional still-screenshot pair after the flow for visual-static and
+    // animation modes. PNG capture and JPEG conversion fail independently:
+    // a broken or limited ffmpeg must not erase the truthfully captured PNG
+    // from the summary.
     if (mode.screenshots) {
       const png = join(shotDir, `${phase}.png`);
       try {
         await page.screenshot({ path: png, type: 'png', fullPage: false });
-        let jpg = null;
-        if (ffmpeg) {
-          jpg = join(shotDir, `${phase}.jpg`);
+        screenshotPaths = { png, jpg: null };
+      } catch (e) {
+        writeEvent({ type: 'screenshot-error', text: String(e) });
+      }
+      if (screenshotPaths && ffmpeg) {
+        const jpg = join(shotDir, `${phase}.jpg`);
+        try {
           deps.execFileSync(ffmpeg, [
             '-y',
             '-i',
@@ -226,10 +233,10 @@ export async function main(
             '3',
             jpg,
           ]);
+          screenshotPaths.jpg = jpg;
+        } catch (e) {
+          writeEvent({ type: 'jpeg-error', text: String(e) });
         }
-        screenshotPaths = { png, jpg };
-      } catch (e) {
-        writeEvent({ type: 'screenshot-error', text: String(e) });
       }
     }
 

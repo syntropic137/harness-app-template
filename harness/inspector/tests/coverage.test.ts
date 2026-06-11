@@ -540,6 +540,30 @@ describe('record-flow coverage', () => {
     });
   });
 
+  it('keeps the captured PNG when only the JPEG conversion fails', async () => {
+    const { calls, deps, io } = createRecordDeps({
+      eventFixtures: false,
+      execThrowsOnCall: 1,
+    });
+    await expect(
+      recordFlowMain(
+        [
+          '--url=http://app',
+          '--phase=before',
+          '--flow=navigate',
+          '--isoKey=iso-12',
+          '--evidenceMode=visual-static',
+        ],
+        deps,
+      ),
+    ).resolves.toBe(0);
+
+    expect(calls.some(([, args]) => JSON.stringify(args).includes('jpeg-error'))).toBe(true);
+    expect(JSON.parse(io.logs[0])).toMatchObject({
+      screenshots: { jpg: null, png: '/repo/.harness/artifacts/iso-12/screenshots/before.png' },
+    });
+  });
+
   it('reports flow failures with exit 1 while still capturing evidence', async () => {
     const flowFailure = createRecordDeps({ eventFixtures: false, gotoRejects: true });
     await expect(

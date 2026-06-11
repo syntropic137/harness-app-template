@@ -134,4 +134,53 @@ describe('inspector live integration', () => {
     },
     120_000,
   );
+
+  itLive(
+    'record-flow animation mode records a real WebM and extracts the keyframe grid',
+    async () => {
+      const io = collectingConsole();
+      const code = await recordFlowMain(
+        [
+          '--phase=before',
+          `--url=${baseUrl}`,
+          '--flow=navigate',
+          '--isoKey=itest',
+          '--evidenceMode=animation',
+        ],
+        {
+          appendFileSync,
+          chromium,
+          console: io.console,
+          cwd: () => workDir,
+          execFileSync,
+          ffmpeg: () => resolveFfmpeg(),
+          importFlow: (href: string) => import(href),
+          mkdirSync,
+          now: () => Date.now(),
+          renameSync,
+          writeFileSync,
+        },
+      );
+      expect(code).toBe(0);
+
+      const summary = JSON.parse(io.logs[0]);
+      // The WebM rename path must run for real: recordVideo wrote a temp
+      // file and the script moved it to the stable per-phase name.
+      expect(summary.webm).toBe(
+        join(workDir, '.harness/artifacts', 'itest', 'video', 'flow-before.webm'),
+      );
+      expect(existsSync(summary.webm)).toBe(true);
+      expect(existsSync(summary.screenshots.png)).toBe(true);
+      // Grid output needs a JPEG-capable ffmpeg; with only the Playwright
+      // bundled build the script degrades and logs why.
+      if (summary.keyframeGrid) {
+        expect(existsSync(summary.keyframeGrid)).toBe(true);
+      } else {
+        expect(readFileSync(summary.events, 'utf8')).toMatch(
+          /ffmpeg-missing|ffmpeg-error|jpeg-error/,
+        );
+      }
+    },
+    120_000,
+  );
 });
