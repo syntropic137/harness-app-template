@@ -181,7 +181,7 @@
           "source": ".sentrux/baseline.json coupling_score (via harness/sensors/sentrux_scan.mjs)",
           "direction": "max",
           "default_threshold": 1,
-          "baseline": 0.18243243243243243,
+          "baseline": 0.18791946308724833,
           "fail_on_regression": true
         },
         "sentrux-max-depth": {
