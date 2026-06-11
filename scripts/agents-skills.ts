@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isMainEntry } from './lib/entrypoint';
 
 // Generated-block sync for the AGENTS.md skill inventory (bead
 // create-harness-app-64l). The list between the markers below is derived
@@ -204,7 +205,7 @@ export function runAgentsSkills(options: AgentsSkillsOptions, deps: AgentsSkills
 }
 
 /* v8 ignore start */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainEntry(import.meta.url)) {
   try {
     const code = runAgentsSkills(parseArgs(process.argv.slice(2)), {
       listDirNames: (dir) =>
