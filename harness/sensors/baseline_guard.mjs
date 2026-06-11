@@ -64,6 +64,92 @@ function readNumberFromGenerated(generated, path) {
   return null;
 }
 
+function isDirectionValue(value) {
+  return value === 'max' || value === 'min';
+}
+
+const directionIssueGeneratedSuffix = {
+  'missing-direction': 'missing',
+  'invalid-direction': 'invalid',
+  'direction-flip': 'direction-flip',
+};
+
+function directionIssueForMetric(referenceDirection, workingDirection) {
+  if (workingDirection === undefined || workingDirection === null) {
+    return 'missing-direction';
+  }
+  if (!isDirectionValue(workingDirection)) {
+    return 'invalid-direction';
+  }
+  if (workingDirection !== referenceDirection) {
+    return 'direction-flip';
+  }
+  return null;
+}
+
+function applyDirectionDeviation(
+  path,
+  issue,
+  workingDirection,
+  referenceDirection,
+  workingValue,
+  generatedBaseline,
+  violations,
+  workingBaseline,
+) {
+  const note = hasRelaxationMarker(workingBaseline, path);
+  const directionMessage = {
+    'missing-direction': `metric direction deleted or missing for ${path}`,
+    'invalid-direction': `invalid metric direction ${workingDirection} for ${path}`,
+    'direction-flip': `metric direction flipped from ${referenceDirection} to ${workingDirection} for ${path}`,
+  };
+  if (!note) {
+    violations.push({
+      kind: 'metric-direction',
+      path,
+      direction: workingDirection,
+      reference: referenceDirection,
+      working: workingValue,
+      reason: issue,
+      severity: 'loosened',
+      message: directionMessage[issue] ?? `metric direction issue for ${path}`,
+    });
+    return true;
+  }
+
+  const current = readNumberFromGenerated(generatedBaseline, path);
+  if (current === null) {
+    violations.push({
+      kind: 'metric-direction',
+      path,
+      direction: workingDirection,
+      reference: referenceDirection,
+      working: workingValue,
+      reason: `${directionIssueGeneratedSuffix[issue]}-missing-regenerated-baseline-measurement`,
+      severity: 'loosened',
+      message: 'no regenerated measurement to validate this metric direction change',
+      note,
+    });
+    return true;
+  }
+  if (Math.abs(current - workingValue) > EPSILON) {
+    violations.push({
+      kind: 'metric-direction',
+      path,
+      direction: workingDirection,
+      reference: referenceDirection,
+      working: workingValue,
+      current,
+      reason: `${directionIssueGeneratedSuffix[issue]}-regenerated-baseline-mismatch`,
+      severity: 'loosened',
+      message: `regenerated baseline mismatch for ${path}`,
+      note,
+    });
+    return true;
+  }
+  return true;
+}
+
 function evaluateCandidate({ kind, path, direction, reference, working, generated, violations }) {
   if (!isNumber(reference)) {
     return;
@@ -257,11 +343,12 @@ export function evaluateBaselineRelaxationGuard({
       const workingMetric = workingBaseline?.dimensions?.[dimension]?.metrics?.[metricId];
       const workingValue = workingMetric?.baseline;
       const workingDirection = workingMetric?.direction;
-      if (direction !== 'max' && direction !== 'min') {
+      const path = dimensionRelaxationPath(dimension, metricId);
+      if (!isDirectionValue(direction)) {
         if (isNumber(referenceValue)) {
           violations.push({
             kind: 'metric-direction',
-            path: dimensionRelaxationPath(dimension, metricId),
+            path,
             direction,
             reference: referenceValue,
             working: workingValue,
@@ -272,55 +359,18 @@ export function evaluateBaselineRelaxationGuard({
         }
         continue;
       }
-      if (
-        (workingDirection === 'min' || workingDirection === 'max') &&
-        workingDirection !== direction
-      ) {
-        const path = dimensionRelaxationPath(dimension, metricId);
-        const note = hasRelaxationMarker(workingBaseline, path);
-        const current = readNumberFromGenerated(generatedBaseline, path);
-        if (!note) {
-          violations.push({
-            kind: 'metric-direction',
-            path,
-            direction: workingDirection,
-            reference: direction,
-            working: workingDirection,
-            reason: 'direction-flip',
-            severity: 'loosened',
-            message: `metric direction flipped from ${direction} to ${workingDirection} for ${path}`,
-          });
-          continue;
-        }
-        if (current === null) {
-          violations.push({
-            kind: 'metric-direction',
-            path,
-            direction: workingDirection,
-            reference: direction,
-            working: workingDirection,
-            reason: 'direction-flip-missing-regenerated-baseline-measurement',
-            severity: 'loosened',
-            message: 'no regenerated measurement to validate this metric direction flip',
-            note,
-          });
-          continue;
-        }
-        if (Math.abs(current - workingValue) > EPSILON) {
-          violations.push({
-            kind: 'metric-direction',
-            path,
-            direction: workingDirection,
-            reference: direction,
-            working: workingDirection,
-            reason: 'direction-flip-regenerated-baseline-mismatch',
-            severity: 'loosened',
-            message: `regenerated baseline mismatch for ${path}`,
-            note,
-            current,
-          });
-          continue;
-        }
+      const issue = directionIssueForMetric(direction, workingDirection);
+      if (issue) {
+        applyDirectionDeviation(
+          path,
+          issue,
+          workingDirection,
+          direction,
+          workingValue,
+          generatedBaseline,
+          violations,
+          workingBaseline,
+        );
         continue;
       }
       evaluateCandidate.call(
