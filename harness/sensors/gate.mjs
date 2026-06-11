@@ -52,6 +52,12 @@ import {
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import toml from '@iarna/toml';
+import {
+  BASELINE_REFERENCE_DEFAULT,
+  evaluateBaselineRelaxationGuard,
+  formatBaselineRelaxationGuard,
+  loadReferenceBaseline,
+} from './baseline_guard.mjs';
 
 const EPSILON = 1e-6;
 const FITNESS_SCHEMA_VERSION = '1.0.0';
@@ -1752,10 +1758,20 @@ function jsonPayload(base, policy) {
  * CLI entry.  Defaults: read aggregator JSON from stdin, baseline from
  * `harness/sensors/baseline.json`.  Flags:
  *   --baseline=<path>      override baseline path
+ *   --baseline-reference=<spec>
+ *                          compare the working baseline against this
+ *                          baseline for accidental regression. Defaults to
+ *                          `origin/main:harness/sensors/baseline.json`.
+ *                          Set to `none` to skip this guard.
+ *                          Supports `file:` and `./` relative paths for
+ *                          local checks.
  *   --update-baseline      RELAX (escape hatch): write the current report
  *                          as the new baseline regardless of regression.
  *                          The resulting baseline.json diff is the
  *                          deliberate audit trail.
+ *   --skip-baseline-relaxation-guard
+ *                          disable the origin/main baseline comparison
+ *                          gate. Use only for local experiments.
  *   --no-ratchet           Skip the post-pass auto-tighten step. The gate
  *                          still passes/fails the same way; only the
  *                          baseline rewrite-on-improvement side effect is
@@ -1809,6 +1825,7 @@ export async function main(
   },
 ) {
   let baselinePath = 'harness/sensors/baseline.json';
+  let baselineReference = BASELINE_REFERENCE_DEFAULT;
   let perfPath = 'harness/perf/baseline.json';
   let securityPath = null;
   let licensesPath = null;
@@ -1823,12 +1840,18 @@ export async function main(
   let updateBaseline = false;
   let firstRunMode = 'snapshot';
   let ratchetEnabled = (io.env?.RATCHET ?? '').toLowerCase() !== 'off';
+  let skipRelaxationGuard = false;
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a.startsWith('--baseline=')) {
       baselinePath = a.slice('--baseline='.length);
     } else if (a === '--baseline') {
       baselinePath = argv[i + 1] ?? baselinePath;
+      i += 1;
+    } else if (a.startsWith('--baseline-reference=')) {
+      baselineReference = a.slice('--baseline-reference='.length);
+    } else if (a === '--baseline-reference') {
+      baselineReference = argv[i + 1] ?? baselineReference;
       i += 1;
     } else if (a.startsWith('--perf-baseline=')) {
       perfPath = a.slice('--perf-baseline='.length);
@@ -1879,6 +1902,8 @@ export async function main(
       format = 'text';
     } else if (a === '--update-baseline') {
       updateBaseline = true;
+    } else if (a === '--skip-baseline-relaxation-guard') {
+      skipRelaxationGuard = true;
     } else if (a === '--no-ratchet') {
       ratchetEnabled = false;
     } else if (a === '--ratchet') {
@@ -1962,14 +1987,77 @@ export async function main(
 
   const currentBaseline = extractApssFitnessBaseline(report, fitnessOptions);
 
+  let referenceBaseline = null;
+  let referenceLoadError = null;
+  const getReferenceBaseline = () => {
+    if (skipRelaxationGuard || baselineReference === 'none') {
+      return null;
+    }
+    if (referenceBaseline === null && referenceLoadError === null) {
+      try {
+        referenceBaseline = loadReferenceBaseline(baselineReference, io);
+      } catch (err) {
+        io.writeErr(
+          `gate: failed to load baseline-reference=${baselineReference} (${err.message})\n`,
+        );
+        referenceLoadError = err;
+      }
+    }
+    return referenceLoadError === null ? referenceBaseline : null;
+  };
+  const baselineRelaxationGuard = (candidateBaseline) => {
+    if (skipRelaxationGuard || baselineReference === 'none') {
+      return { ok: true, violations: [] };
+    }
+    const ref = getReferenceBaseline();
+    return evaluateBaselineRelaxationGuard({
+      workingBaseline: candidateBaseline,
+      referenceBaseline: ref,
+      generatedBaseline: currentBaseline,
+    });
+  };
+
   if (updateBaseline) {
+    const relaxation = baselineRelaxationGuard(currentBaseline);
+    const exitCode = policyOk && relaxation.ok ? 0 : 1;
+    if (!relaxation.ok) {
+      if (format === 'json') {
+        io.write(
+          `${JSON.stringify(
+            jsonPayload(
+              {
+                baseline: {
+                  path: baselinePath,
+                  updated: true,
+                  baseline_relaxation: relaxation,
+                },
+                exit_code: exitCode,
+              },
+              policyOutput,
+            ),
+            null,
+            2,
+          )}\n`,
+        );
+      } else {
+        io.write(formatBaselineRelaxationGuard(relaxation));
+        io.write(renderPolicyReport(policyOutput));
+      }
+      return exitCode;
+    }
     io.writeFile(baselinePath, `${JSON.stringify(currentBaseline, null, 2)}\n`);
-    const exitCode = policyOk ? 0 : 1;
     if (format === 'json') {
       io.write(
         `${JSON.stringify(
           jsonPayload(
-            { baseline: { path: baselinePath, updated: true }, exit_code: exitCode },
+            {
+              baseline: {
+                path: baselinePath,
+                updated: true,
+                baseline_relaxation: relaxation,
+              },
+              exit_code: exitCode,
+            },
             policyOutput,
           ),
           null,
@@ -2029,6 +2117,8 @@ export async function main(
     return 2;
   }
 
+  const relaxation = baselineRelaxationGuard(baseline);
+
   const comparison = compareBaseline(baseline, report, fitnessOptions);
 
   // RATCHET: on a passing comparison, auto-tighten the floor wherever the
@@ -2045,7 +2135,7 @@ export async function main(
     }
   }
 
-  const exitCode = comparison.ok && policyOk ? 0 : 1;
+  const exitCode = comparison.ok && relaxation.ok && policyOk ? 0 : 1;
   if (format === 'json') {
     io.write(
       `${JSON.stringify(
@@ -2056,6 +2146,7 @@ export async function main(
               ok: comparison.ok,
               regressions: comparison.regressions,
               summary: comparison.summary,
+              baseline_relaxation: relaxation,
             },
             ratchet: {
               enabled: ratchetEnabled,
@@ -2077,6 +2168,7 @@ export async function main(
     if (ratchet.applied && ratchet.changed) {
       io.write(renderRatchetReport(ratchet, baselinePath));
     }
+    io.write(formatBaselineRelaxationGuard(relaxation));
     io.write(renderPolicyReport(policyOutput));
   }
   return exitCode;
