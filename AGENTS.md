@@ -284,3 +284,7 @@ no other slot depends on the MCP wiring.
 ---
 
 _This template is a v0.1 draft. Edit freely for your project; the canonical Standard lives in the agentic-harness-lab repo._
+
+## Issue triage
+
+When triaging tasks, run `bv --robot-triage` as your single entry point. See [docs/development/beads-viewer.md](./docs/development/beads-viewer.md) for the full command reference, filtering options, and session workflow.
