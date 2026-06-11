@@ -77,3 +77,4 @@ uv.lock
 # Go
 go.sum
 .claude/settings.local.json
+ws_apps/example-python/.coverage
