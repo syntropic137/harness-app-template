@@ -15,26 +15,6 @@
 .env
 .env.local
 
-# Auto-generated tool backups. Editors and MCP-config tools sometimes drop
-# `<file>.<pid>.<ts>.<seq>.0.bak` snapshots next to their source; in the past
-# these landed in the repo and leaked a local Agent Mail Bearer token.
-# Block them by extension, and block the stray `git diff` dump that the same
-# flow produced.
-*.bak
-*.mcp.json.*.bak
-.gitdiff.txt
-
-# Dependency-audit staging dir (ADR-0023-dependency-audit.md).
-# scripts/dep-audit.ts writes resolved requirements files here before
-# piping them to pip-audit; the dir is rm -rf'd on completion, but a
-# crashed run could leave it behind.
-.dep-audit/
-
-# Profiling perf budgets are per-fork policy: local experiments keep them
-# untracked; consumers that want CI-binding budgets delete this line and
-# commit harness/profiling/budgets.toml (template: budgets.example.toml).
-harness/profiling/budgets.toml
-
 # Harness internals
 # Top-level consumer-side .harness/ is local-only (per-fork policy / scratch).
 # The slot-side governance file at harness/.harness/governance.toml is the
@@ -44,11 +24,6 @@ harness/profiling/budgets.toml
 !harness/.harness/**
 .worktrees/
 .sentrux/
-.apss/
-# APSS code-topology producer output — regenerated on every sensors-gate
-# cycle (closed loop). Committing the snapshot would make the repo a
-# moving target on every run.
-.topology/
 
 # Agent-plugin vendor symlinks are now COMMITTED so they exist the instant
 # the repo is cloned (per WS1 fork-readiness spec, dogfood F-001). The
@@ -86,4 +61,6 @@ uv.lock
 # Go
 go.sum
 .claude/settings.local.json
-ws_apps/example-python/.coverage
+
+# bv (beads viewer) local config and caches
+.bv/
