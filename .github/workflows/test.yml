@@ -63,6 +63,11 @@ jobs:
       # the binary is not on the root .bin path.
       - name: Install Playwright chromium (inspector live integration test)
         run: pnpm --dir harness/inspector exec playwright install --with-deps chromium
+      # Real ffmpeg so the live test exercises the JPEG conversion path:
+      # the runner image ships no ffmpeg and Playwright's bundled build
+      # cannot decode PNG or encode JPEG (it would degrade to PNG-only).
+      - name: Install ffmpeg (inspector JPEG conversion path)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - run: pnpm test:coverage
         env:
           CI_REQUIRE_BROWSERS: '1'

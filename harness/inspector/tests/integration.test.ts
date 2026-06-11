@@ -86,8 +86,14 @@ describe('inspector live integration', () => {
       expect(meta).toMatchObject({ phase: 'before', isoKey: 'itest', url: baseUrl });
       const summary = JSON.parse(io.logs[0]);
       expect(summary.png).toBe(join(shotDir, 'before.png'));
-      if (resolveFfmpeg()) {
-        expect(existsSync(join(shotDir, 'before.jpg'))).toBe(true);
+      // resolveFfmpeg() returning a binary does not guarantee JPEG support:
+      // the Playwright bundled build decodes WebM but cannot read PNG or
+      // write JPEG. Assert the script's own contract instead: either the
+      // summary points at a real JPEG, or it degraded loudly to PNG-only.
+      if (summary.jpg) {
+        expect(existsSync(summary.jpg)).toBe(true);
+      } else {
+        expect(io.errors.join('\n')).toMatch(/JPEG conversion failed|ffmpeg not found/);
       }
     },
     120_000,
