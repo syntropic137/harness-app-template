@@ -14,6 +14,7 @@
 *.log
 .env
 .env.local
+.env.runtime
 
 # Private keys and certificates — passive safety net so a credential file
 # can never be staged by accident. Gitleaks (lefthook pre-commit + CI) is

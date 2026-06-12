@@ -22,6 +22,7 @@ init project-name:
 [group('setup')]
 bootstrap *args:
     bun run scripts/bootstrap.ts {{args}}
+    just config check
 
 # Diagnose missing tools and stale provenance (read-only preflight).
 [group('setup')]
@@ -109,6 +110,16 @@ sensors *args:
 [group('gates')]
 doc-validator *args:
     harness/doc-validator/bin/doc-validator {{args}}
+
+# config-manager slot — typed env-var schema, .env.example codegen, secret resolution
+[group('gates')]
+config *args:
+    harness/config-manager/bin/config-manager {{args}}
+
+# Build the config-manager binary
+[group('gates')]
+build-config-manager:
+    cargo build --release --manifest-path harness/config-manager/Cargo.toml
 
 # Polyglot dependency / supply-chain audit (ADR-0023-dependency-audit.md).
 # Runs `pnpm audit --audit-level=high --prod`, `cargo audit` against every
@@ -238,6 +249,17 @@ cov-py:
 [group('coverage')]
 cov-sensors:
     bun run scripts/coverage.ts sensors
+
+# Coverage gate for config-manager slot (80% lines / functions).
+[group('coverage')]
+cov-config-manager:
+    cargo build --manifest-path harness/config-manager/Cargo.toml --bin harness-config-manager
+    cargo llvm-cov --manifest-path harness/config-manager/Cargo.toml \
+        --package harness-config-manager \
+        --lib \
+        --ignore-filename-regex 'main\.rs' \
+        --fail-under-lines 80 \
+        --fail-under-functions 80
 
 # --- release ---------------------------------------------------------------
 
