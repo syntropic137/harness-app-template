@@ -238,3 +238,89 @@ fn exec_fails_when_no_command_given() {
         .unwrap();
     assert!(!out.status.success());
 }
+
+#[test]
+fn source_emits_shell_exports() {
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, MINIMAL_CONFIG);
+    std::fs::write(dir.path().join(".env"), "REQUIRED_VAR=sourced\n").unwrap();
+    let out = Command::new(binary())
+        .arg("source")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("export REQUIRED_VAR="), "stdout:\n{stdout}");
+}
+
+#[test]
+fn show_masks_secret_values() {
+    let dir = TempDir::new().unwrap();
+    write_config(
+        &dir,
+        r#"
+[config]
+version = "1"
+app_prefix = "TEST"
+
+[[var]]
+name = "MY_SECRET"
+description = "A secret"
+required = false
+default = "plaintext"
+secret = true
+"#,
+    );
+    let out = Command::new(binary())
+        .arg("show")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("MY_SECRET = ***"), "stdout:\n{stdout}");
+    assert!(
+        !stdout.contains("plaintext"),
+        "should not show plaintext: {stdout}"
+    );
+}
+
+#[test]
+fn show_displays_non_secret_values() {
+    let dir = TempDir::new().unwrap();
+    write_config(
+        &dir,
+        r#"
+[config]
+version = "1"
+app_prefix = "TEST"
+
+[[var]]
+name = "LOG_LEVEL"
+description = "Log level"
+required = false
+default = "info"
+"#,
+    );
+    let out = Command::new(binary())
+        .arg("show")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("LOG_LEVEL = info"), "stdout:\n{stdout}");
+}
