@@ -17,6 +17,15 @@
 // harness/sensors/coverage_scan.mjs (the fitness ratchet measures with the
 // same invocations).
 //
+// Disk hygiene: every Rust coverage command builds with the dedicated `cov`
+// cargo profile (defined in the root Cargo.toml and mirrored in the
+// self-contained slot workspaces harness/doc-validator and
+// harness/versioning) and pins CARGO_INCREMENTAL=0. llvm-cov line, function,
+// and region mapping comes from -C instrument-coverage, not from debuginfo,
+// so the profile's line-tables-only debuginfo keeps coverage numbers
+// byte-identical while shedding the full debuginfo and incremental caches
+// that balloon CARGO_TARGET_DIR on instrumented builds.
+//
 // Worktree isolation: every cargo llvm-cov command pins CARGO_TARGET_DIR to
 // a worktree-local path. Hosts (e.g. the swarm VPS) commonly export a shared
 // CARGO_TARGET_DIR to amortise the cargo build cache across projects;
@@ -114,16 +123,32 @@ export const SENSORS_COVERAGE_FLOOR = {
 } as const;
 
 function rustLaneCommands(lane: RustLane, root: string): CoverageCommand[] {
-  const env = { CARGO_TARGET_DIR: coverageTargetDir(root) };
+  const env = { CARGO_TARGET_DIR: coverageTargetDir(root), CARGO_INCREMENTAL: '0' };
   const commands: CoverageCommand[] = [];
   if (lane.prebuildBin) {
     commands.push({
       command: 'cargo',
-      args: ['build', '--manifest-path', lane.manifestPath, '--bin', lane.prebuildBin],
+      args: [
+        'build',
+        '--manifest-path',
+        lane.manifestPath,
+        '--bin',
+        lane.prebuildBin,
+        '--profile',
+        'cov',
+      ],
       env,
     });
   }
-  const args = ['llvm-cov', '--manifest-path', lane.manifestPath, '--package', lane.packageName];
+  const args = [
+    'llvm-cov',
+    '--manifest-path',
+    lane.manifestPath,
+    '--package',
+    lane.packageName,
+    '--profile',
+    'cov',
+  ];
   if (lane.libOnly) {
     args.push('--lib');
   }
