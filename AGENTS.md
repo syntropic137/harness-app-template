@@ -1,10 +1,10 @@
 # Agent context ({{PROJECT_NAME}})
 
-> This file is the canonical agent context for this project. `CLAUDE.md`,
-> `GEMINI.md`, `.codex`, and `.gemini` are committed symlinks that point at
-> this file, so every vendor agent reads the same body on a fresh clone.
-> Edit only this file. `just bootstrap` verifies the symlinks and repairs
-> any that are missing or stale.
+> This file is the canonical agent context for this project. `CLAUDE.md`
+> and `GEMINI.md` are committed symlinks that point at this file, so every
+> vendor agent reads the same body on a fresh clone. Edit only this file.
+> `just bootstrap` verifies the symlinks and repairs any that are missing
+> or stale.
 
 ## What this project is
 
@@ -180,7 +180,7 @@ claude -p --verbose \
 - `ws_packages/`: shared libs. Same polyglot rule.
 - `harness/`: slot plugins. Rust-first where it makes sense; see Standard §4.
 - `infra/`: the observability-stack plugin (docker-compose'd).
-- `.claude/`: agent plugins for Claude Code (skills, commands, subagents, hooks). The text-file vendor mirrors `CLAUDE.md`, `GEMINI.md`, `.codex`, and `.gemini` are committed symlinks pointing at `AGENTS.md`.
+- `.claude/`: agent plugins for Claude Code (skills, commands, subagents, hooks). `CLAUDE.md` and `GEMINI.md` are committed symlinks pointing at `AGENTS.md`.
 
 ## Cross-platform notes
 
