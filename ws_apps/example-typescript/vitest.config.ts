@@ -10,6 +10,7 @@ const PER_APP_UNIT_COVERAGE_THRESHOLDS = {
 
 export default defineConfig({
   test: {
+    env: { APP_ENV: 'test' },
     include: ['tests/**/*.test.ts'],
     testTimeout: 15_000,
     coverage: {
