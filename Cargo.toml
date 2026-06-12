@@ -18,6 +18,18 @@ license = "MIT"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 
+# Dedicated profile for the `just cov-rust` lanes (scripts/lib/coverage.ts).
+# llvm-cov line/function/region mapping comes from -C instrument-coverage,
+# not from debuginfo, so line-tables-only keeps reports byte-identical while
+# shedding the full debuginfo that balloons CARGO_TARGET_DIR. Incremental is
+# off because coverage runs are one-shot; the cache only hoards disk. Keep
+# this block aligned with the same profile in harness/doc-validator and
+# harness/versioning (self-contained slot workspaces).
+[profile.cov]
+inherits = "dev"
+debug = "line-tables-only"
+incremental = false
+
 [workspace.metadata.coverage]
 tool = "cargo-llvm-cov"
 rust_surfaces = [

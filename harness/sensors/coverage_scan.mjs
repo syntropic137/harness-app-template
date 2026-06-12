@@ -247,7 +247,9 @@ function emptyEnvelope(reason) {
  * Spawn `cargo llvm-cov --json --summary-only` against a workspace
  * manifest. Pins CARGO_TARGET_DIR to an isolated path so concurrent
  * runs in shared-target environments (the swarm VPS exports
- * /data/tmp/cargo-target) cannot cross-contaminate profraw files.
+ * /data/tmp/cargo-target) cannot cross-contaminate profraw files, and
+ * pins CARGO_INCREMENTAL=0 to match the cov-rust lanes (incremental
+ * caches are useless for one-shot scans and hoard disk).
  * Returns the parsed Rust metrics or null on failure.
  */
 function runCargoLlvmCov({ workspaceRoot, manifestRelPath, extraArgs = [], env = process.env }) {
@@ -266,7 +268,7 @@ function runCargoLlvmCov({ workspaceRoot, manifestRelPath, extraArgs = [], env =
     ];
     const result = spawnSync('cargo', args, {
       cwd: workspaceRoot,
-      env: { ...env, CARGO_TARGET_DIR: isolated },
+      env: { ...env, CARGO_TARGET_DIR: isolated, CARGO_INCREMENTAL: '0' },
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });
@@ -301,22 +303,25 @@ function runCargoLlvmCov({ workspaceRoot, manifestRelPath, extraArgs = [], env =
  * (harness/doc-validator, harness/versioning) ship CLI shells whose
  * region coverage is not under contract by the cov-rust recipe. If
  * a future ADR extends region enforcement to a slot crate, flip
- * `enforceRegions: true` here and refresh the baseline.
+ * `enforceRegions: true` here and refresh the baseline. Every lane
+ * builds with the dedicated `cov` cargo profile (line-tables-only
+ * debuginfo, no incremental) to match scripts/lib/coverage.ts; the
+ * profile changes build footprint only, never coverage numbers.
  */
 const RUST_LANES = [
   {
     manifest: 'ws_apps/example-rust/Cargo.toml',
-    extraArgs: [],
+    extraArgs: ['--profile', 'cov'],
     enforceRegions: true,
   },
   {
     manifest: 'harness/doc-validator/Cargo.toml',
-    extraArgs: ['--lib', '--ignore-filename-regex', 'main\\.rs'],
+    extraArgs: ['--profile', 'cov', '--lib', '--ignore-filename-regex', 'main\\.rs'],
     enforceRegions: false,
   },
   {
     manifest: 'harness/versioning/Cargo.toml',
-    extraArgs: ['--lib', '--ignore-filename-regex', 'main\\.rs'],
+    extraArgs: ['--profile', 'cov', '--lib', '--ignore-filename-regex', 'main\\.rs'],
     enforceRegions: false,
   },
 ];
