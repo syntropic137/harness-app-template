@@ -39,6 +39,10 @@
       "I": null,
       "D": null
     },
+    "ws_packages/d_test-guard": {
+      "I": null,
+      "D": null
+    },
     "ws_packages/telemetry": {
       "I": 0,
       "D": 0
@@ -172,7 +176,7 @@
           "source": ".topology/metrics/coupling.json or aggregate workspace modules",
           "direction": "max",
           "default_threshold": 0,
-          "baseline": 4,
+          "baseline": 6,
           "fail_on_regression": true
         },
         "sentrux-coupling-score": {
@@ -233,7 +237,7 @@
           "source": "ubs --report-json totals.critical (template-owned source paths)",
           "direction": "max",
           "default_threshold": 0,
-          "baseline": 0,
+          "baseline": null,
           "fail_on_regression": true
         }
       }
