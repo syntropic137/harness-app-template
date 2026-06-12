@@ -203,3 +203,38 @@ fn sync_archives_removed_vars() {
     assert!(env.contains("ARCHIVED VARIABLES"), "env:\n{env}");
     assert!(env.contains("OLD_VAR=legacy"), "env:\n{env}");
 }
+
+#[test]
+fn exec_injects_env_into_subprocess() {
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, MINIMAL_CONFIG);
+    std::fs::write(dir.path().join(".env"), "REQUIRED_VAR=injected\n").unwrap();
+
+    let out = Command::new(binary())
+        .args(["exec", "--", "env"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("REQUIRED_VAR=injected"),
+        "stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn exec_fails_when_no_command_given() {
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, MINIMAL_CONFIG);
+    let out = Command::new(binary())
+        .args(["exec", "--"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+}
