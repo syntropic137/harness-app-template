@@ -1,5 +1,5 @@
 use crate::schema::ConfigFile;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 pub fn run(schema: &ConfigFile) -> Result<()> {
     let _ = dotenvy::dotenv();

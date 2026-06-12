@@ -71,8 +71,13 @@ mod tests {
 
     #[test]
     fn optional_var_with_default() {
-        let schema =
-            make_schema(vec![make_var("LOG_LEVEL", "Log level", false, Some("info"), None)]);
+        let schema = make_schema(vec![make_var(
+            "LOG_LEVEL",
+            "Log level",
+            false,
+            Some("info"),
+            None,
+        )]);
         let out = generate(&schema);
         assert!(!out.contains("[REQUIRED]"), "output:\n{out}");
         assert!(out.contains("LOG_LEVEL=info"), "output:\n{out}");

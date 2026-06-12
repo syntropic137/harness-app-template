@@ -79,7 +79,11 @@ fn check_passes_when_required_var_in_env() {
         .current_dir(dir.path())
         .output()
         .unwrap();
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]
@@ -93,13 +97,19 @@ fn check_passes_when_required_var_in_dotenv() {
         .current_dir(dir.path())
         .output()
         .unwrap();
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]
 fn check_reports_all_missing_vars_at_once() {
     let dir = TempDir::new().unwrap();
-    write_config(&dir, r#"
+    write_config(
+        &dir,
+        r#"
 [config]
 version = "1"
 app_prefix = "TEST"
@@ -113,7 +123,8 @@ required = true
 name = "SECOND_REQUIRED"
 description = "Second"
 required = true
-"#);
+"#,
+    );
     let out = Command::new(binary())
         .args(["check"])
         .env_remove("FIRST_REQUIRED")
