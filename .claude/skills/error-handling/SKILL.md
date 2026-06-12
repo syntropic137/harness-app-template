@@ -202,4 +202,4 @@ These go stale fast; the date is the "as-of." Verify currency before adopting. T
 This skill is maintained at:
 https://github.com/syntropic137/software-leverage-points/blob/main/skills/error-handling/SKILL.md
 
-To improve it, edit the file directly and follow the chassis discipline in [`maintaining-software-leverage-points`](../../.claude/skills/maintaining-software-leverage-points/SKILL.md): regenerate catalogs, run `just qa`, then commit.
+To improve it, edit the file directly and follow the chassis discipline in `maintaining-software-leverage-points`: regenerate catalogs, run `just qa`, then commit.
