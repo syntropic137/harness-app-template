@@ -1,0 +1,21 @@
+{
+  "$schema_version": "1.0",
+  "description": "Paths stripped from the canonical template snapshot before the scaffolder writes commit-zero into a generated project. See docs/superpowers/specs/create-harness-app-scaffolder-design.md section 5. Lenient: a missing path is a no-op (lets the spec move ahead of mechanical renames in the template), but the canonical template's CI is expected to assert these paths exist in HEAD so silent drift cannot accumulate.",
+  "paths": [
+    ".beads",
+    ".ntm",
+    ".cm",
+    ".am-state",
+    "TEMPLATE.md",
+    ".github/ISSUE_TEMPLATE/template-question.md",
+    "docs/gap-analysis",
+    "docs/retrospectives/001-depcruiser-arch-quality.md",
+    "docs/retrospectives/002-ts-morph-adapter-chain.md",
+    "docs/superpowers/specs",
+    "docs/standard/v0.1.md",
+    "docs/evolution",
+    "experiments",
+    "harness-engineering-gap-report.md",
+    "docs/harness-engineering-gap-report.md"
+  ]
+}

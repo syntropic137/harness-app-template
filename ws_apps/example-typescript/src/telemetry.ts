@@ -13,8 +13,9 @@ import {
 } from '@harness/telemetry/node';
 import type { Instrumentation } from '@opentelemetry/instrumentation';
 
+const DEFAULT_SERVICE_NAME = 'example-typescript';
 export const endpoint: string = resolveOtlpBase({ env: process.env });
-export const serviceName: string = process.env['OTEL_SERVICE_NAME'] ?? 'example-typescript';
+export const serviceName: string = process.env['OTEL_SERVICE_NAME'] ?? DEFAULT_SERVICE_NAME;
 
 export type { TelemetrySdk };
 

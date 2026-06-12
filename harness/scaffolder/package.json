@@ -1,0 +1,21 @@
+{
+  "name": "@harness/scaffolder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Internal MVP of the create-harness-app scaffolder. Per docs/superpowers/specs/create-harness-app-scaffolder-design.md: copies the canonical template into a destination, strips template-only state, reuses scripts/init.ts for substitutions, fresh-inits git. The MVP is internal only; npm publish is deferred to explicit operator approval.",
+  "bin": {
+    "create-harness-app": "bin/create-harness-app.mjs"
+  },
+  "scripts": {
+    "build": "node --check scaffolder.mjs && node --check bin/create-harness-app.mjs",
+    "typecheck": "node --check scaffolder.mjs && node --check bin/create-harness-app.mjs",
+    "lint": "node --check scaffolder.mjs && node --check bin/create-harness-app.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.0",
+    "vitest": "^2.0"
+  }
+}

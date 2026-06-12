@@ -311,6 +311,83 @@ jobs:
       - run: pnpm install --no-frozen-lockfile
       - run: just dep-audit
 
+  scaffolder-fork-check:
+    # End-to-end correctness oracle for the create-harness-app scaffolder
+    # (harness/scaffolder/). Runs the scaffolder against this checkout
+    # into a tmpdir (the canonical template tree, copied + stripped per
+    # harness/scaffolder/strip-list.json + initialised through
+    # scripts/init.ts), then runs `just bootstrap`, `just qa`, and
+    # `just fitness --quick --format=summary` inside the GENERATED
+    # project. Symmetric with the `fork-check` job below: both ultimately
+    # copy the same template bytes and run the same gate set, so the
+    # scaffolder cannot regress fork-readiness without fork-check also
+    # regressing. Design contract:
+    # docs/superpowers/specs/create-harness-app-scaffolder-design.md §7.
+    # NO npm publish step is wired in this slot or this job: publishing
+    # is operator-gated and deferred per the MVP scope in §8.1.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.1
+      - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - name: Install gitleaks (pinned + checksum-verified)
+        run: bash .github/scripts/install-gitleaks.sh
+      - name: Cache APSS binary
+        id: cache-apss
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/apss
+          key: apss-1.1.0-${{ runner.os }}
+      - name: Install APSS
+        if: steps.cache-apss.outputs.cache-hit != 'true'
+        run: cargo install apss --version 1.1.0
+      - name: Install sensors slot deps for source-tree sensors invocations
+        working-directory: harness/sensors
+        run: npm install --no-package-lock --no-audit --no-fund --silent
+      - name: Install sentrux (matches local adopter PATH)
+        run: bash .github/scripts/install-sentrux.sh
+      - name: Configure git author for the scaffolder's commit-zero
+        run: |
+          git config --global user.email scaffolder-fork-check@github
+          git config --global user.name scaffolder-fork-check
+      - name: Run create-harness-app against this checkout
+        # The scaffolder resolves the template root from its own bin
+        # location (two parents up). Passing --template-root explicitly
+        # makes that resolution obvious in the CI log and survives any
+        # future move of the scaffolder slot. --yes selects "every slot
+        # + every example app" per spec §8.1. Default git init + commit
+        # stays on so the destination matches what a real adopter sees.
+        run: |
+          DEST="$RUNNER_TEMP/scaffolder-fork-check"
+          rm -rf "$DEST"
+          mkdir -p "$RUNNER_TEMP"
+          bun run harness/scaffolder/bin/create-harness-app.mjs scaffolder-smoke \
+            --yes \
+            --template-root "$GITHUB_WORKSPACE" \
+            --dest "$DEST"
+          echo "DEST=$DEST" >> "$GITHUB_ENV"
+      - name: Bootstrap the generated project
+        working-directory: ${{ env.DEST }}
+        run: just bootstrap
+      - name: Run qa inside the generated project
+        working-directory: ${{ env.DEST }}
+        run: just qa
+      - name: Run fitness --quick inside the generated project
+        working-directory: ${{ env.DEST }}
+        run: just fitness --quick --format=summary
+
   fork-check:
     # End-to-end fork-readiness check. Snapshots HEAD into a clean temp
     # workspace, runs the documented `just init <name>` + `just bootstrap`
