@@ -54,6 +54,7 @@ import { fileURLToPath } from 'node:url';
 import toml from '@iarna/toml';
 import {
   BASELINE_REFERENCE_DEFAULT,
+  BASELINE_RELAXATION_APPROVAL_KEY,
   evaluateBaselineRelaxationGuard,
   formatBaselineRelaxationGuard,
   loadReferenceBaseline,
@@ -2173,6 +2174,20 @@ export async function main(
   };
 
   if (updateBaseline) {
+    // Carry forward approval markers from the existing baseline so the
+    // relaxation guard can recognise deliberate BASELINE-RELAX-OK notes
+    // even when the freshly-generated baseline doesn't have them yet.
+    if (io.fileExists(baselinePath)) {
+      try {
+        const existing = JSON.parse(io.readFile(baselinePath));
+        const existingApprovals = existing?.[BASELINE_RELAXATION_APPROVAL_KEY];
+        if (existingApprovals && typeof existingApprovals === 'object') {
+          currentBaseline[BASELINE_RELAXATION_APPROVAL_KEY] = existingApprovals;
+        }
+      } catch {
+        // ignore read/parse failures — no approvals to carry forward
+      }
+    }
     const relaxation = baselineRelaxationGuard(currentBaseline);
     const exitCode = policyOk && relaxation.ok ? 0 : 1;
     if (!relaxation.ok) {

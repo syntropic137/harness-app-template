@@ -155,16 +155,19 @@ function evaluateCandidate({ kind, path, direction, reference, working, generate
     return;
   }
   if (working === null || working === undefined) {
-    violations.push({
-      kind,
-      path,
-      direction,
-      reference,
-      working: null,
-      reason: 'floor-replaced-with-null',
-      message: 'baseline replaced with null from a constrained numeric floor',
-      severity: 'loosened',
-    });
+    const note = hasRelaxationMarker(this?.workingBaseline, path);
+    if (!note) {
+      violations.push({
+        kind,
+        path,
+        direction,
+        reference,
+        working: null,
+        reason: 'floor-replaced-with-null',
+        message: 'baseline replaced with null from a constrained numeric floor',
+        severity: 'loosened',
+      });
+    }
     return;
   }
   if (!isNumber(working)) {

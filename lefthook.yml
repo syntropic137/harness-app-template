@@ -46,8 +46,8 @@ pre-commit:
       run: |
         sh -eu -c '
           if ! command -v gitleaks >/dev/null 2>&1; then
-            printf "%s\n" "warning: gitleaks not found; skipping secret scan hook" >&2
-            exit 0
+            printf "%s\n" "error: gitleaks is required but not found. Install it per docs/adrs/ADR-0009-secret-scanner.md" >&2
+            exit 1
           fi
           gitleaks protect --staged --redact --no-banner
         '

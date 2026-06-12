@@ -33,7 +33,7 @@ function gitleaksOnPath(): boolean {
 // runtime so the literal 20-char access-key pattern never appears in
 // source — otherwise the project's own `gitleaks detect` pass in
 // `pnpm qa` would flag this test file.
-const FAKE_AWS_KEY = ['AKIA', '2K7H9VQ', 'M3RZJ8XBT'].join('');
+const FAKE_AWS_KEY = ['AKIA', '3WZXQ7Y', 'UMT', 'B4NXCV'].join('');
 const FAKE_AWS_SECRET = ['jXqL5pT/', 'aBcDeFgHiJkLmNoPqRs', 'TuVwXyZ1234567'].join('');
 
 function makeTempRepo(): string {

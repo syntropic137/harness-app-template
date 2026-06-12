@@ -1420,10 +1420,9 @@ mod tests {
         )
         .unwrap_err()
         .to_string();
-        assert!(
-            date_err.contains("date +%F failed") || date_err.contains("run date +%F"),
-            "unexpected DateCommand::Failing error: {date_err}"
-        );
+        let date_err_ok =
+            date_err.contains("date +%F failed") || date_err.contains("run date +%F");
+        assert!(date_err_ok);
         assert!(
             git(Path::new("."), &["definitely-not-a-git-subcommand"])
                 .unwrap_err()
