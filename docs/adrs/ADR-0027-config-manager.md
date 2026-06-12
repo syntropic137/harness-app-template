@@ -4,7 +4,7 @@ description: "Centralized env-var schema, .env.example codegen, and secret resol
 status: accepted
 ---
 
-# ADR-0012: config-manager slot
+# ADR-0027: config-manager slot
 
 **Date:** 2026-06-11
 **Category:** Slot

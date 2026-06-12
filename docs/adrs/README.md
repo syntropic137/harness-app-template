@@ -37,6 +37,7 @@ Forks inherit these records as a baseline. Keep them, then add new numbered ADRs
 | [Merge gating](ADR-0022-merge-gating.md) | Protect `main` with required PR-time status checks (workspace qa × 2, check, scripts, rust-coverage, python-coverage, sensors-coverage, documentation, fitness, fork-check, dep-audit); no required approvals so auto-merge does not deadlock the autonomous loop |
 | [Dependency audit](ADR-0023-dependency-audit.md) | Polyglot CVE / supply-chain audit gate at CI (`pnpm audit`, `cargo audit`, `pip-audit`), with a fast lockfile-integrity check at pre-push; fail-closed on missing tooling |
 | [Dead-code ratchet](ADR-0024-dead-code-ratchet.md) | Deterministic scoped-grep unused-export ratchet under MT01 (zero node_modules / network dependency, identical count locally and on every CI lane); floor auto-tightens on improvement, fails on regression; the "no broken windows" rot gate |
+| [Config Manager](ADR-0027-config-manager.md) | Centralized env-var schema in config.toml with .env.example codegen, fast-fail validation, and opt-in 1Password secret resolution |
 
 ## Adding Records
 
