@@ -34,6 +34,16 @@ walkdir = "2"
 [dev-dependencies]
 tempfile = "3"
 
+# Dedicated profile for the `just cov-rust` lanes (scripts/lib/coverage.ts).
+# llvm-cov mapping comes from -C instrument-coverage, not debuginfo, so
+# line-tables-only keeps reports byte-identical while shedding the full
+# debuginfo that balloons CARGO_TARGET_DIR. Incremental is off because
+# coverage runs are one-shot. Keep aligned with the root Cargo.toml profile.
+[profile.cov]
+inherits = "dev"
+debug = "line-tables-only"
+incremental = false
+
 # HARNESS-ENGINEERING PROTECTED COVERAGE TARGETS / DO NOT ADJUST.
 # Enforced by just cov-doc-validator. main.rs is excluded because it is a
 # small CLI shell; all business logic lives in lib.rs.
