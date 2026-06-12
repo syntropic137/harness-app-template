@@ -1,0 +1,32 @@
+[package]
+name = "harness-config-manager"
+version = "0.1.0"
+edition = "2024"
+description = "Harness config-manager slot: typed env-var schema, codegen, secret resolution"
+
+[[bin]]
+name = "harness-config-manager"
+path = "src/main.rs"
+
+[lib]
+name = "harness_config_manager"
+path = "src/lib.rs"
+
+[features]
+op-integration = []
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+dotenvy = "0.15"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+which = "7"
+
+[dev-dependencies]
+tempfile = "3"
+
+[workspace]
+
+[package.metadata.coverage]
+exclude = ["src/main.rs"]
