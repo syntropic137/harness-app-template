@@ -22,6 +22,7 @@ init project-name:
 [group('setup')]
 bootstrap *args:
     bun run scripts/bootstrap.ts {{args}}
+    just config check
 
 # Diagnose missing tools and stale provenance (read-only preflight).
 [group('setup')]
@@ -109,6 +110,16 @@ sensors *args:
 [group('gates')]
 doc-validator *args:
     harness/doc-validator/bin/doc-validator {{args}}
+
+# config-manager slot — typed env-var schema, .env.example codegen, secret resolution
+[group('gates')]
+config *args:
+    harness/config-manager/bin/config-manager {{args}}
+
+# Build the config-manager binary
+[group('gates')]
+build-config-manager:
+    cargo build --release --manifest-path harness/config-manager/Cargo.toml
 
 # Polyglot dependency / supply-chain audit (ADR-0023-dependency-audit.md).
 # Runs `pnpm audit --audit-level=high --prod`, `cargo audit` against every
@@ -238,6 +249,23 @@ cov-py:
 [group('coverage')]
 cov-sensors:
     bun run scripts/coverage.ts sensors
+
+# Coverage gate for config-manager slot (98% lines / functions). Every line is
+# executed (no dead code); the residual <1% is region-partial assert-message
+# and defensive-branch segments. The op resolver's live `op read` spawn path is
+# covered by injecting the program name (true/false/missing) in unit tests.
+#
+# TODO: target is 100% lines/functions — match the doc-validator/versioning
+# slots. Close the remaining region-partial segments and raise the two floors
+# below to 100. This gate is a ratchet: only ever raise these numbers, never
+# lower them.
+[group('coverage')]
+cov-config-manager:
+    cargo llvm-cov --manifest-path harness/config-manager/Cargo.toml \
+        --package harness-config-manager \
+        --ignore-filename-regex 'main\.rs' \
+        --fail-under-lines 98 \
+        --fail-under-functions 98
 
 # --- release ---------------------------------------------------------------
 

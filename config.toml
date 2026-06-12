@@ -1,0 +1,12 @@
+[config]
+version = "1"
+app_prefix = "MYAPP"    # Change to your project name — sets MYAPP_OP_SERVICE_ACCOUNT_TOKEN
+
+# Add your environment variables below as [[var]] entries.
+# Run `just config sync` after any change to regenerate .env.example and sync .env.
+
+[[var]]
+name = "EXAMPLE_VAR"
+description = "Replace this with your first real variable"
+required = false
+default = "example-default"

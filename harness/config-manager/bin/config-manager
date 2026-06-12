@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Build from the crate dir but do NOT cd there — the binary reads config.toml
+# relative to the caller's working directory (the repo root).
+cargo build --release -q --manifest-path "$SCRIPT_DIR/../Cargo.toml"
+# Respect CARGO_TARGET_DIR when set; cargo writes the binary there instead
+# of the crate-local target/ directory.
+TARGET_DIR="${CARGO_TARGET_DIR:-$SCRIPT_DIR/../target}"
+exec "$TARGET_DIR/release/harness-config-manager" "$@"

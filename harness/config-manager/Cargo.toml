@@ -1,0 +1,39 @@
+[package]
+name = "harness-config-manager"
+version = "0.1.0"
+edition = "2024"
+description = "Harness config-manager slot: typed env-var schema, codegen, secret resolution"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "harness-config-manager"
+path = "src/main.rs"
+
+[lib]
+name = "harness_config_manager"
+path = "src/lib.rs"
+
+[features]
+op-integration = []
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+dotenvy = "0.15"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+which = "7"
+
+[dev-dependencies]
+tempfile = "3"
+
+[workspace]
+
+[package.metadata.coverage]
+tool = "cargo-llvm-cov"
+ignore_filename_regex = "main\\.rs"
+# TODO: target is 100 (match doc-validator/versioning). Ratchet only: raise
+# these floors as coverage improves, never lower them. See `just cov-config-manager`.
+lines_minimum = 98
+functions_minimum = 98
