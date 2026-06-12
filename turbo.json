@@ -3,16 +3,11 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [
-        "dist/**",
-        "target/release/**",
-        "build/**",
-        "bin/**"
-      ]
+      "outputs": ["dist/**", "target/release/**", "build/**", "bin/**"]
     },
     "test": {
       "dependsOn": ["^build"],
-      "outputs": ["coverage/**"]
+      "outputs": []
     },
     "typecheck": {
       "dependsOn": ["^typecheck"],
