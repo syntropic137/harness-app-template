@@ -281,6 +281,22 @@ no other slot depends on the MCP wiring.
 - `docs/retrospectives/`: post-mortems per experiment
 - `docs/journal/`: context journals across sessions
 
+## Package naming conventions
+
+Prefixes in `ws_packages/` are optional but encouraged when there is a
+meaningful grouping to signal. A prefix keeps related packages co-located
+in directory listings and adds key information at a glance. Use a prefix
+when it genuinely clarifies the package's role; omit it when the name is
+already self-evident. Examples: `d_` for dev/test tooling, `i_` for
+infrastructure utilities.
+
+## Mocks
+
+Before writing any mock, read [`docs/development/mocks.md`](./docs/development/mocks.md).
+Every mock must call `assert_test_env!()` (Rust) or `assertTestEnv()` (TypeScript)
+as its first line — this throws immediately if `APP_ENV != "test"`, preventing
+mocks from ever running outside a test environment.
+
 ---
 
 _This template is a v0.1 draft. Edit freely for your project; the canonical Standard lives in the agentic-harness-lab repo._
