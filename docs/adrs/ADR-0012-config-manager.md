@@ -24,6 +24,10 @@ Key design decisions:
 - **`sync`** generates `.env.example` from schema and reconciles `.env` — preserves existing values, archives removed vars under `# ARCHIVED VARIABLES`
 - **`exec`** resolves secrets and injects into subprocess env; secrets never written to disk as plaintext
 - **1Password resolver** is opt-in per-var via `op_ref` field; token is project-namespaced (`<APP_PREFIX>_OP_SERVICE_ACCOUNT_TOKEN`) to prevent collision across projects on shared machines
+- **`source` is injection-safe**: values are emitted single-quoted (`export K='...'`), so `eval $(harness config source)` treats every value as a literal string. A secret containing `$(...)` or backticks — e.g. one fetched from 1Password, which bypasses dotenvy's own substitution — is exported verbatim, never executed. See `src/shell.rs`.
+- **Runtime paths fail closed**: `exec` and `source` resolve via `resolve_required`, which errors (listing every unresolved required var) before launching a subprocess or emitting exports. `check` deliberately does *not* resolve `op://` refs (it must work offline), so `exec`/`source` are the gates that enforce required-secret presence at run time.
+- **`op` failures are loud**: a non-zero `op read` exit (bad token, missing item, no auth) or a spawn failure becomes an error carrying op's stderr — never a silent fallback to a default or stale env value. Resolved values are returned verbatim (no trimming) so secrets with significant whitespace survive intact.
+- **Schema is validated on load**: duplicate var names and names that aren't valid env identifiers are rejected before any codegen / resolve / source path runs.
 
 ## Alternatives considered
 

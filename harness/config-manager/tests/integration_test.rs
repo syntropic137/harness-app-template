@@ -259,6 +259,113 @@ fn source_emits_shell_exports() {
 }
 
 #[test]
+fn source_single_quotes_values_so_eval_cannot_execute_them() {
+    // The security fix: a value containing a command substitution must be
+    // emitted single-quoted so `eval $(harness config source)` treats it as a
+    // literal string, never running it. We inject the malicious value through
+    // the environment verbatim — the way an `op://` secret arrives, bypassing
+    // dotenvy's own substitution — then eval the output. The marker file must
+    // NOT exist and the variable must hold the literal text. Had `source`
+    // emitted `export K="$(touch pwned)"`, the eval would have run `touch`.
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, MINIMAL_CONFIG);
+
+    let bin = binary();
+    let script = format!("eval \"$({bin} source)\"; printf '%s' \"$REQUIRED_VAR\"");
+    let out = Command::new("sh")
+        .args(["-c", &script])
+        .env("REQUIRED_VAR", "$(touch pwned)")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(stdout, "$(touch pwned)", "value should be literal, not run");
+    assert!(
+        !dir.path().join("pwned").exists(),
+        "command substitution executed — injection not neutralized"
+    );
+}
+
+#[test]
+fn source_fails_closed_when_required_var_missing() {
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, MINIMAL_CONFIG);
+    let out = Command::new(binary())
+        .arg("source")
+        .env_remove("REQUIRED_VAR")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "source must fail on missing required var"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("REQUIRED_VAR"), "stderr: {stderr}");
+}
+
+#[test]
+fn exec_fails_closed_when_required_var_missing() {
+    // exec must NOT launch the subprocess if a required var is unresolved.
+    // We point it at a command that, if run, would create a marker file.
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, MINIMAL_CONFIG);
+    let out = Command::new(binary())
+        .args(["exec", "--", "touch", "ran"])
+        .env_remove("REQUIRED_VAR")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "exec must fail on missing required var"
+    );
+    assert!(
+        !dir.path().join("ran").exists(),
+        "subprocess launched despite missing required var"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("REQUIRED_VAR"), "stderr: {stderr}");
+}
+
+#[test]
+fn schema_load_rejects_duplicate_var_names() {
+    let dir = TempDir::new().unwrap();
+    write_config(
+        &dir,
+        r#"
+[config]
+version = "1"
+app_prefix = "TEST"
+
+[[var]]
+name = "DUP"
+description = "first"
+
+[[var]]
+name = "DUP"
+description = "second"
+"#,
+    );
+    let out = Command::new(binary())
+        .arg("check")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "duplicate var names must be rejected"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("duplicate"), "stderr: {stderr}");
+}
+
+#[test]
 fn show_masks_secret_values() {
     let dir = TempDir::new().unwrap();
     write_config(

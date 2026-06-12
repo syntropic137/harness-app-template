@@ -13,6 +13,7 @@ pub mod env_file;
 pub mod exec;
 pub mod resolver;
 pub mod schema;
+pub mod shell;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -58,12 +59,14 @@ pub fn run(command: Commands) -> Result<()> {
         }
         Commands::Source => {
             let schema = schema::load("config.toml")?;
-            let env = resolver::resolve_all(&schema)?;
-            // {v:?} (Debug) escapes inner quotes and control chars but does NOT
-            // prevent subshell expansion ($(...) or backticks) in the shell that
-            // evals this output. Trust your .env the same way you trust a shell script.
+            // Fail closed: `eval $(harness config source)` must not silently
+            // export a partial environment when a required secret is missing.
+            let env = resolver::resolve_required(&schema)?;
+            // Single-quote every value so the evaluating shell performs NO
+            // expansion on it — a secret containing $(...) or backticks is
+            // emitted literally, not executed. See shell::single_quote.
             for (k, v) in &env {
-                println!("export {k}={v:?}");
+                println!("export {k}={}", shell::single_quote(v));
             }
             Ok(())
         }

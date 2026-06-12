@@ -8,7 +8,8 @@ pub fn run(schema: &ConfigFile, cmd: &[String]) -> Result<()> {
         bail!("exec requires a command: harness config exec -- <cmd> [args...]");
     }
 
-    let env = resolver::resolve_all(schema)?;
+    // Fail closed: a workload must not launch with a required secret unresolved.
+    let env = resolver::resolve_required(schema)?;
 
     let status = Command::new(&cmd[0]).args(&cmd[1..]).envs(&env).status()?;
 

@@ -10,11 +10,38 @@ pub fn parse(path: &str) -> HashMap<String, String> {
     content
         .lines()
         .filter(|l| !l.trim().starts_with('#') && !l.trim().is_empty())
-        .filter_map(|l| {
-            let (k, v) = l.split_once('=')?;
-            Some((k.trim().to_string(), v.trim().to_string()))
-        })
+        .filter_map(parse_line)
         .collect()
+}
+
+/// Parse one `.env` line into a (key, value) pair, dotenv-style:
+/// tolerate a leading `export `, trim whitespace around the key, and strip a
+/// single layer of matching surrounding quotes from the value so `FOO="bar baz"`
+/// and `FOO='bar'` round-trip as `bar baz` / `bar`. Whitespace inside quotes is
+/// preserved; an unquoted value is trimmed.
+fn parse_line(line: &str) -> Option<(String, String)> {
+    let line = line.trim();
+    let line = line.strip_prefix("export ").unwrap_or(line);
+    let (k, v) = line.split_once('=')?;
+    let key = k.trim();
+    if key.is_empty() {
+        return None;
+    }
+    Some((key.to_string(), unquote(v.trim())))
+}
+
+/// Strip one layer of matching surrounding single or double quotes, preserving
+/// the interior verbatim. Unquoted input is returned as-is.
+fn unquote(v: &str) -> String {
+    let bytes = v.as_bytes();
+    if bytes.len() >= 2 {
+        let first = bytes[0];
+        let last = bytes[bytes.len() - 1];
+        if (first == b'"' || first == b'\'') && first == last {
+            return v[1..v.len() - 1].to_string();
+        }
+    }
+    v.to_string()
 }
 
 pub fn sync(schema: &ConfigFile, example_path: &str, env_path: &str) -> Result<()> {
@@ -94,5 +121,38 @@ mod tests {
     fn parse_returns_empty_map_for_missing_file() {
         let map = parse("/nonexistent/.env");
         assert!(map.is_empty());
+    }
+
+    #[test]
+    fn parse_tolerates_export_prefix() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, ".env", "export FOO=bar\n");
+        let map = parse(&path);
+        assert_eq!(map.get("FOO").map(String::as_str), Some("bar"));
+    }
+
+    #[test]
+    fn parse_strips_surrounding_quotes_and_preserves_inner_whitespace() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(
+            &dir,
+            ".env",
+            "A=\"bar baz\"\nB='qux'\nC=plain\nD=\"$(id)\"\n",
+        );
+        let map = parse(&path);
+        assert_eq!(map.get("A").map(String::as_str), Some("bar baz"));
+        assert_eq!(map.get("B").map(String::as_str), Some("qux"));
+        assert_eq!(map.get("C").map(String::as_str), Some("plain"));
+        // Quote-stripping is literal; it does not evaluate the contents.
+        assert_eq!(map.get("D").map(String::as_str), Some("$(id)"));
+    }
+
+    #[test]
+    fn parse_skips_lines_with_empty_key() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, ".env", "=novalue\nFOO=bar\n");
+        let map = parse(&path);
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get("FOO").map(String::as_str), Some("bar"));
     }
 }
