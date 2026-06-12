@@ -257,6 +257,10 @@ pre-push:
     ubs-diff:
       run: |
         sh -eu -c '
+          if ! command -v ubs >/dev/null 2>&1; then
+            printf "%s\n" "warning: ubs not found; skipping ubs-diff hook" >&2
+            exit 0
+          fi
           base_ref="$(git config harness.hookBaseRef || git config harness.upstreamRef || printf main)"
           base_remote="$(git config harness.hookBaseRemote || printf upstream)"
           base="$base_remote/$base_ref"
