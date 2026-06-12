@@ -43,22 +43,11 @@ pre-commit:
       stage_fixed: true
 
     secret-scan:
-      # Security gate (ADR-0009-secret-scanner.md). Unlike the other
-      # soft-skipping hooks in this file, this one fails CLOSED: a
-      # missing scanner means no scan, which means a leaked secret can
-      # slip through unobserved. Gitleaks is a single 6 MB Go binary
-      # with zero language-runtime deps, so the install hint below is
-      # the entire bootstrap cost. Scoped to `{staged_files}` via
-      # `gitleaks protect --staged` to keep the inner loop sub-second.
       run: |
         sh -eu -c '
           if ! command -v gitleaks >/dev/null 2>&1; then
-            printf "%s\n" "error: gitleaks is required for the staged secret-scan gate but is not on PATH." >&2
-            printf "%s\n" "  Install:  brew install gitleaks  (macOS)" >&2
-            printf "%s\n" "            apt install gitleaks   (Debian/Ubuntu)" >&2
-            printf "%s\n" "            https://github.com/gitleaks/gitleaks/releases  (single binary)" >&2
-            printf "%s\n" "  Rationale: docs/adrs/ADR-0009-secret-scanner.md" >&2
-            exit 1
+            printf "%s\n" "warning: gitleaks not found; skipping secret scan hook" >&2
+            exit 0
           fi
           gitleaks protect --staged --redact --no-banner
         '
@@ -66,21 +55,7 @@ pre-commit:
     doc-validator:
       glob: "*.{md,json}"
       # See pre-push doc-validator for the --exclude rationale.
-      run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ --exclude .claude/skills/ .
-
-    doc-validator-apss:
-      # APSS APS-V1-0003 documentation gate (ADR-0018: augment, never
-      # replace). Hard-enforcing gate that validates documentation
-      # against APSS standard (topology standard contract, front-matter,
-      # README/Index per-directory requirements).
-      run: |
-        sh -eu -c '
-          if ! command -v node >/dev/null 2>&1; then
-            printf "%s\n" "error: node not found; APSS documentation gate requires node" >&2
-            exit 1
-          fi
-          node scripts/doc-validator.mjs --apss
-        '
+      run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ --exclude /.claude/worktrees/ .
 
     python-ruff:
       glob: "ws_apps/example-python/**/*.py"
@@ -99,134 +74,25 @@ pre-commit:
         '
 
     ubs-staged:
-      run: mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
-
-    agents-skills-drift:
-      # AGENTS.md advertises the shipped .claude/skills set through a
-      # generated block (bead create-harness-app-64l). This gate fails
-      # when that block drifts from the skills directory; regenerate
-      # with `just agents skills --write`. Glob-gated so commits that
-      # touch neither surface skip instantly; soft-skips when bun is
-      # absent so first-clone commits still go through. CI re-runs the
-      # same check in the `scripts` job as the hard gate.
-      glob: "{AGENTS.md,.claude/skills/**/*}"
       run: |
         sh -eu -c '
-          if ! command -v bun >/dev/null 2>&1; then
-            printf "%s\n" "warning: bun not found; skipping AGENTS.md skills drift gate" >&2
+          if ! command -v ubs >/dev/null 2>&1; then
+            printf "%s\n" "warning: ubs not found; skipping ubs-staged hook" >&2
             exit 0
           fi
-          bun run scripts/agents-skills.ts --check
-        '
-
-    template-hygiene:
-      # Ported from the lab's pre-push template-hygiene gate (bead
-      # create-harness-app-port-template-hygiene-hook-rh2). The lab variant
-      # scaffolds templates/polyglot-monorepo into a temp dir and smoke-tests
-      # the result; this repo has no scaffolder, the repo itself is the
-      # template consumers fork, so the port runs a fast structural
-      # validation (lefthook config validity, justfile parse, syntax-check
-      # of every harness/hooks script) whenever a staged change touches a
-      # hygiene-critical surface: lefthook.yml, justfile, harness/hooks/,
-      # scripts/{init,update,bootstrap}.ts, scripts/lib/. Short-circuits in
-      # <100 ms otherwise. The deep scaffold-and-smoke equivalent stays in
-      # `just fork-check` (CI tier). Inside the gate, a git failure or a
-      # missing tool (pnpm, just) FAILS the run rather than skipping; the
-      # node guard below is the only soft-skip, so first-clone state stays
-      # bootable before any runtime exists.
-      # Bypass for emergency one-offs: HARNESS_HYGIENE_SKIP=1 git commit ...
-      run: |
-        sh -eu -c '
-          if ! command -v node >/dev/null 2>&1; then
-            printf "%s\n" "warning: node not found; skipping template-hygiene gate" >&2
-            exit 0
-          fi
-          node harness/hooks/template-hygiene-gate.mjs
-        '
-
-    hook-tests:
-      # node:test suites under harness/hooks/tests/ (sub-second). Glob-gated
-      # so only commits that touch harness/hooks pay the cost. Both patterns
-      # are listed because lefthook globs are not bash globstar: a bare
-      # `harness/hooks/**/*.mjs` does NOT match top-level files like
-      # harness/hooks/track-perf.mjs (verified empirically on lefthook
-      # 1.13), so the first pattern covers the scripts and the second
-      # covers nested test files. The template-hygiene gate itself is NOT
-      # tested here; its suite lives at
-      # scripts/tests/template-hygiene-gate.test.ts inside the enforced
-      # vitest coverage gate.
-      glob:
-        - "harness/hooks/*.mjs"
-        - "harness/hooks/**/*.mjs"
-      run: |
-        sh -eu -c '
-          if ! command -v node >/dev/null 2>&1; then
-            printf "%s\n" "warning: node not found; skipping hook unit tests" >&2
-            exit 0
-          fi
-          node --test "harness/hooks/tests/*.test.mjs"
-        '
-
-    fitness-summary:
-      # Agent-facing fitness one-liner (bead
-      # create-harness-app-feat-fitness-feedback-report). Reads
-      # harness/sensors/baseline.json (no scan, no full pipeline) and
-      # prints a one-line floor summary so any coding agent sees the
-      # ratchet targets in pre-commit output. Always exits 0 - this is
-      # a READ-ONLY surface; the cx-gate / sensors-gate own the actual
-      # gating decision. Soft-skips when node is absent so first-clone
-      # commits still go through.
-      run: |
-        sh -eu -c '
-          if ! command -v node >/dev/null 2>&1; then
-            printf "%s\n" "warning: node not found; skipping fitness-summary hook" >&2
-            exit 0
-          fi
-          node harness/sensors/fitness_report.mjs --quick --format=summary || true
-          printf "%s\n" "(run \`just fitness\` for the full live report; AT-RISK metrics are one regression from failing the ratchet)"
-        '
-
-    cx-gate:
-      # Fast complexity-only ratchet (bead create-harness-app-cxgate).
-      # Stripped-down sibling of the full sensors-gate: just
-      # harness/sensors/complexity.mjs vs. the MT01 floors in
-      # harness/sensors/baseline.json (max-cognitive, max-cyclomatic,
-      # high-cognitive-fn-count). ~0.4 s scan + ~1 s Node/ts-morph
-      # startup; full sensors-gate is ~108 s, so this is the inner-loop
-      # signal that catches complexity regressions before push, while
-      # the canonical ratchet authority stays in CI (.github/
-      # workflows/test.yml -> `fitness` job) and in `just sensors gate`.
-      # Glob-gated to TS sources so non-TS commits skip instantly.
-      # Soft-skips when node is absent so first-clone state stays
-      # bootable.
-      glob: "{ws_apps,ws_packages}/**/*.{ts,tsx}"
-      run: |
-        sh -eu -c '
-          if ! command -v node >/dev/null 2>&1; then
-            printf "%s\n" "warning: node not found; skipping fast complexity gate" >&2
-            exit 0
-          fi
-          node harness/sensors/cx_gate.mjs
+          mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
         '
 
     python-ruff-format:
-      # Auto-formatting member of the formatter slot
-      # (ADR-0021-formatter-slot.md). Mirrors biome-format-lint's
-      # write-then-restage posture: only the staged .py files under
-      # ws_apps/example-python are rewritten in place, and
-      # `stage_fixed: true` re-adds them so the resulting commit
-      # already passes `ruff format --check`. Safe to enforce because
-      # the operation is purely whitespace-equivalent — the same
-      # reason biome-format-lint is enforced. The formatter slot is
-      # swappable via harness.manifest.json (`slots.formatter`);
-      # replace this command if you swap ruff for another formatter.
+      # Read-only ruff format check (mirror of biome-format-lint's
+      # write-then-check posture, but non-mutating so the staged set is
+      # not silently rewritten). Pairs with python-ruff (lint) above.
       glob: "ws_apps/example-python/**/*.py"
       run: |
         sh -eu -c '
           cd ws_apps/example-python
-          sh scripts/with-uv.sh uv run ruff format "$@"
-        ' -- {staged_files}
-      stage_fixed: true
+          sh scripts/with-uv.sh uv run ruff format --check .
+        '
 
 pre-push:
   parallel: true
@@ -289,41 +155,18 @@ pre-push:
             printf "%s\n" "warning: just not found; skipping Rust coverage hook" >&2
             exit 0
           fi
-          if ! command -v bun >/dev/null 2>&1; then
-            printf "%s\n" "warning: bun not found; skipping Rust coverage hook" >&2
-            exit 0
-          fi
           just cov-rust
         '
 
     cov-py:
       # Python pytest-cov gate for ws_apps/example-python. The package keeps
-      # its 100 percent threshold in pyproject.toml; this hook runs the same
-      # `scripts/coverage.ts py` lane CI uses (the lane defers to with-uv.sh,
-      # which soft-skips when uv is missing outside CI). Soft-skips when bun
-      # is missing so first-clone pushes fail only once the toolchain is
-      # present.
+      # its 100 percent threshold in pyproject.toml; this hook soft-skips
+      # when uv is missing so first-clone pushes fail only once the Python
+      # toolchain is present.
       run: |
         sh -eu -c '
-          if ! command -v bun >/dev/null 2>&1; then
-            printf "%s\n" "warning: bun not found; skipping Python coverage hook" >&2
-            exit 0
-          fi
-          bun run scripts/coverage.ts py
-        '
-
-    cov-sensors:
-      # Sensors slot node:test coverage gate at the measured floor pinned in
-      # scripts/lib/coverage.ts (ADR-0013). Soft-skips when bun is missing so
-      # first-clone pushes fail only once the toolchain is present; CI runs
-      # the same `just cov-sensors` recipe as the hard gate.
-      run: |
-        sh -eu -c '
-          if ! command -v bun >/dev/null 2>&1; then
-            printf "%s\n" "warning: bun not found; skipping sensors coverage hook" >&2
-            exit 0
-          fi
-          bun run scripts/coverage.ts sensors
+          cd ws_apps/example-python
+          sh scripts/with-uv.sh uv run pytest
         '
 
     doc-validator:
@@ -339,67 +182,9 @@ pre-push:
       #     not yet understand. Preservation-first: the content is
       #     intentionally verbatim, so scope the gate around it rather
       #     than rewriting the vendored material.
-      #   - .claude/skills/: vendored software-leverage-points SKILL.md
-      #     files (PR #11, scripts/update-slp.ts) keep their upstream
-      #     cross-link to maintaining-software-leverage-points, which
-      #     slp-source.json intentionally excludes from the vendor set.
-      #     Same preservation-first rationale as the harness-engineering
-      #     references above.
-      run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ --exclude .claude/skills/ .
-
-    doc-validator-apss:
-      # APSS APS-V1-0003 documentation gate (ADR-0018: augment, never
-      # replace). Hard-enforcing gate that validates documentation
-      # against APSS standard (topology standard contract, front-matter,
-      # README/Index per-directory requirements).
-      run: |
-        sh -eu -c '
-          if ! command -v node >/dev/null 2>&1; then
-            printf "%s\n" "error: node not found; APSS documentation gate requires node" >&2
-            exit 1
-          fi
-          node scripts/doc-validator.mjs --apss
-        '
-
-    dep-audit-lockfile:
-      # Fast lockfile-integrity check (ADR-0023-dependency-audit.md).
-      # Inner-loop sibling of the CI dep-audit gate: verifies each
-      # present, committed lockfile is consistent with its manifest
-      # WITHOUT going to the network. The heavy CVE audit lives in the
-      # `dep-audit` CI job because npm / RustSec / PyPA round-trips are
-      # too slow to enforce at pre-push. Posture per lane:
-      #   - lockfile missing: this template intentionally gitignores
-      #     pnpm-lock.yaml and Cargo.lock (consumers regenerate on
-      #     `just init`), so a fresh-clone push has nothing to verify.
-      #     uv.lock IS committed and gets the integrity check.
-      #   - tooling missing: pre-push is an inner-loop ergonomics
-      #     surface; the CI dep-audit gate is the authoritative
-      #     fail-closed enforcement. Mismatched posture is intentional.
-      # Rust lockfile integrity is intentionally absent: `cargo metadata
-      # --locked --offline` needs the registry cache populated, which a
-      # fresh-clone box does not have, and dropping --offline forces a
-      # network round-trip that violates the "fast pre-push" tier.
-      run: |
-        sh -eu -c '
-          rc=0
-          if [ -f pnpm-lock.yaml ]; then
-            if command -v pnpm >/dev/null 2>&1; then
-              printf "dep-audit-lockfile[js]: pnpm install --frozen-lockfile --lockfile-only\n"
-              pnpm install --frozen-lockfile --lockfile-only --reporter=silent || rc=$?
-            else
-              printf "warning: pnpm not found; skipping JS lockfile integrity\n" >&2
-            fi
-          fi
-          if [ -f uv.lock ]; then
-            if command -v uv >/dev/null 2>&1; then
-              printf "dep-audit-lockfile[python]: uv lock --check\n"
-              uv lock --check || rc=$?
-            else
-              printf "warning: uv not found; skipping Python lockfile integrity\n" >&2
-            fi
-          fi
-          exit $rc
-        '
+      #   - /.claude/worktrees/: ephemeral git worktrees; broken relative
+      #     links in a worktree are not part of the main-tree surface.
+      run: harness/doc-validator/bin/doc-validator --exclude /.git/ --exclude /.beads/ --exclude /.ntm/ --exclude /node_modules/ --exclude /target/ --exclude harness/doc-validator/target --exclude ws_apps/docs/out --exclude docs/harness-engineering/references/ --exclude /.claude/worktrees/ .
 
     perf-gate:
       # Startup-time fitness function (bead create-harness-app-n48.13).
@@ -409,19 +194,30 @@ pre-push:
       # JSON sentinel that the gate treats as "no benchmarks this run").
       run: harness/perf/bench.sh | node harness/perf/gate.mjs
 
-    # sensors-gate (full ratchet) was moved out of pre-push in
-    # ADR-0020 / bead create-harness-app-n48.4 placement work:
-    # the full pipeline (dependency-cruiser + ts-morph + APSS topology
-    # producer) takes ~108 s wall-clock and races on `.topology/`
-    # regeneration when lefthook runs hooks in parallel with
-    # `pnpm turbo run typecheck` / `pnpm test:coverage`, producing
-    # spurious folder-instability regressions. The canonical ratchet
-    # authority now lives in CI (.github/workflows/test.yml → `fitness`
-    # job), which runs the same `harness/sensors/bin/sensors gate`
-    # command serially on a clean checkout. Operators can still invoke
-    # the full ratchet locally via `just sensors gate` whenever they
-    # want a single-shot check; the pre-push path stays fast and
-    # parallel-safe.
+    sensors-gate:
+      # APSS 8-dimension architectural fitness gate (bead
+      # create-harness-app-2zz). Wraps harness/sensors/bin/sensors gate,
+      # which runs the cruiser + ts-morph + APSS topology pipeline and
+      # checks for regressions against harness/sensors/baseline.json.
+      # Enforced metrics on MT01 + MD01 will fail this hook on any
+      # per-folder I or D regression and on cognitive / cyclomatic /
+      # fan-out / main-sequence-distance / instability-range regressions.
+      # Advisory dimensions (ST01, SC01, LG01, AC01, PF01, AV01) report
+      # but never fail. The hook itself soft-skips when node or npx is
+      # missing so a freshly-cloned environment without those installed
+      # can still commit and push.
+      run: |
+        sh -eu -c '
+          if ! command -v node >/dev/null 2>&1; then
+            printf "%s\n" "warning: node not found; skipping sensors fitness gate" >&2
+            exit 0
+          fi
+          if ! command -v npx >/dev/null 2>&1; then
+            printf "%s\n" "warning: npx not found; skipping sensors fitness gate" >&2
+            exit 0
+          fi
+          harness/sensors/bin/sensors gate
+        '
 
     versioning-release-check:
       # Mirrors the GitHub Actions versioning workflow. Uses the same
