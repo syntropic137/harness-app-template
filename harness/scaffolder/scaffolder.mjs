@@ -48,6 +48,14 @@ export const COPY_SKIP_DIRS = new Set([
   'target',
 ]);
 
+// Basename suffixes the scaffolder skips at copy time. Editors and MCP-config
+// tools sometimes drop `<file>.<pid>.<ts>.<seq>.0.bak` snapshots alongside
+// their source; the basenames are unpredictable so strip-list.json (which is
+// exact-path only) cannot enumerate them. Filter them here as
+// defense-in-depth so a developer's local working tree never leaks `.bak`
+// auto-backups into a generated project.
+export const COPY_SKIP_BASENAME_SUFFIXES = ['.bak'];
+
 export function validateProjectName(name) {
   if (typeof name !== 'string' || !PROJECT_RE.test(name)) {
     throw new Error(
@@ -89,7 +97,11 @@ export function copyTemplate(src, dest, skipRel, deps = defaultDeps()) {
     const toAbs = rel === '' ? dest : join(dest, rel);
     if (rel !== '') {
       const name = rel.split('/').at(-1);
-      if (COPY_SKIP_DIRS.has(name) || skipSet.has(rel)) {
+      if (
+        COPY_SKIP_DIRS.has(name) ||
+        skipSet.has(rel) ||
+        COPY_SKIP_BASENAME_SUFFIXES.some((suffix) => name.endsWith(suffix))
+      ) {
         return;
       }
     }

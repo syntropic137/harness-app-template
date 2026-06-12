@@ -15,6 +15,15 @@
 .env
 .env.local
 
+# Auto-generated tool backups. Editors and MCP-config tools sometimes drop
+# `<file>.<pid>.<ts>.<seq>.0.bak` snapshots next to their source; in the past
+# these landed in the repo and leaked a local Agent Mail Bearer token.
+# Block them by extension, and block the stray `git diff` dump that the same
+# flow produced.
+*.bak
+*.mcp.json.*.bak
+.gitdiff.txt
+
 # Dependency-audit staging dir (ADR-0023-dependency-audit.md).
 # scripts/dep-audit.ts writes resolved requirements files here before
 # piping them to pip-audit; the dir is rm -rf'd on completion, but a

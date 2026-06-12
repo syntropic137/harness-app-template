@@ -12,6 +12,7 @@ import * as scaffolderMod from '../scaffolder.mjs';
 
 interface ScaffolderModule {
   COPY_SKIP_DIRS: Set<string>;
+  COPY_SKIP_BASENAME_SUFFIXES: string[];
   HELP_TEXT: string;
   applyStripList: (dest: string, paths: string[], deps: Record<string, unknown>) => string[];
   copyTemplate: (src: string, dest: string, skip: string[], deps: Record<string, unknown>) => void;
@@ -68,6 +69,7 @@ interface ScaffolderModule {
 const mod = scaffolderMod as unknown as ScaffolderModule;
 const {
   COPY_SKIP_DIRS,
+  COPY_SKIP_BASENAME_SUFFIXES,
   HELP_TEXT,
   applyStripList,
   copyTemplate,
@@ -350,6 +352,24 @@ describe('copyTemplate', () => {
   test('exposes COPY_SKIP_DIRS as a Set of build/cache dirs', () => {
     expect(COPY_SKIP_DIRS.has('node_modules')).toBe(true);
     expect(COPY_SKIP_DIRS.has('.git')).toBe(true);
+  });
+
+  test('skips files whose basename matches a COPY_SKIP_BASENAME_SUFFIXES entry', () => {
+    // Defense-in-depth against auto-generated cruft like
+    // `<file>.<pid>.<ts>.<seq>.0.bak` that editors and MCP-config tools
+    // sometimes drop next to their source. The suffix list lets the
+    // scaffolder filter unpredictable basenames that strip-list.json
+    // (exact-path only) cannot enumerate.
+    expect(COPY_SKIP_BASENAME_SUFFIXES).toContain('.bak');
+    const fs = emptyFs();
+    writeFakeFile(fs, '/src/README.md', 'keep');
+    writeFakeFile(fs, '/src/.cursor.mcp.json.1234.5678.0.bak', 'cruft');
+    writeFakeFile(fs, '/src/.claude/.settings.local.json.1.2.0.bak', 'secret');
+    const { deps } = makeDeps({}, fs);
+    copyTemplate('/src', '/dest', [], deps);
+    expect(fs.files.get('/dest/README.md')).toBe('keep');
+    expect(fs.files.has('/dest/.cursor.mcp.json.1234.5678.0.bak')).toBe(false);
+    expect(fs.files.has('/dest/.claude/.settings.local.json.1.2.0.bak')).toBe(false);
   });
 });
 

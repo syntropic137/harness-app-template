@@ -1,6 +1,6 @@
 {
   "$schema_version": "1.0",
-  "description": "Paths stripped from the canonical template snapshot before the scaffolder writes commit-zero into a generated project. See docs/superpowers/specs/create-harness-app-scaffolder-design.md section 5. Lenient: a missing path is a no-op (lets the spec move ahead of mechanical renames in the template), but the canonical template's CI is expected to assert these paths exist in HEAD so silent drift cannot accumulate.",
+  "description": "Paths stripped from the canonical template snapshot before the scaffolder writes commit-zero into a generated project. See docs/superpowers/specs/create-harness-app-scaffolder-design.md section 5. Lenient: a missing path is a no-op (lets the spec move ahead of mechanical renames in the template), but the canonical template's CI is expected to assert these paths exist in HEAD so silent drift cannot accumulate. The `paths` entries are exact relative paths (no glob support); basename-suffix cruft (e.g. `*.bak` auto-backups from editors/MCP tools) is filtered at copy time by COPY_SKIP_BASENAME_SUFFIXES in scaffolder.mjs.",
   "paths": [
     ".beads",
     ".ntm",
@@ -16,6 +16,7 @@
     "docs/evolution",
     "experiments",
     "harness-engineering-gap-report.md",
-    "docs/harness-engineering-gap-report.md"
+    "docs/harness-engineering-gap-report.md",
+    ".gitdiff.txt"
   ]
 }
