@@ -253,10 +253,8 @@ cov-sensors:
 # Coverage gate for config-manager slot (80% lines / functions).
 [group('coverage')]
 cov-config-manager:
-    cargo build --manifest-path harness/config-manager/Cargo.toml --bin harness-config-manager
     cargo llvm-cov --manifest-path harness/config-manager/Cargo.toml \
         --package harness-config-manager \
-        --lib \
         --ignore-filename-regex 'main\.rs' \
         --fail-under-lines 80 \
         --fail-under-functions 80
