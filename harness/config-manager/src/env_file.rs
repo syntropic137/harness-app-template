@@ -155,4 +155,33 @@ mod tests {
         assert_eq!(map.len(), 1);
         assert_eq!(map.get("FOO").map(String::as_str), Some("bar"));
     }
+
+    #[test]
+    fn parse_handles_short_unquotable_values() {
+        // A 1-char value can't be surrounded by a matching quote pair, so it
+        // exercises the unquote fall-through (len < 2).
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, ".env", "A=x\nB=\n");
+        let map = parse(&path);
+        assert_eq!(map.get("A").map(String::as_str), Some("x"));
+        assert_eq!(map.get("B").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn sync_passes_through_example_lines_without_equals() {
+        // A hand-edited .env.example line with no '=' must survive sync verbatim.
+        let dir = TempDir::new().unwrap();
+        let example = write_file(&dir, ".env.example", "# header\nNOT_A_PAIR\nFOO=\n");
+        let env = dir.path().join(".env").to_str().unwrap().to_string();
+        let schema = ConfigFile {
+            config: crate::schema::ConfigMeta {
+                version: "1".into(),
+                app_prefix: "T".into(),
+            },
+            vars: vec![],
+        };
+        sync(&schema, &example, &env).unwrap();
+        let written = fs::read_to_string(&env).unwrap();
+        assert!(written.contains("NOT_A_PAIR"), "written:\n{written}");
+    }
 }

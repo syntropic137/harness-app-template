@@ -40,6 +40,15 @@ pub fn resolve_required(schema: &ConfigFile) -> Result<HashMap<String, String>> 
 }
 
 pub fn resolve_all(schema: &ConfigFile) -> Result<HashMap<String, String>> {
+    resolve_all_with(schema, op::resolve)
+}
+
+/// `resolve_all` with the 1Password resolver injected, so the op branch is
+/// deterministically testable without a live agent.
+fn resolve_all_with(
+    schema: &ConfigFile,
+    op_resolve: impl Fn(&crate::schema::Var, &str) -> Result<Option<String>>,
+) -> Result<HashMap<String, String>> {
     let _ = dotenvy::dotenv();
 
     let op_mode = std::env::var("OP_MODE").unwrap_or_else(|_| "auto".to_string());
@@ -56,7 +65,7 @@ pub fn resolve_all(schema: &ConfigFile) -> Result<HashMap<String, String>> {
         // returning None, so there is no silent fall-through to env here. Use
         // OP_MODE=off to resolve such a var from the environment instead.
         let value = if use_op && var.op_ref.is_some() {
-            op::resolve(var, &schema.config.app_prefix)?
+            op_resolve(var, &schema.config.app_prefix)?
         } else {
             env::resolve(var)
         };
@@ -68,6 +77,7 @@ pub fn resolve_all(schema: &ConfigFile) -> Result<HashMap<String, String>> {
 }
 
 #[cfg(test)]
+#[allow(unsafe_code)]
 mod tests {
     use super::*;
     use crate::schema::{ConfigFile, ConfigMeta, Var};
@@ -81,6 +91,39 @@ mod tests {
             op_ref: None,
             secret: false,
         }
+    }
+
+    fn op_var(name: &str, op_ref: &str) -> Var {
+        Var {
+            name: name.into(),
+            description: String::new(),
+            required: false,
+            default: None,
+            op_ref: Some(op_ref.into()),
+            secret: true,
+        }
+    }
+
+    #[test]
+    fn resolve_all_uses_injected_op_resolver_for_op_ref_vars_when_enabled() {
+        // SAFETY: test-only; OP_MODE=on forces the op branch deterministically.
+        unsafe { std::env::set_var("OP_MODE", "on") };
+        let s = schema(vec![op_var("TOKEN", "op://v/i/f")]);
+        let out = resolve_all_with(&s, |_v, _p| Ok(Some("from-op".to_string()))).unwrap();
+        // SAFETY: test-only cleanup.
+        unsafe { std::env::remove_var("OP_MODE") };
+        assert_eq!(out.get("TOKEN").map(String::as_str), Some("from-op"));
+    }
+
+    #[test]
+    fn resolve_all_propagates_op_resolver_errors() {
+        // SAFETY: test-only; OP_MODE=on forces the op branch deterministically.
+        unsafe { std::env::set_var("OP_MODE", "on") };
+        let s = schema(vec![op_var("TOKEN", "op://v/i/f")]);
+        let result = resolve_all_with(&s, |_v, _p| anyhow::bail!("op blew up"));
+        // SAFETY: test-only cleanup.
+        unsafe { std::env::remove_var("OP_MODE") };
+        assert!(result.is_err());
     }
 
     fn schema(vars: Vec<Var>) -> ConfigFile {

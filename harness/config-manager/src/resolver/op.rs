@@ -8,13 +8,23 @@ pub fn is_available() -> bool {
 }
 
 pub fn resolve(var: &Var, app_prefix: &str) -> Result<Option<String>> {
+    resolve_with(var, app_prefix, "op")
+}
+
+/// Resolve `var` by shelling out to `program read --no-newline <op_ref>`.
+///
+/// `program` is injectable so tests exercise the real `Command` spawn path
+/// against always-present binaries (`true` / `false` / a nonexistent path)
+/// rather than a live 1Password agent — the same approach the versioning slot
+/// uses for its git/date subprocesses.
+fn resolve_with(var: &Var, app_prefix: &str, program: &str) -> Result<Option<String>> {
     let op_ref = match &var.op_ref {
         Some(r) => r,
         None => return Ok(None),
     };
 
     let token_key = format!("{app_prefix}_OP_SERVICE_ACCOUNT_TOKEN");
-    let mut cmd = Command::new("op");
+    let mut cmd = Command::new(program);
     cmd.args(["read", "--no-newline", op_ref]);
 
     if let Ok(token) = env::var(&token_key) {
@@ -25,7 +35,9 @@ pub fn resolve(var: &Var, app_prefix: &str) -> Result<Option<String>> {
     // resolver decided to use `op` at all, the binary failing to run is a real
     // error the operator needs to see, not a reason to quietly use a default.
     let output = cmd.output().with_context(|| {
-        format!("failed to run `op read` for {op_ref}; is the 1Password CLI installed and on PATH?")
+        format!(
+            "failed to run `{program} read` for {op_ref}; is the 1Password CLI installed and on PATH?"
+        )
     })?;
 
     interpret(
@@ -66,8 +78,61 @@ fn interpret(
 }
 
 #[cfg(test)]
+#[allow(unsafe_code)]
 mod tests {
     use super::*;
+
+    fn op_var(op_ref: Option<&str>) -> Var {
+        Var {
+            name: "SECRET".into(),
+            description: String::new(),
+            required: false,
+            default: None,
+            op_ref: op_ref.map(str::to_owned),
+            secret: true,
+        }
+    }
+
+    #[test]
+    fn resolve_with_true_program_reports_success() {
+        // `true` exits 0 with empty stdout: exercises the real spawn + the
+        // success branch without a live op agent.
+        let var = op_var(Some("op://v/i/f"));
+        assert_eq!(
+            resolve_with(&var, "APP", "true").unwrap(),
+            Some(String::new())
+        );
+    }
+
+    #[test]
+    fn resolve_with_false_program_errors() {
+        // `false` exits non-zero with empty stderr: failure branch.
+        let var = op_var(Some("op://v/i/f"));
+        let err = resolve_with(&var, "APP", "false").unwrap_err().to_string();
+        assert!(err.contains("op://v/i/f"), "got: {err}");
+    }
+
+    #[test]
+    fn resolve_with_missing_program_surfaces_spawn_error() {
+        let var = op_var(Some("op://v/i/f"));
+        let err = resolve_with(&var, "APP", "/nonexistent/definitely-not-op")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("failed to run"), "got: {err}");
+    }
+
+    #[test]
+    fn resolve_with_passes_service_account_token_from_env() {
+        // Unique prefix avoids racing other tests on a shared env var.
+        let key = "OPTESTPREFIX_OP_SERVICE_ACCOUNT_TOKEN";
+        // SAFETY: test-only; unique key, single use.
+        unsafe { env::set_var(key, "tok") };
+        let var = op_var(Some("op://v/i/f"));
+        let out = resolve_with(&var, "OPTESTPREFIX", "true").unwrap();
+        // SAFETY: test-only cleanup.
+        unsafe { env::remove_var(key) };
+        assert_eq!(out, Some(String::new()));
+    }
 
     #[test]
     fn interpret_returns_value_verbatim_on_success() {

@@ -250,14 +250,17 @@ cov-py:
 cov-sensors:
     bun run scripts/coverage.ts sensors
 
-# Coverage gate for config-manager slot (80% lines / functions).
+# Coverage gate for config-manager slot (98% lines / functions). Every line is
+# executed (no dead code); the residual <1% is region-partial assert-message
+# and defensive-branch segments. The op resolver's live `op read` spawn path is
+# covered by injecting the program name (true/false/missing) in unit tests.
 [group('coverage')]
 cov-config-manager:
     cargo llvm-cov --manifest-path harness/config-manager/Cargo.toml \
         --package harness-config-manager \
         --ignore-filename-regex 'main\.rs' \
-        --fail-under-lines 80 \
-        --fail-under-functions 80
+        --fail-under-lines 98 \
+        --fail-under-functions 98
 
 # --- release ---------------------------------------------------------------
 

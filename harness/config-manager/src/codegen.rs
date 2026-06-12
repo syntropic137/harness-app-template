@@ -93,10 +93,21 @@ mod tests {
             Some("op://vault/item/field"),
         )]);
         let out = generate(&schema);
-        assert!(
-            out.contains("# [REQUIRED] | 1Password: op://vault/item/field"),
-            "output:\n{out}"
-        );
+        assert!(out.contains("# [REQUIRED] | 1Password: op://vault/item/field"));
+    }
+
+    #[test]
+    fn optional_var_with_op_ref_includes_op_ref_comment_without_required_marker() {
+        let schema = make_schema(vec![make_var(
+            "OPT_KEY",
+            "Optional key",
+            false,
+            None,
+            Some("op://vault/item/opt"),
+        )]);
+        let out = generate(&schema);
+        assert!(out.contains("# 1Password: op://vault/item/opt"));
+        assert!(!out.contains("[REQUIRED]"));
     }
 
     #[test]
