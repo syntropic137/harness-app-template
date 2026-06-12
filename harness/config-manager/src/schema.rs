@@ -1,5 +1,6 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::Deserialize;
+use std::fs;
 
 #[derive(Debug, Deserialize)]
 pub struct ConfigFile {
@@ -26,6 +27,7 @@ pub struct Var {
     pub secret: bool,
 }
 
-pub fn load(_path: &str) -> Result<ConfigFile> {
-    todo!()
+pub fn load(path: &str) -> Result<ConfigFile> {
+    let content = fs::read_to_string(path).with_context(|| format!("Failed to read {path}"))?;
+    toml::from_str(&content).with_context(|| format!("Failed to parse {path}"))
 }
