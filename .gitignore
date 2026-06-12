@@ -64,3 +64,14 @@ go.sum
 
 # bv (beads viewer) local config and caches
 .bv/
+
+# Claude Code caches and ephemeral agent state
+.claude/worktrees/
+.turbo/
+
+# Editor local config
+.vscode/
+
+# Test coverage artifacts
+.coverage
+**/.coverage
