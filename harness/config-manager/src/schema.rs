@@ -26,4 +26,6 @@ pub struct Var {
     pub secret: bool,
 }
 
-pub fn load(_path: &str) -> Result<ConfigFile> { todo!() }
+pub fn load(_path: &str) -> Result<ConfigFile> {
+    todo!()
+}

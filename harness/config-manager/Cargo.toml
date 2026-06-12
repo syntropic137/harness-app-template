@@ -3,6 +3,8 @@ name = "harness-config-manager"
 version = "0.1.0"
 edition = "2024"
 description = "Harness config-manager slot: typed env-var schema, codegen, secret resolution"
+license = "MIT"
+publish = false
 
 [[bin]]
 name = "harness-config-manager"
@@ -29,4 +31,7 @@ tempfile = "3"
 [workspace]
 
 [package.metadata.coverage]
-exclude = ["src/main.rs"]
+tool = "cargo-llvm-cov"
+ignore_filename_regex = "main\\.rs"
+lines_minimum = 80
+functions_minimum = 80

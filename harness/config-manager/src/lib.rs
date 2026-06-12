@@ -1,3 +1,8 @@
+//! `harness-config-manager` — config-manager slot.
+//!
+//! Typed env-var schema from `config.toml`, `.env.example` codegen, `.env` sync,
+//! and optional 1Password secret resolution.
+
 #![deny(unsafe_code)]
 #![deny(clippy::all)]
 #![warn(unused)]
@@ -67,7 +72,11 @@ pub fn run(command: Commands) -> Result<()> {
                 if var.secret || var.op_ref.is_some() {
                     println!("{} = {}", var.name, val.map(|_| "***").unwrap_or("<unset>"));
                 } else {
-                    println!("{} = {}", var.name, val.map(String::as_str).unwrap_or("<unset>"));
+                    println!(
+                        "{} = {}",
+                        var.name,
+                        val.map(String::as_str).unwrap_or("<unset>")
+                    );
                 }
             }
             Ok(())
