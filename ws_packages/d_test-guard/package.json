@@ -1,0 +1,21 @@
+{
+  "name": "@harness/d_test-guard",
+  "version": "0.1.0",
+  "description": "Runtime guard: throws if a mock is instantiated outside APP_ENV=test.",
+  "type": "module",
+  "private": true,
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check index.ts index.test.ts"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.9",
+    "vitest": "^2.0.0"
+  }
+}
