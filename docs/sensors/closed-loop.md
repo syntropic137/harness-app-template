@@ -1,6 +1,6 @@
 ---
 name: "Architectural-fitness closed loop"
-description: "How the APS-V1-0001 producer, the apss_topology.mjs shim, the aggregator's APSS merge, gate.mjs hard-enforcement, and the regenerable apss code-topology viz diagram form a closed-loop hard requirement — and how a coding agent consumes the feedback on every run."
+description: "How the APS-V1-0001 producer, the apss_topology.mjs shim, the aggregator's APSS merge, gate.mjs hard-enforcement, and the regenerable apss code-topology viz diagram form a closed-loop hard requirement, and how a coding agent consumes the feedback on every run."
 ---
 
 # Architectural-fitness closed loop

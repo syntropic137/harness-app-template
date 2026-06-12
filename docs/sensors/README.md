@@ -14,7 +14,7 @@ agent consumes the verdict.
 
 | Document | Description |
 |----------|-------------|
-| [Fitness dimensions reference](dimensions-reference.md) | Agent-facing catalog of every fitness dimension and metric: code, direction, committed floor, speed tier, how to improve it, ratchet semantics, sensor-determinism meta-guard, and the recipe for adding a new dimension. |
-| [Architectural-fitness closed loop](closed-loop.md) | PRODUCE / CONSUME / MERGE / ENFORCE pipeline; the five-point agent contract for parsing the gate verdict; failure modes and remediation. |
-| [Sensors, coverage, and baselines](coverage-and-gate.md) | Per-app unit coverage policy (100 / 100 / 100 / 100); the `VERDICT:` line contract; the deliberate baseline-update flow for new modules and intentional refactors. |
+| [Architectural-fitness closed loop](closed-loop.md) | How the APS-V1-0001 producer, the apss_topology.mjs shim, the aggregator's APSS merge, gate.mjs hard-enforcement, and the regenerable apss code-topology viz diagram form a closed-loop hard requirement, and how a coding agent consumes the feedback on every run. |
+| [Sensors, coverage, and baselines](coverage-and-gate.md) | Per-app unit coverage policy (100 / 100 / 100 / 100); the VERDICT: line contract; the deliberate baseline-update flow for new modules and intentional refactors. |
+| [Fitness dimensions reference](dimensions-reference.md) | Agent-facing catalog of every architectural-fitness dimension and metric enforced by harness/sensors/gate.mjs: code (MT01/MD01/ST01/SC01/LG01/AC01/PF01/AV01/CV01), per-metric direction and committed floor, speed tier (pre-commit/pre-push/CI), how an agent moves each metric, the upward-ratchet + atomic-baseline + EPSILON semantics, the sensor-determinism meta-guard, the just fitness surface, and the step-by-step recipe for adding a new dimension. |
 | [Fitness-function timing and placement](fitness-timing-and-placement.md) | Wall-clock budget of every fitness function, the discipline rule per tier, and the rationale behind the CI-only placement of the full sensors gate. |
