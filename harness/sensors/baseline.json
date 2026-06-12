@@ -88,7 +88,7 @@
         },
         "high-cognitive-fn-count": {
           "name": "High Cognitive Complexity Function Count",
-          "objective": "Count of workspace functions whose cognitive complexity is at or above the HIGH_COGNITIVE_THRESHOLD line (5; the Sonar moderate-watch band). max-cognitive watches the PEAK; this watches the SPREAD \u2014 catches the death-by-a-thousand-cuts pattern where a refactor splits one ugly function but seeds several moderately-complex ones, an AI-coding regression mode that the peak metric reads as an improvement. Direction max (smaller-is-better); ratchet auto-tightens toward 0 as the workspace simplifies.",
+          "objective": "Count of workspace functions whose cognitive complexity is at or above the HIGH_COGNITIVE_THRESHOLD line (5; the Sonar moderate-watch band). max-cognitive watches the PEAK; this watches the SPREAD — catches the death-by-a-thousand-cuts pattern where a refactor splits one ugly function but seeds several moderately-complex ones, an AI-coding regression mode that the peak metric reads as an improvement. Direction max (smaller-is-better); ratchet auto-tightens toward 0 as the workspace simplifies.",
           "source": "aggregate workspace.high_cognitive_count (sum across modules from harness/sensors/complexity.mjs)",
           "direction": "max",
           "default_threshold": 0,
@@ -101,7 +101,7 @@
           "source": ".sentrux/baseline.json quality_signal (via harness/sensors/sentrux_scan.mjs)",
           "direction": "min",
           "default_threshold": 0,
-          "baseline": 0.6721574808730599,
+          "baseline": 0.6743713498181496,
           "fail_on_regression": true
         },
         "sentrux-god-file-count": {
