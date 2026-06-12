@@ -33,5 +33,7 @@ tempfile = "3"
 [package.metadata.coverage]
 tool = "cargo-llvm-cov"
 ignore_filename_regex = "main\\.rs"
+# TODO: target is 100 (match doc-validator/versioning). Ratchet only: raise
+# these floors as coverage improves, never lower them. See `just cov-config-manager`.
 lines_minimum = 98
 functions_minimum = 98

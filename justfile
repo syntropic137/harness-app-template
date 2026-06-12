@@ -254,6 +254,11 @@ cov-sensors:
 # executed (no dead code); the residual <1% is region-partial assert-message
 # and defensive-branch segments. The op resolver's live `op read` spawn path is
 # covered by injecting the program name (true/false/missing) in unit tests.
+#
+# TODO: target is 100% lines/functions — match the doc-validator/versioning
+# slots. Close the remaining region-partial segments and raise the two floors
+# below to 100. This gate is a ratchet: only ever raise these numbers, never
+# lower them.
 [group('coverage')]
 cov-config-manager:
     cargo llvm-cov --manifest-path harness/config-manager/Cargo.toml \
