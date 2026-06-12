@@ -1,3 +1,8 @@
+---
+name: "Sensors, coverage, and baselines"
+description: "Per-app unit coverage policy (100 / 100 / 100 / 100); the VERDICT: line contract; the deliberate baseline-update flow for new modules and intentional refactors."
+---
+
 # Sensors, Coverage, and Baselines
 
 This page defines the fork-readiness policy for app coverage and the sensors gate.

@@ -29,7 +29,7 @@
 | `harness/config-manager/bin/config-manager` | Shell wrapper (build + exec) |
 | `justfile` | Add `config *args` recipe + `just config check` in bootstrap |
 | `config.toml` | Repo-root schema file (example committed) |
-| `docs/adrs/ADR-0012-config-manager.md` | Slot ADR |
+| `docs/adrs/ADR-NNNN-config-manager.md` | Slot ADR (number assigned at execution time; 0012 is taken by binary-distribution) |
 
 ---
 
@@ -1418,13 +1418,17 @@ git commit -m "test(config-manager): add coverage gate to justfile"
 
 ### Task 12: ADR
 
-**Files:**
-- Create: `docs/adrs/ADR-0012-config-manager.md`
+The ADR number is assigned at execution time from the next free slot in
+`docs/adrs/` (0012 is taken by binary-distribution); `NNNN` below is a
+placeholder, not a reference to an existing file.
 
-- [ ] **Step 1: Write the ADR** — use the existing ADR format from `docs/adrs/`. Create `docs/adrs/ADR-0012-config-manager.md`:
+**Files:**
+- Create: `docs/adrs/ADR-NNNN-config-manager.md`
+
+- [ ] **Step 1: Write the ADR** using the existing ADR format from `docs/adrs/`. Create `docs/adrs/ADR-NNNN-config-manager.md`:
 
 ```markdown
-# ADR-0012: config-manager slot
+# ADR-NNNN: config-manager slot
 
 **Status:** accepted
 **Date:** 2026-06-11
@@ -1459,8 +1463,8 @@ Add a `config-manager` slot implemented as a Rust binary. Single source of truth
 - [ ] **Step 2: Commit**
 
 ```bash
-git add docs/adrs/ADR-0012-config-manager.md
-git commit -m "docs(adr): ADR-0012 config-manager slot"
+git add docs/adrs/ADR-NNNN-config-manager.md
+git commit -m "docs(adr): ADR-NNNN config-manager slot"
 ```
 
 ---
