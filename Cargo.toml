@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "ws_apps/example-rust",
+  "ws_packages/d_test-guard",
 ]
 # The APSS-composed CLI is generated into .apss/build by `apss install`;
 # it must build standalone, not as a member of this workspace.
@@ -21,6 +22,7 @@ serde = { version = "1", features = ["derive"] }
 tool = "cargo-llvm-cov"
 rust_surfaces = [
   "ws_apps/example-rust",
+  "ws_packages/d_test-guard",
   "harness/doc-validator",
   "harness/versioning",
 ]

@@ -1,0 +1,19 @@
+[package]
+name = "d_test-guard"
+version = "0.1.0"
+edition = "2024"
+description = "Runtime guard: panics if a mock is instantiated outside APP_ENV=test."
+
+[lints.rust]
+unsafe_code = "forbid"
+unused = { level = "deny", priority = -1 }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+
+[package.metadata.harness-engineering]
+unit_coverage_lines_min = 100
+unit_coverage_functions_min = 100
+unit_coverage_regions_min = 100
+strict_clippy = true
+no_unsafe = true
