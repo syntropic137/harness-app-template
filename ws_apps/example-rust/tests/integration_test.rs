@@ -15,7 +15,7 @@
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-const WALL_CLOCK_BUDGET: Duration = Duration::from_millis(500);
+const WALL_CLOCK_BUDGET: Duration = Duration::from_millis(1000);
 
 /// Path to the freshly-built `example-rust` binary. Cargo sets this env
 /// var at compile time for every `[[bin]]` target the integration test

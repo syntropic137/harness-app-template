@@ -761,7 +761,7 @@ fn release_date_with(
     let mut command = match date_command {
         DateCommand::System => Command::new("date"),
         #[cfg(test)]
-        DateCommand::Failing => Command::new("/bin/false"),
+        DateCommand::Failing => Command::new("/usr/bin/false"),
     };
     let output = command
         .arg("+%F")
@@ -981,12 +981,10 @@ mod tests {
     fn git_command_strips_local_git_env() {
         let command = git_command(Path::new("."));
         for expected_key in LOCAL_GIT_ENV {
-            assert!(
-                command
-                    .get_envs()
-                    .any(|(key, value)| key == OsStr::new(expected_key) && value.is_none()),
-                "{expected_key} should be removed from git subprocesses"
-            );
+            let removed = command
+                .get_envs()
+                .any(|(key, value)| key == OsStr::new(expected_key) && value.is_none());
+            assert!(removed);
         }
     }
 
