@@ -36,3 +36,159 @@ fn schema_load_fails_on_invalid_toml() {
         .unwrap();
     assert!(!out.status.success());
 }
+
+const MINIMAL_CONFIG: &str = r#"
+[config]
+version = "1"
+app_prefix = "TEST"
+
+[[var]]
+name = "REQUIRED_VAR"
+description = "A required variable"
+required = true
+
+[[var]]
+name = "OPTIONAL_VAR"
+description = "An optional variable"
+required = false
+default = "default-value"
+"#;
+
+#[test]
+fn check_fails_when_required_var_missing() {
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, MINIMAL_CONFIG);
+    let out = Command::new(binary())
+        .arg("check")
+        .current_dir(dir.path())
+        .env_remove("REQUIRED_VAR")
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "expected non-zero exit");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("REQUIRED_VAR"), "stderr: {stderr}");
+}
+
+#[test]
+fn check_passes_when_required_var_in_env() {
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, MINIMAL_CONFIG);
+    let out = Command::new(binary())
+        .arg("check")
+        .env("REQUIRED_VAR", "somevalue")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+fn check_passes_when_required_var_in_dotenv() {
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, MINIMAL_CONFIG);
+    std::fs::write(dir.path().join(".env"), "REQUIRED_VAR=from-dotenv\n").unwrap();
+    let out = Command::new(binary())
+        .arg("check")
+        .env_remove("REQUIRED_VAR")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+fn check_reports_all_missing_vars_at_once() {
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, r#"
+[config]
+version = "1"
+app_prefix = "TEST"
+
+[[var]]
+name = "FIRST_REQUIRED"
+description = "First"
+required = true
+
+[[var]]
+name = "SECOND_REQUIRED"
+description = "Second"
+required = true
+"#);
+    let out = Command::new(binary())
+        .args(["check"])
+        .env_remove("FIRST_REQUIRED")
+        .env_remove("SECOND_REQUIRED")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("FIRST_REQUIRED"), "stderr: {stderr}");
+    assert!(stderr.contains("SECOND_REQUIRED"), "stderr: {stderr}");
+}
+
+#[test]
+fn sync_generates_env_example() {
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, MINIMAL_CONFIG);
+    let out = Command::new(binary())
+        .args(["sync"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let example = std::fs::read_to_string(dir.path().join(".env.example")).unwrap();
+    assert!(example.contains("REQUIRED_VAR="), "example:\n{example}");
+    assert!(example.contains("[REQUIRED]"), "example:\n{example}");
+    assert!(
+        example.contains("OPTIONAL_VAR=default-value"),
+        "example:\n{example}"
+    );
+}
+
+#[test]
+fn sync_preserves_existing_env_values() {
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, MINIMAL_CONFIG);
+    std::fs::write(dir.path().join(".env"), "REQUIRED_VAR=my-secret\n").unwrap();
+    let out = Command::new(binary())
+        .args(["sync"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let env = std::fs::read_to_string(dir.path().join(".env")).unwrap();
+    assert!(env.contains("REQUIRED_VAR=my-secret"), "env:\n{env}");
+}
+
+#[test]
+fn sync_archives_removed_vars() {
+    let dir = TempDir::new().unwrap();
+    write_config(&dir, MINIMAL_CONFIG);
+    std::fs::write(
+        dir.path().join(".env"),
+        "REQUIRED_VAR=val\nOLD_VAR=legacy\n",
+    )
+    .unwrap();
+    let out = Command::new(binary())
+        .args(["sync"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let env = std::fs::read_to_string(dir.path().join(".env")).unwrap();
+    assert!(env.contains("ARCHIVED VARIABLES"), "env:\n{env}");
+    assert!(env.contains("OLD_VAR=legacy"), "env:\n{env}");
+}
