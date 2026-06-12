@@ -85,37 +85,67 @@ that implements it, the state today, and the decision-doc anchor.
 
 ### 1. Lockfile policy
 
-**State: standard; consumer-owned.** This template intentionally does **not**
-commit lockfiles. Under the standalone / Option-2 model, fork consumers own
-their dependency graph and generate lockfiles after `just init` / bootstrap:
+**State: wired.** The template commits all lock files:
 
-- TypeScript / Node — `pnpm-lock.yaml` (ignored by the template).
-- Rust — `Cargo.lock` (ignored by the template).
-- Python — `uv.lock` (ignored by the template).
-- Go — `go.sum` (ignored by the template).
+- TypeScript / Node — `pnpm-lock.yaml` (**committed**).
+- Rust — `Cargo.lock`, `harness/doc-validator/Cargo.lock`,
+  `harness/versioning/Cargo.lock` (**committed**).
+- Python — `uv.lock` (**committed**).
+- Go — `go.sum` (committed when a Go sub-repo lands).
 
-Consumer projects SHOULD commit and review their own lockfiles once they have
-chosen their application dependencies. The template's `.gitignore` keeps
-canonical-template lockfiles out of the distributable seed so one consumer's
-resolved graph is not presented as the upstream contract for every fork.
+Committed lock files mean:
+- Every CI build installs the exact same resolved graph that was reviewed.
+- Dependency bump PRs produce a reviewable diff — a silently-updated
+  transitive dep shows up as a lockfile change, not an invisible re-resolve.
+- OSV Scanner and `dep-audit` get precise transitive coverage rather than
+  scanning a freshly-generated approximation.
 
-**Rationale:** A forkable template is not the application dependency owner.
-Lockfile integrity is still important, but it belongs to the consumer repo
-after initialization. Review lockfile bumps in the fork where the actual
-dependency graph exists.
+**Fork-check exception.** The `fork-check` and `scaffolder-fork-check` CI
+jobs simulate a user running `just init <name>` — a rename step that makes
+the committed lockfile immediately stale (package names change). Those two
+jobs therefore run `pnpm install --no-frozen-lockfile` so they can regenerate
+after the rename. Every other CI job uses frozen installs. Consumer forks
+SHOULD commit and freeze their own lock files after `just init`.
+
+**Future direction.** If this template adopts a `create-harness-app` CLI
+(see `harness/scaffolder/`) where users never fork the repo directly —
+they run the CLI and get a freshly-generated project — the fork-check
+exception disappears: the CLI owns the generation and the consumer project
+starts with a correct lockfile from day one.
 
 ### 2. Pinned / immutable dependencies
 
-**State: standard.** The template keeps its seed dependencies intentionally
-minimal; consumer projects SHOULD pin production dependencies when the real
-application graph appears:
+**State: partially wired.** GitHub Actions SHA-pinning and least-privilege
+workflow permissions are **wired today**; consumer dependency pinning remains
+**standard** (the template keeps its seed dependencies intentionally minimal,
+and consumer projects SHOULD pin production dependencies when the real
+application graph appears):
 
 - `package.json` entries pinned (e.g. `"vitest": "3.2.4"` not `"^3.2.4"`).
 - `Cargo.toml` entries pinned (`tokio = "=1.42.0"` not `tokio = "1"`).
 - `pyproject.toml` entries pinned via `==` in `requires` (or constraint
   files referenced from `tool.uv.sources`).
-- GitHub Actions pinned by **commit SHA**, not tag (`uses: actions/checkout@a1b2c3d4...`
-  not `@v5`). Mutable-tag overwrite is a real attack class.
+- **GitHub Actions pinned by commit SHA, not tag — wired.** Every `uses:`
+  line in `.github/workflows/*.yml` pins an immutable 40-char commit SHA
+  with the version as a trailing comment
+  (`uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4`).
+  Mutable-tag overwrite (XZ-utils 2024, tj-actions 2025) is a real attack
+  class; an update is now an explicit, reviewable SHA diff. To bump:
+  `gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq '.object.sha'`
+  (dereference once more if the tag object is annotated).
+- **Least-privilege workflow permissions — wired.** Every workflow declares
+  a top-level `permissions: contents: read`; write scopes are declared
+  per-job and only where needed (e.g. `pages.yml` `deploy` holds
+  `id-token` / `pages: write`; `versioning.yml` `release` holds
+  `contents: write`). This realises the "no write-all tokens" commitment
+  in §Key handling.
+- **Dependency install-script blocking — wired.** Root `package.json` sets
+  `pnpm.onlyBuiltDependencies: []` (pnpm ≥10 blocks dependency lifecycle
+  scripts by default; the empty allowlist makes the policy explicit and
+  auditable), and every `npm install` in CI passes `--ignore-scripts`.
+  This closes the postinstall-hook vector (event-stream 2018,
+  ua-parser-js 2021). A package that legitimately needs a build step must
+  be added to the allowlist in a reviewable diff.
 
 **Rationale:** A tag and a broad semver range both mean "trust whatever the
 upstream pushes next." Pinning to an immutable reference or a reviewed
@@ -129,13 +159,21 @@ audit-gate matrix:
 
 | Ecosystem | Tool | Wiring | Block threshold |
 |---|---|---|---|
-| pnpm | `pnpm audit --audit-level=moderate` | CI (`.github/workflows/test.yml`) | moderate+ |
-| Cargo | `cargo audit` ([RustSec advisory DB](https://rustsec.org/)) | **standard** (wire as a `just audit-rust` recipe, gate in CI before v0.4.0 ships consumer apps) | any unyielded advisory |
-| uv / pip | `uv pip audit` or `pip-audit` ([PyPA tool](https://pypi.org/project/pip-audit/)) | **standard** | any advisory |
+| pnpm / Cargo / uv | `just dep-audit` (`pnpm audit` + `cargo audit` + `pip-audit`) | **wired** — CI `dep-audit` job (`.github/workflows/test.yml`) + pre-push hook | per-tool: moderate+ (pnpm), any advisory (cargo / pip) |
+| all of the above | [OSV Scanner](https://google.github.io/osv-scanner) against [OSV.dev](https://osv.dev) | **wired (rollout)** — CI `osv-scan` job; `continue-on-error` until first clean baseline, then blocking | any OSV advisory |
 | Go | `govulncheck` ([Go's official tool](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck)) | **standard** (wire when first Go sub-repo lands) | any KNOWN advisory affecting an imported function |
 
-The pre-push hook runs the audit gate locally (fast path: only re-runs
-when the lockfile changed since the last successful run).
+The two CI jobs are complementary: `dep-audit` runs each ecosystem's
+**native** advisory tool, while `osv-scan` cross-checks the same graph
+against the single cross-ecosystem **OSV.dev** database — catching
+advisories a registry has not yet indexed. Because lockfiles are
+consumer-owned and not committed (§Control 1), the `osv-scan` job
+regenerates them in-CI (`pnpm install --lockfile-only`,
+`cargo generate-lockfile`, `uv lock`) so OSV sees the resolved transitive
+graph rather than just manifests.
+
+The pre-push hook runs the native audit gate locally (fast path: only
+re-runs when the lockfile changed since the last successful run).
 
 **Rationale:** Pinning a known-good version (§Controls 2) doesn't help
 once a vulnerability is *disclosed* for that version. The audit gates

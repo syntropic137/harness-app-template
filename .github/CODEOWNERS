@@ -1,0 +1,38 @@
+# CODEOWNERS — required reviewers for high-risk paths.
+#
+# SECURITY.md (§Verification, §Controls 6) and ADR-0015 both treat
+# CODEOWNERS as the gate on the lab → canonical → fork sync path: changes
+# to load-bearing security/CI surfaces must be reviewed by a listed
+# identity before merge. This file makes that contract real. Pair it with
+# branch protection ("Require review from Code Owners") on `main`.
+#
+# Last matching pattern wins, so order least-specific → most-specific.
+
+# Default owner for everything not matched by a more specific rule below.
+*                               @NeuralEmpowerment
+
+# CI/CD workflows — arbitrary code execution with access to repo secrets.
+# A malicious change here can exfiltrate secrets or backdoor every build.
+/.github/                       @NeuralEmpowerment
+
+# Harness slot plugins (stack-manager, sensors, hooks, doc-validator, …)
+# and the fitness ratchet floors — the eat-own-dogfood security surface.
+/harness/                       @NeuralEmpowerment
+/harness/sensors/baseline.json  @NeuralEmpowerment
+
+# Observability stack (docker-composed infra) — supply-chain + runtime risk.
+/infra/                         @NeuralEmpowerment
+
+# Security standard, hook policy, and agent-plugin config. Changes here
+# weaken or strengthen every gate; they must not land unreviewed.
+/SECURITY.md                    @NeuralEmpowerment
+/security.md                    @NeuralEmpowerment
+/lefthook.yml                   @NeuralEmpowerment
+/.gitleaksignore                @NeuralEmpowerment
+/.claude/                       @NeuralEmpowerment
+/CLAUDE.md                      @NeuralEmpowerment
+/AGENTS.md                      @NeuralEmpowerment
+
+# Submodule pins — a silently advanced submodule is a supply-chain attack
+# vector analogous to GitHub Action tag repointing.
+/.gitmodules                    @NeuralEmpowerment

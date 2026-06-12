@@ -15,6 +15,22 @@
 .env
 .env.local
 
+# Private keys and certificates — passive safety net so a credential file
+# can never be staged by accident. Gitleaks (lefthook pre-commit + CI) is
+# the active gate; these patterns are defense in depth. Use *.example
+# stand-ins for anything that must be documented in-repo.
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.keystore
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+
 # Harness internals
 # Top-level consumer-side .harness/ is local-only (per-fork policy / scratch).
 # The slot-side governance file at harness/.harness/governance.toml is the
@@ -33,7 +49,9 @@
 
 # Node / TS
 node_modules/
-pnpm-lock.yaml
+# pnpm-lock.yaml is committed — lock files are the reproducibility contract.
+# fork-check / scaffolder-fork-check use --no-frozen-lockfile because they
+# simulate a post-rename install; every other CI job uses --frozen-lockfile.
 dist/
 build/
 coverage/
@@ -41,14 +59,14 @@ coverage/
 *.tsbuildinfo
 
 # Rust
-Cargo.lock
+# Cargo.lock is committed for the same reason as pnpm-lock.yaml above.
 target/
 **/target/
 *.rs.bk
 Cargo.lock.bak
 
 # Python
-uv.lock
+# uv.lock is committed — see pnpm-lock.yaml note above.
 .venv/
 **/__pycache__/
 **/*.pyc

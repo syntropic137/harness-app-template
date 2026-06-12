@@ -5,6 +5,13 @@ on:
   push:
     branches: [main]
 
+# Least-privilege default — limits blast radius if any step is compromised.
+# Every job here only reads the repo (test / lint / coverage / audit); none
+# push, release, or write packages. A job that ever needs write must declare
+# it explicitly at the job level, producing a reviewable audit trail.
+permissions:
+  contents: read
+
 jobs:
   workspace-qa:
     name: workspace qa (${{ matrix.os }})
@@ -14,16 +21,16 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11.5.1
-      - uses: astral-sh/setup-uv@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: clippy
       # Install gitleaks so the secret-scan gate inside `pnpm qa`
@@ -37,21 +44,21 @@ jobs:
       # version + SHA-256 table.
       - name: Install gitleaks (pinned + checksum-verified)
         run: bash .github/scripts/install-gitleaks.sh
-      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - run: pnpm qa
 
   scripts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11.5.1
-      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       # The inspector live integration test (harness/inspector/tests/
       # integration.test.ts) drives real chromium against a local page.
       # It self-skips where browsers are absent, EXCEPT when
@@ -80,16 +87,16 @@ jobs:
   rust-coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       # The cov-* recipes dispatch through `bun run scripts/coverage.ts`.
-      - uses: oven-sh/setup-bun@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: llvm-tools-preview
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: cargo-llvm-cov
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: just
       - run: just cov-rust
@@ -100,11 +107,11 @@ jobs:
     # fork that bypasses local hooks still hits the gate at PR time.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       # The cov-* recipes dispatch through `bun run scripts/coverage.ts`.
-      - uses: oven-sh/setup-bun@v2
-      - uses: astral-sh/setup-uv@v5
-      - uses: taiki-e/install-action@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: just
       - run: uv sync --project ws_apps/example-python
@@ -123,17 +130,17 @@ jobs:
     # soft-skip and the measured coverage shifts.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: just
       - name: Install sensors slot deps (ts-morph)
         working-directory: harness/sensors
-        run: npm install --no-package-lock --no-audit --no-fund --silent
+        run: npm install --no-package-lock --no-audit --no-fund --ignore-scripts --silent
       - name: Install sentrux (pinned + checksum-verified)
         run: bash .github/scripts/install-sentrux.sh
       - run: just cov-sensors
@@ -144,18 +151,18 @@ jobs:
     # README/Index per-directory requirements). Hard-enforcing gate.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11.5.1
-      - run: pnpm install --no-frozen-lockfile
-      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - name: Cache APSS binary
         id: cache-apss
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/apss
           key: apss-1.1.0-${{ runner.os }}
@@ -164,7 +171,7 @@ jobs:
         run: cargo install apss --version 1.1.0
       - name: Cache composed APSS CLI
         id: cache-apss-composed
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .apss
           key: apss-composed-${{ runner.os }}-${{ hashFiles('apss.lock') }}
@@ -191,29 +198,29 @@ jobs:
     # adapter on both sides.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Fetch origin main for baseline guard comparison
         run: git fetch --depth=1 origin main
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11.5.1
-      - uses: astral-sh/setup-uv@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: llvm-tools-preview
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: cargo-llvm-cov
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: just
       - name: Cache APSS binary
         id: cache-apss
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/apss
           key: apss-1.1.0-${{ runner.os }}
@@ -222,7 +229,7 @@ jobs:
         run: cargo install apss --version 1.1.0
       - name: Cache composed APSS CLI
         id: cache-apss-composed
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .apss
           key: apss-composed-${{ runner.os }}-${{ hashFiles('apss.lock') }}
@@ -231,14 +238,14 @@ jobs:
         run: apss install
       - name: Install sensors slot deps (ts-morph)
         working-directory: harness/sensors
-        run: npm install --no-package-lock --no-audit --no-fund --silent
+        run: npm install --no-package-lock --no-audit --no-fund --ignore-scripts --silent
       - name: Install sentrux (activates 2nd architectural lens in gate)
         # Without sentrux on PATH, harness/sensors/sentrux_scan.mjs
         # soft-skips and sentrux-* baseline floors silently stop
         # gating — exactly the drift this branch was opened to fix.
         run: bash .github/scripts/install-sentrux.sh
       - name: Install root deps for vitest coverage
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Prepare CV01 Python coverage envelope (pytest --cov-report=json)
         # `with-uv.sh` lives at ws_apps/example-python/scripts/, NOT at
         # the repo root. After `cd ws_apps/example-python` the correct
@@ -292,24 +299,66 @@ jobs:
     # is not worth blocking the inner loop on.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11.5.1
-      - uses: astral-sh/setup-uv@v5
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: cargo-audit
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: just
-      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - run: just dep-audit
+
+  osv-scan:
+    # OSV Scanner (https://google.github.io/osv-scanner) cross-checks the
+    # whole polyglot dependency graph against the OSV.dev database (npm,
+    # crates.io, PyPI in one pass). This is ADDITIVE to the dep-audit job
+    # above: dep-audit runs the native per-ecosystem advisory tools
+    # (pnpm/cargo/pip-audit); OSV catches advisories those registries have
+    # not yet indexed, against a single cross-ecosystem source.
+    #
+    # OSV reads lockfiles for precise transitive coverage. This template
+    # intentionally does NOT commit lockfiles (SECURITY.md §Control 1 —
+    # lockfiles are consumer-owned), so the scan-args target manifests and
+    # we regenerate lockfiles in-CI first so OSV sees the resolved graph.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.5.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - name: Generate lockfiles for OSV to scan (consumer-owned, not committed)
+        run: |
+          pnpm install --lockfile-only
+          cargo generate-lockfile
+          uv lock --project ws_apps/example-python
+      - uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        # continue-on-error during rollout so a first-pass finding cannot
+        # block unrelated PRs before the baseline is triaged. Flip to a
+        # blocking gate once the first scan is clean.
+        # TODO(security-hardening): remove continue-on-error after clean baseline.
+        continue-on-error: true
+        with:
+          scan-args: |-
+            -r
+            --skip-git
+            ./
 
   scaffolder-fork-check:
     # End-to-end correctness oracle for the create-harness-app scaffolder
@@ -327,26 +376,26 @@ jobs:
     # is operator-gated and deferred per the MVP scope in §8.1.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11.5.1
-      - uses: astral-sh/setup-uv@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: clippy
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: just
       - name: Install gitleaks (pinned + checksum-verified)
         run: bash .github/scripts/install-gitleaks.sh
       - name: Cache APSS binary
         id: cache-apss
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/apss
           key: apss-1.1.0-${{ runner.os }}
@@ -355,7 +404,7 @@ jobs:
         run: cargo install apss --version 1.1.0
       - name: Install sensors slot deps for source-tree sensors invocations
         working-directory: harness/sensors
-        run: npm install --no-package-lock --no-audit --no-fund --silent
+        run: npm install --no-package-lock --no-audit --no-fund --ignore-scripts --silent
       - name: Install sentrux (matches local adopter PATH)
         run: bash .github/scripts/install-sentrux.sh
       - name: Configure git author for the scaffolder's commit-zero
@@ -401,19 +450,19 @@ jobs:
     # template tree.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11.5.1
-      - uses: astral-sh/setup-uv@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: clippy
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: just
       # Fresh-fork qa runs the fail-closed secret-scan gate, so the
@@ -424,7 +473,7 @@ jobs:
         run: bash .github/scripts/install-gitleaks.sh
       - name: Cache APSS binary
         id: cache-apss
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/apss
           key: apss-1.1.0-${{ runner.os }}
@@ -433,7 +482,7 @@ jobs:
         run: cargo install apss --version 1.1.0
       - name: Install sensors slot deps for source-tree sensors invocations
         working-directory: harness/sensors
-        run: npm install --no-package-lock --no-audit --no-fund --silent
+        run: npm install --no-package-lock --no-audit --no-fund --ignore-scripts --silent
       - name: Install sentrux (matches local adopter PATH)
         # Mirrors the fitness job: without sentrux, the fork-check
         # qa/sensors run skips the 2nd architectural lens and lets
