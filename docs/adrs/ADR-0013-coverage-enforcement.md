@@ -73,6 +73,15 @@ doc-validator, and versioning gates. Rust slot gates build their CLI shell
 first, then run `cargo llvm-cov --lib` so integration smoke tests do not
 double-count library instantiations as missed business logic.
 
+Every Rust coverage lane builds with the dedicated `cov` cargo profile
+(declared in the root `Cargo.toml` and mirrored in the self-contained
+slot workspaces) and pins `CARGO_INCREMENTAL=0`. llvm-cov derives its
+line, function, and region counts from `-C instrument-coverage` mapping
+data, not from debuginfo, so the profile's `line-tables-only` debuginfo
+and disabled incremental compilation change only the build footprint:
+instrumented target trees shrink by gigabytes on large projects while
+every coverage number and threshold stays identical.
+
 Every `just cov-*` recipe is a thin dispatch into `scripts/coverage.ts`;
 the lane definitions, thresholds, and the CARGO_TARGET_DIR worktree
 isolation live in `scripts/lib/coverage.ts`, which is itself covered at
