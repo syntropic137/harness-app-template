@@ -1,6 +1,9 @@
 use crate::schema::ConfigFile;
 use anyhow::{Result, bail};
 
+// Intentionally offline: `check` reads .env and ambient env only — it does not
+// resolve op:// refs. A required var with op_ref will fail check if not also
+// set in .env or the process environment. Use `exec`/`source` to inject OP secrets.
 pub fn run(schema: &ConfigFile) -> Result<()> {
     let _ = dotenvy::dotenv();
 

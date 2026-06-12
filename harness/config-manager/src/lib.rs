@@ -59,6 +59,9 @@ pub fn run(command: Commands) -> Result<()> {
         Commands::Source => {
             let schema = schema::load("config.toml")?;
             let env = resolver::resolve_all(&schema)?;
+            // {v:?} (Debug) escapes inner quotes and control chars but does NOT
+            // prevent subshell expansion ($(...) or backticks) in the shell that
+            // evals this output. Trust your .env the same way you trust a shell script.
             for (k, v) in &env {
                 println!("export {k}={v:?}");
             }
