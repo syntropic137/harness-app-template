@@ -40,8 +40,11 @@ max_max_depth = { value = 8, severity = "warn" }
 # that is absent but not required degrades to "no-reading" (skipped) rather
 # than failing the gate.  Unknown profile names are a hard error (exit 2).
 #
-# strict  — built-in: all adapters in KNOWN_ADAPTERS are required.
-#           Suitable for CI where every adapter runs.
+# strict  — requires EVERY adapter in KNOWN_ADAPTERS, so an unconfigured / CI
+#           environment fails closed unless every adapter produced a reading.
+#           Any adapter added to KNOWN_ADAPTERS in gate.mjs must also be added
+#           to the [profiles.strict] table below; the governance-profiles test
+#           (scripts/tests/sensors-governance-profiles.test.ts) enforces parity.
 # local   — only the always-available zero-dependency adapters are required:
 #             deadcode        (scoped grep, no external binary)
 #             cruiser-coupling (dependency-cruiser + aggregate, pure-node)
@@ -50,5 +53,8 @@ max_max_depth = { value = 8, severity = "warn" }
 #           here and are skipped-loud when absent: apss-topology (needs APSS
 #           binary + .topology/ data), sentrux, ubs-security, hyperfine-perf,
 #           suite-duration, coverage, license.
+[profiles.strict]
+required_adapters = ["sentrux", "apss-topology", "complexity", "cruiser-coupling", "ubs-security", "license", "deadcode", "hyperfine-perf", "suite-duration", "coverage"]
+
 [profiles.local]
 required_adapters = ["deadcode", "cruiser-coupling", "complexity"]
