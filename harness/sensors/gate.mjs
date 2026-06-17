@@ -1910,6 +1910,23 @@ export function renderReport(comparison) {
       lines.push(`  ${tag} ${code} ${d.name}: ${lane}`);
     }
   }
+  const failedMissing = comparison.failedMissing ?? comparison.fitness?.failedMissing ?? [];
+  const skipped = comparison.skipped ?? comparison.fitness?.skipped ?? [];
+  if (failedMissing.length > 0) {
+    const adapters = [...new Set(failedMissing.map((f) => f.adapter))].join(', ');
+    lines.push(
+      `MISSING REQUIRED: ${failedMissing.length} adapter(s) required by profile ` +
+        `'${failedMissing[0].profile}' produced no reading: ${adapters}. ` +
+        `Install the tool(s) or select a leaner profile with --profile=local.`,
+    );
+  }
+  if (skipped.length > 0) {
+    const adapters = [...new Set(skipped.map((s) => s.adapter))].join(', ');
+    lines.push(
+      `DEGRADED: ${skipped.length} adapter(s) skipped — not required by profile ` +
+        `'${skipped[0].profile}': ${adapters}. These dimensions did NOT run.`,
+    );
+  }
   if (comparison.regressions.length > 0) {
     lines.push('');
     lines.push('regressions:');
@@ -2445,6 +2462,8 @@ export async function main(
               regressions: comparison.regressions,
               summary: comparison.summary,
               baseline_relaxation: relaxation,
+              skipped: comparison.skipped ?? comparison.fitness?.skipped ?? [],
+              failed_missing: comparison.failedMissing ?? comparison.fitness?.failedMissing ?? [],
             },
             ratchet: {
               enabled: ratchetEnabled,
