@@ -179,3 +179,20 @@ implementation here is the reference proposal that issue points at.
 - `advisory-by-design` metric reads `null` → info-level, not warning, not fail, absent from `skipped[]`
 - unknown `--profile=` value → hard error (no silent default)
 - no profile specified → resolves to `strict`
+
+## Implementation note (2026-06-17)
+
+Four decisions made during implementation that refined or diverged from the ADR text:
+
+1. **Declared-N/A via existing advisory enforcement.** Rather than adding a new per-metric `exempt = true` flag, the Declared-N/A state reuses the existing `enforcement: 'advisory'` dimension mechanism (AC01 Accessibility, AV01 Availability): the four-state logic computes `enforced = code !== 'AC01' && code !== 'AV01'`, so advisory dims never fail and never count as skipped. Approved simplification (YAGNI) — no new schema surface needed.
+
+2. **Required-missing fails regardless of baseline.** An early implementation wrongly gated `requiredMissing` on the metric having a prior baseline entry; this was corrected — a required adapter that produces no reading hard-fails even when the metric's baseline is null (the common case on a fresh clone). A regression test (`sensors-fail-closed.test.ts`, "both-null hollow-pass guard") locks this invariant.
+
+3. **Profile selection and adapter granularity.** Profiles live in `harness/.harness/governance.toml` as `[profiles.strict]` (all 10 KNOWN_ADAPTERS, drift-guarded by a test) and `[profiles.local]` (the zero-dep adapters: deadcode, cruiser-coupling, complexity). Selection precedence: `--profile=` flag › `SENSORS_PROFILE` env › default `strict`; unknown profile → exit 2. CI's fitness job pins `--profile=strict` explicitly so a governance.toml edit cannot silently loosen the CI lane.
+
+4. **Empirical proof (this clone, 2026-06-17):**
+   - `--profile=strict` → `VERDICT: FAIL sensors gate` / `MISSING REQUIRED: 18 adapter(s) required by profile 'strict' produced no reading: apss-topology, sentrux, ubs-security, hyperfine-perf, suite-duration, coverage.`
+   - `--profile=local` → `VERDICT: PASS sensors gate` / `DEGRADED: 18 adapter(s) skipped — not required by profile 'local': apss-topology, sentrux, ubs-security, hyperfine-perf, suite-duration, coverage. These dimensions did NOT run.`
+   - `--profile=bogus` → `gate: unknown profile 'bogus'`, exit 2
+   - `--profile=local --json` → `skipped 18 failed_missing 0`
+   - Full test suite: 37 test files, 589 tests, all passed.
