@@ -1075,7 +1075,7 @@ export function parsePolicy(raw) {
 }
 
 export function parseProfiles(raw) {
-  if (!raw || !raw.trim()) {
+  if (!raw?.trim()) {
     return {};
   }
   let doc;
@@ -1400,6 +1400,10 @@ function assessMetricComparisonState({ code, metricId, currentMetric, baselineMe
       hardFailCoverage: true,
       failureReason: coverageFailureSummary(options, metricId),
       regression: true,
+      adapterMissing: false,
+      requiredMissing: false,
+      skippedAdapter: false,
+      adapter: null,
       compared: 1,
       evaluated: 1,
       failed: 1,
@@ -1418,6 +1422,10 @@ function assessMetricComparisonState({ code, metricId, currentMetric, baselineMe
       regression:
         currentMetric.fail_on_regression &&
         worsened(currentMetric.direction, currentValue, baselineValue),
+      adapterMissing: false,
+      requiredMissing: false,
+      skippedAdapter: false,
+      adapter: null,
       compared: 1,
       evaluated: 1,
       failed: 0,
@@ -1427,17 +1435,38 @@ function assessMetricComparisonState({ code, metricId, currentMetric, baselineMe
     };
   }
 
+  const currentIsNumber = typeof currentValue === 'number';
+  const adapterMissing = !currentIsNumber;
+  const hasBaseline = typeof baselineValue === 'number';
+  const enforced = code !== 'AC01' && code !== 'AV01'; // advisory dims = Declared-N/A
+  const adapter = metricAdapter(code, metricId);
+  const required = options?.profile?.requiredAdapters?.has(adapter) ?? false;
+  // requiredMissing / skippedAdapter only fire when we have a baseline (the metric was
+  // previously tracked); without a baseline there is no expectation of a current reading
+  // and the both-null case falls through to missing=1 (same as before).
+  const requiredMissing = adapterMissing && hasBaseline && enforced && required;
+  const skippedAdapter = adapterMissing && hasBaseline && enforced && !required;
+
   return {
     baselineValue,
     currentValue,
     hardFailCoverage: false,
-    failureReason: null,
-    regression: false,
+    failureReason: requiredMissing
+      ? `adapter '${adapter}' required by profile '${options?.profile?.name}' produced no reading`
+      : null,
+    regression: requiredMissing, // required-missing fails like a regression
+    adapterMissing,
+    requiredMissing,
+    skippedAdapter,
+    adapter,
     compared: 0,
     evaluated: 0,
-    failed: 0,
+    failed: requiredMissing ? 1 : 0,
     warned: 0,
-    missing: 1,
+    // When adapter produced no reading AND we have a baseline: not a missing-baseline (handled
+    // via skippedAdapter / requiredMissing paths). When current IS a number but baseline is
+    // null (new metric snapshot) OR both are null (adapter never wired): count as missing-baseline.
+    missing: adapterMissing && hasBaseline ? 0 : 1,
     hasBothValues,
   };
 }
@@ -1478,6 +1507,8 @@ export function compareFitnessBaseline(baseline, currentReport, options = {}) {
   const regressions = [];
   const advisoryRegressions = [];
   const missingBaselines = [];
+  const skipped = [];
+  const failedMissing = [];
   const dimensionSummaries = {};
   let comparedMetrics = 0;
 
@@ -1513,10 +1544,27 @@ export function compareFitnessBaseline(baseline, currentReport, options = {}) {
         });
       }
 
+      if (state.requiredMissing) {
+        failedMissing.push({
+          dimension: code,
+          metric: metricId,
+          adapter: state.adapter,
+          profile: options?.profile?.name ?? 'strict',
+        });
+      } else if (state.skippedAdapter) {
+        skipped.push({
+          dimension: code,
+          metric: metricId,
+          adapter: state.adapter,
+          reason: 'adapter not required by active profile',
+          profile: options?.profile?.name ?? 'strict',
+        });
+      }
+
       const summary = buildMetricSummary(currentMetric, state);
       metricSummaries[metricId] = summary;
 
-      if (state.regression) {
+      if (state.regression && !state.requiredMissing) {
         const record = buildMetricRegressionRecord({
           dimensionCode: code,
           metricId,
@@ -1553,10 +1601,12 @@ export function compareFitnessBaseline(baseline, currentReport, options = {}) {
   }
 
   return {
-    ok: regressions.length === 0,
+    ok: regressions.length === 0 && failedMissing.length === 0,
     regressions,
     advisoryRegressions,
     missingBaselines,
+    skipped,
+    failedMissing,
     comparedMetrics,
     dimensions: dimensionSummaries,
   };
