@@ -1865,6 +1865,23 @@ export function renderReport(comparison) {
   } else {
     lines.push('VERDICT: FAIL sensors gate');
   }
+  const failedMissing = comparison.failedMissing ?? comparison.fitness?.failedMissing ?? [];
+  const skipped = comparison.skipped ?? comparison.fitness?.skipped ?? [];
+  if (failedMissing.length > 0) {
+    const adapters = [...new Set(failedMissing.map((f) => f.adapter))].join(', ');
+    lines.push(
+      `MISSING REQUIRED: ${failedMissing.length} adapter(s) required by profile ` +
+        `'${failedMissing[0].profile}' produced no reading: ${adapters}. ` +
+        `Install the tool(s) or select a leaner profile with --profile=local.`,
+    );
+  }
+  if (skipped.length > 0) {
+    const adapters = [...new Set(skipped.map((s) => s.adapter))].join(', ');
+    lines.push(
+      `DEGRADED: ${skipped.length} adapter(s) skipped — not required by profile ` +
+        `'${skipped[0].profile}': ${adapters}. These dimensions did NOT run.`,
+    );
+  }
   const { comparedFolders, newFolders, removedFolders } = comparison.summary;
   lines.push(
     `compared ${comparedFolders} folder(s); ` +
@@ -1909,23 +1926,6 @@ export function renderReport(comparison) {
           : 'no adapter wired';
       lines.push(`  ${tag} ${code} ${d.name}: ${lane}`);
     }
-  }
-  const failedMissing = comparison.failedMissing ?? comparison.fitness?.failedMissing ?? [];
-  const skipped = comparison.skipped ?? comparison.fitness?.skipped ?? [];
-  if (failedMissing.length > 0) {
-    const adapters = [...new Set(failedMissing.map((f) => f.adapter))].join(', ');
-    lines.push(
-      `MISSING REQUIRED: ${failedMissing.length} adapter(s) required by profile ` +
-        `'${failedMissing[0].profile}' produced no reading: ${adapters}. ` +
-        `Install the tool(s) or select a leaner profile with --profile=local.`,
-    );
-  }
-  if (skipped.length > 0) {
-    const adapters = [...new Set(skipped.map((s) => s.adapter))].join(', ');
-    lines.push(
-      `DEGRADED: ${skipped.length} adapter(s) skipped — not required by profile ` +
-        `'${skipped[0].profile}': ${adapters}. These dimensions did NOT run.`,
-    );
   }
   if (comparison.regressions.length > 0) {
     lines.push('');
