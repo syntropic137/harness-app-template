@@ -400,7 +400,7 @@ export const FITNESS_METRICS = {
       objective:
         "Advisory-by-design: a static template repository ships no rendered frontend to scan with axe-core or pa11y. AC01 stays advisory + opt-in; a consumer fork that ships an actual web frontend writes its own adapter (axe-core / pa11y over the rendered output, scoped to the fork's ws_apps/<frontend> path). Bead create-harness-app-2zz.4 closed with reason advisory-by-design.",
       source: 'advisory-by-design (no rendered frontend in a static template)',
-      adapter: 'apss-topology',
+      adapter: 'apss-topology', // advisory-by-design: value always null; adapter tag is provenance only (Declared-N/A, never gated)
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -426,7 +426,7 @@ export const FITNESS_METRICS = {
       objective:
         'Number of benchmarks committed in harness/perf/baseline.json. Floor is the snapshotted count; the gate fails if the count drops (a removed bench is a coverage regression). Floor of zero is acceptable until hyperfine has produced a real measurement.',
       source: 'harness/perf/baseline.json benchmarks',
-      adapter: 'hyperfine-perf',
+      adapter: 'hyperfine-perf', // value() returns .length (count, min 0), never reads null; adapter tag is provenance
       direction: 'min',
       default_threshold: 0,
       fail_on_regression: true,
@@ -464,7 +464,7 @@ export const FITNESS_METRICS = {
       objective:
         'Advisory-by-design: a static template repository ships no running service to measure availability against. AV01 stays advisory + opt-in; a consumer fork that ships an actual service writes its own adapter (chaos-engineering hook, SLO breach counter, paired with the observability slot). Bead create-harness-app-2zz.5 closed with reason advisory-by-design.',
       source: 'advisory-by-design (no running service in a static template)',
-      adapter: 'apss-topology',
+      adapter: 'apss-topology', // advisory-by-design: value always null; adapter tag is provenance only (Declared-N/A, never gated)
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,

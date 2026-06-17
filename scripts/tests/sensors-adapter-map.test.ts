@@ -26,4 +26,13 @@ describe('metric → adapter map', () => {
     expect(metricAdapter('MT01', 'sentrux-god-file-count')).toBe('sentrux');
     expect(metricAdapter('MT01', 'nope')).toBeNull();
   });
+
+  test('metricAdapter spot-checks: complexity, cruiser-coupling, coverage adapters', () => {
+    // complexity adapter
+    expect(metricAdapter('MT01', 'max-cognitive')).toBe('complexity');
+    // cruiser-coupling adapter
+    expect(metricAdapter('MD01', 'max-main-sequence-distance')).toBe('cruiser-coupling');
+    // coverage adapter
+    expect(metricAdapter('CV01', 'rust-line-coverage-pct')).toBe('coverage');
+  });
 });
