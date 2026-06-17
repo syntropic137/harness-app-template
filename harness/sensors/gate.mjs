@@ -1074,6 +1074,36 @@ export function parsePolicy(raw) {
   };
 }
 
+export function parseProfiles(raw) {
+  if (!raw || !raw.trim()) {
+    return {};
+  }
+  let doc;
+  try {
+    doc = toml.parse(raw);
+  } catch {
+    return {};
+  }
+  const profiles = doc?.profiles ?? {};
+  const out = {};
+  for (const [name, table] of Object.entries(profiles)) {
+    const required = Array.isArray(table?.required_adapters) ? table.required_adapters : [];
+    out[name] = { required_adapters: required };
+  }
+  return out;
+}
+
+export function resolveProfile({ profiles, profileName }) {
+  const table = profiles?.[profileName];
+  if (!table) {
+    if (profileName === 'strict') {
+      return { name: 'strict', requiredAdapters: new Set(KNOWN_ADAPTERS) };
+    }
+    throw new Error(`unknown profile '${profileName}'`);
+  }
+  return { name: profileName, requiredAdapters: new Set(table.required_adapters) };
+}
+
 function metricNameForConstraint(key) {
   const stripped = key.replace(/^(max|min)_/, '');
   if (stripped === 'cycles') {
