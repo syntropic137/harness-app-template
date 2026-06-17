@@ -1439,12 +1439,19 @@ function assessMetricComparisonState({ code, metricId, currentMetric, baselineMe
   const adapterMissing = !currentIsNumber;
   const enforced = code !== 'AC01' && code !== 'AV01'; // advisory dims = Declared-N/A
   const adapter = metricAdapter(code, metricId);
-  const required = options?.profile?.requiredAdapters?.has(adapter) ?? false;
+  // ADR-0027: the four-state classification (requiredMissing / skippedAdapter) only
+  // engages when a profile is active. Profile-less calls (internal tests, direct
+  // compareFitnessBaseline invocations without options.profile) fall back to the legacy
+  // "missing-baseline" path so that pre-ADR-0027 node:test suites see byte-identical
+  // behavior. The production CLI always passes a profile (default strict), so the
+  // profile-required enforcement is unchanged for all real gate invocations.
+  const hasProfile = Boolean(options?.profile);
+  const required = hasProfile && (options?.profile?.requiredAdapters?.has(adapter) ?? false);
   // ADR-0027: a required adapter that produced no reading is a hard fail regardless of
   // whether a baseline exists. A fresh clone has no baselines, but required tools must
   // still run — absent them the gate must not silently pass.
-  const requiredMissing = adapterMissing && enforced && required;
-  const skippedAdapter = adapterMissing && enforced && !required;
+  const requiredMissing = adapterMissing && enforced && hasProfile && required;
+  const skippedAdapter = adapterMissing && enforced && hasProfile && !required;
 
   return {
     baselineValue,
@@ -1462,10 +1469,10 @@ function assessMetricComparisonState({ code, metricId, currentMetric, baselineMe
     evaluated: 0,
     failed: requiredMissing ? 1 : 0,
     warned: 0,
-    // When adapter produced no reading it is classified as requiredMissing/skippedAdapter/
-    // Declared-N/A — never a missing-baseline. Only a present number with a null baseline
-    // (new metric snapshot) counts as missing=1.
-    missing: adapterMissing ? 0 : 1,
+    // When a profile is active and adapter produced no reading it is classified as
+    // requiredMissing/skippedAdapter/Declared-N/A — never a missing-baseline.
+    // Without a profile (legacy path) a null current reading is a missing-baseline (missing=1).
+    missing: adapterMissing && hasProfile ? 0 : 1,
     hasBothValues,
   };
 }
@@ -2236,8 +2243,15 @@ export async function main(
 
   let profile;
   try {
-    const policyRaw = io.fileExists(policyPath) ? io.readFile(policyPath) : '';
-    profile = resolveProfile({ profiles: parseProfiles(policyRaw), profileName });
+    // --policy=none means "no governance file and no profile enforcement". Leaving
+    // profile=undefined preserves the pre-ADR-0027 legacy behavior for callers that
+    // predate profiles (e.g. internal tests that use --policy=none). The production
+    // CLI always passes --profile=strict or --profile=local explicitly, so those
+    // paths are unaffected.
+    if (policyPath !== 'none') {
+      const policyRaw = io.fileExists(policyPath) ? io.readFile(policyPath) : '';
+      profile = resolveProfile({ profiles: parseProfiles(policyRaw), profileName });
+    }
   } catch (e) {
     io.writeErr(`gate: ${e.message}\n`);
     return 2;

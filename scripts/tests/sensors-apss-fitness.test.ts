@@ -279,10 +279,14 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
   test('ST01: a missing circular_edges value is treated as no reading (no regression)', () => {
     const baselineReport = reportFrom({ circular_edges: 0 });
     const baseline = extractApssFitnessBaseline(baselineReport);
-    // current report omits circular_edges; ST01's value() returns null;
-    // adapter is not required (no profile) → loud skip, ok stays true.
+    // current report omits circular_edges; ST01's value() returns null for
+    // circular-dependency-edges (adapter='cruiser-coupling'). Pass an explicit
+    // profile with an empty required-adapters set so missing adapters are
+    // loud-skipped rather than falling through to the legacy missing-baseline
+    // path. ok must stay true; skipped must contain an ST01 entry.
     const current = reportFrom({});
-    const result = compareFitnessBaseline(baseline, current);
+    const profile = { name: 'test-no-required', requiredAdapters: new Set<string>() };
+    const result = compareFitnessBaseline(baseline, current, { profile });
     expect(result.ok).toBe(true);
     expect(result.skipped.some((s: { dimension: string }) => s.dimension === 'ST01')).toBe(true);
   });
@@ -353,9 +357,12 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
   test('SC01: no security payload yields a no-reading (advisory-style skip), gate stays ok=true', () => {
     const baselineReport = reportFrom({});
     const baseline = extractApssFitnessBaseline(baselineReport);
-    const result = compareFitnessBaseline(baseline, baselineReport);
+    // Pass an explicit profile with an empty required-adapters set so the absent
+    // ubs-security adapter is loud-skipped rather than legacy missing-baseline.
+    // ok must stay true; skipped must contain an SC01 entry.
+    const profile = { name: 'test-no-required', requiredAdapters: new Set<string>() };
+    const result = compareFitnessBaseline(baseline, baselineReport, { profile });
     expect(result.ok).toBe(true);
-    // adapter is not required (no profile) → loud skip, ok stays true.
     expect(result.skipped.some((s: { dimension: string }) => s.dimension === 'SC01')).toBe(true);
   });
 
@@ -423,11 +430,15 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     const baseline = extractApssFitnessBaseline(baselineReport, {
       licenses: { available: false, denied_count: 0, scanned: 0, denied: [] },
     });
+    // Pass an explicit profile with an empty required-adapters set so the
+    // unavailable license adapter is loud-skipped rather than legacy missing-baseline.
+    // ok must stay true; skipped must contain an LG01 entry.
+    const profile = { name: 'test-no-required', requiredAdapters: new Set<string>() };
     const result = compareFitnessBaseline(baseline, baselineReport, {
       licenses: { available: false, denied_count: 0, scanned: 0, denied: [] },
+      profile,
     });
     expect(result.ok).toBe(true);
-    // adapter is not required (no profile) → loud skip, ok stays true.
     expect(result.skipped.some((s: { dimension: string }) => s.dimension === 'LG01')).toBe(true);
   });
 
