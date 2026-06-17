@@ -32,6 +32,9 @@ describe('profile resolution', () => {
   test('strict with no table defaults to ALL known adapters (fail-safe)', () => {
     const r = resolveProfile({ profiles: {}, profileName: 'strict' });
     expect(r.requiredAdapters.size).toBe(KNOWN_ADAPTERS.size);
+    for (const adapter of KNOWN_ADAPTERS) {
+      expect(r.requiredAdapters.has(adapter), `strict default missing '${adapter}'`).toBe(true);
+    }
   });
 
   test('unknown profile name throws', () => {
