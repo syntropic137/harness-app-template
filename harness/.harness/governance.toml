@@ -42,10 +42,13 @@ max_max_depth = { value = 8, severity = "warn" }
 #
 # strict  — built-in: all adapters in KNOWN_ADAPTERS are required.
 #           Suitable for CI where every adapter runs.
-# local   — only the adapters that are always available offline are
-#           required (dep-cruiser coupling, abstractness, complexity,
-#           apss-topology).  Instrumented adapters (ubs-security, license,
-#           deadcode, sentrux, hyperfine-perf, suite-duration, coverage)
-#           are skipped when absent.
+# local   — only the always-available zero-dependency adapters are required:
+#             deadcode        (scoped grep, no external binary)
+#             cruiser-coupling (dependency-cruiser + aggregate, pure-node)
+#             complexity       (complexity.mjs, pure-node)
+#           Instrumented adapters that need external installs are NOT required
+#           here and are skipped-loud when absent: apss-topology (needs APSS
+#           binary + .topology/ data), sentrux, ubs-security, hyperfine-perf,
+#           suite-duration, coverage, license.
 [profiles.local]
-required_adapters = ["apss-topology", "complexity", "cruiser-coupling"]
+required_adapters = ["deadcode", "cruiser-coupling", "complexity"]
