@@ -42,4 +42,12 @@ describe('profile resolution', () => {
       /unknown profile 'bogus'/,
     );
   });
+
+  test('explicit strict table is used (not fail-safe default)', () => {
+    const r = resolveProfile({ profiles: parseProfiles(TOML), profileName: 'strict' });
+    expect(r.name).toBe('strict');
+    expect(r.requiredAdapters.has('sentrux')).toBe(true);
+    expect(r.requiredAdapters.has('deadcode')).toBe(true);
+    expect(r.requiredAdapters.size).toBe(10);
+  });
 });

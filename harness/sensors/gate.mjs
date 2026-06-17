@@ -1094,6 +1094,7 @@ export function parseProfiles(raw) {
 }
 
 export function resolveProfile({ profiles, profileName }) {
+  // profiles is always the plain-object output of parseProfiles (never null); the ?. is defensive only
   const table = profiles?.[profileName];
   if (!table) {
     if (profileName === 'strict') {
