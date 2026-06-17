@@ -285,7 +285,7 @@ jobs:
           SENSORS_COVERAGE_PYTHON_JSON: /tmp/cov/python.json
           SENSORS_COVERAGE_JS_JSON: /tmp/cov/js/coverage-summary.json
           CARGO_TARGET_DIR: ${{ github.workspace }}/target/coverage-isolated-ci
-        run: harness/sensors/bin/sensors gate
+        run: harness/sensors/bin/sensors gate --profile=strict
       - name: Run perf fitness gate
         run: harness/perf/bench.sh | node harness/perf/gate.mjs
 
