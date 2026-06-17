@@ -207,7 +207,7 @@ pre-push:
       # missing so a freshly-cloned environment without those installed
       # can still commit and push.
       #
-      # Profile (ADR-0027): local pre-push runs the LEAN `local` profile so
+      # Profile (ADR-0028): local pre-push runs the LEAN `local` profile so
       # a developer machine without the instrumented adapters installed
       # (apss binary, sentrux, hyperfine, coverage tooling) still pushes —
       # those adapters are skipped-loud (DEGRADED), not failed. CI's

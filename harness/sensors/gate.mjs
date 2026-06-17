@@ -1453,15 +1453,15 @@ function assessMetricComparisonState({ code, metricId, currentMetric, baselineMe
   const adapterMissing = !currentIsNumber;
   const enforced = code !== 'AC01' && code !== 'AV01'; // advisory dims = Declared-N/A
   const adapter = metricAdapter(code, metricId);
-  // ADR-0027: the four-state classification (requiredMissing / skippedAdapter) only
+  // ADR-0028: the four-state classification (requiredMissing / skippedAdapter) only
   // engages when a profile is active. Profile-less calls (internal tests, direct
   // compareFitnessBaseline invocations without options.profile) fall back to the legacy
-  // "missing-baseline" path so that pre-ADR-0027 node:test suites see byte-identical
+  // "missing-baseline" path so that pre-ADR-0028 node:test suites see byte-identical
   // behavior. The production CLI always passes a profile (default strict), so the
   // profile-required enforcement is unchanged for all real gate invocations.
   const hasProfile = Boolean(options?.profile);
   const required = hasProfile && (options?.profile?.requiredAdapters?.has(adapter) ?? false);
-  // ADR-0027: a required adapter that produced no reading is a hard fail regardless of
+  // ADR-0028: a required adapter that produced no reading is a hard fail regardless of
   // whether a baseline exists. A fresh clone has no baselines, but required tools must
   // still run — absent them the gate must not silently pass.
   const requiredMissing = adapterMissing && enforced && hasProfile && required;
@@ -2063,7 +2063,7 @@ function loadReadingsFrom(path, io) {
 
 function jsonPayload(base, policy) {
   const exitCode = base.exit_code;
-  // IMPORTANT 1: ADR-0027 §4 specifies top-level skipped[] and failed_missing[].
+  // IMPORTANT 1: ADR-0028 §4 specifies top-level skipped[] and failed_missing[].
   // Pull them from base.baseline.* (the nested location) and promote to top-level.
   // Keep the nested copies as compatibility aliases for existing consumers.
   const skipped = base.baseline?.skipped ?? [];
@@ -2267,7 +2267,7 @@ export async function main(
     // Profile resolution is INDEPENDENT of policy (governance constraints).
     // --policy=none only disables governance constraint evaluation; it does NOT
     // disable profile enforcement. Pass --profile=none to opt out of profiles
-    // (which preserves pre-ADR-0027 legacy behavior for callers that predate profiles).
+    // (which preserves pre-ADR-0028 legacy behavior for callers that predate profiles).
     //
     // When policyPath is 'none', there is no governance.toml to read profiles from,
     // so we parse from an empty string. For 'strict' this falls back to the

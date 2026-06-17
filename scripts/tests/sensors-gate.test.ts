@@ -495,8 +495,8 @@ describe('sensors gate - CLI main', () => {
     });
   });
 
-  // IMPORTANT 1: ADR-0027 §4 requires skipped[] and failed_missing[] at the TOP LEVEL of JSON
-  test('--format=json emits top-level skipped and failed_missing arrays (ADR-0027 §4)', async () => {
+  // IMPORTANT 1: ADR-0028 §4 requires skipped[] and failed_missing[] at the TOP LEVEL of JSON
+  test('--format=json emits top-level skipped and failed_missing arrays (ADR-0028 §4)', async () => {
     const baseline = JSON.stringify({
       folders: {},
       dimensions: {
@@ -523,7 +523,7 @@ describe('sensors gate - CLI main', () => {
     } catch (err) {
       throw new Error(`expected JSON payload: ${(err as Error).message}`);
     }
-    // ADR-0027 §4 contract: top-level skipped[] and failed_missing[]
+    // ADR-0028 §4 contract: top-level skipped[] and failed_missing[]
     expect(Array.isArray(payload.skipped), 'top-level skipped must be an array').toBe(true);
     expect(Array.isArray(payload.failed_missing), 'top-level failed_missing must be an array').toBe(
       true,

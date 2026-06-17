@@ -53,7 +53,7 @@ describe('fail-closed four-state', () => {
     expect(r.failedMissing.length).toBe(0);
   });
 
-  // Regression guard for ADR-0027 hollow-pass fix: a required adapter with BOTH
+  // Regression guard for ADR-0028 hollow-pass fix: a required adapter with BOTH
   // baseline=null AND current=null (fresh-clone scenario, tool never ran) must
   // still produce ok===false. The defect in e318d88 gated requiredMissing on
   // hasBaseline, letting the both-null case fall through to a silent pass.

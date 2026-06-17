@@ -35,7 +35,7 @@ min_acyclicity_score = { value = 0.95, severity = "warn" }
 min_modularity_score = { value = 0.4, severity = "warn" }
 max_max_depth = { value = 8, severity = "warn" }
 
-# ── ADR-0027 PROFILES ───────────────────────────────────────────────────
+# ── ADR-0028 PROFILES ───────────────────────────────────────────────────
 # Profiles control which adapters are REQUIRED by the gate.  An adapter
 # that is absent but not required degrades to "no-reading" (skipped) rather
 # than failing the gate.  Unknown profile names are a hard error (exit 2).

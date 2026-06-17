@@ -5,7 +5,7 @@ status: accepted
 ---
 
 <!--
-ADR-0027 — extends ADR-0019 / ADR-0020 / ADR-0024 / ADR-0025 and the
+ADR-0028 — extends ADR-0019 / ADR-0020 / ADR-0024 / ADR-0025 and the
 ADR-0017 APSS-canonical sensors posture. Sensors slot only. This ADR
 pins the four-state reading taxonomy, the profile schema in
 governance.toml, the default-strict rule, the selection precedence, and
@@ -18,7 +18,7 @@ complex-fn / apss-topology-derived). A fitness gate that cannot tell
 "0 god-files" from "the god-file detector never ran" is not enforcing.
 -->
 
-# ADR-0027: Fail-closed fitness gate — profile-based required adapters, no silent skips
+# ADR-0028: Fail-closed fitness gate — profile-based required adapters, no silent skips
 
 **Date:** 2026-06-16
 **Category:** sensors slot (harness/sensors/gate.mjs, harness/.harness/governance.toml, FITNESS_METRICS, .github/workflows/test.yml)

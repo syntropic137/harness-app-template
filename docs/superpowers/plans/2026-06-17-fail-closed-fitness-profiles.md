@@ -1,4 +1,4 @@
-# Fail-Closed Fitness Gate (ADR-0027) Implementation Plan
+# Fail-Closed Fitness Gate (ADR-0028) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -635,10 +635,10 @@ Expected: FAIL — no `[profiles.*]` tables yet.
 Append:
 
 ```toml
-# ── ADR-0027: fail-closed enforcement profiles ──────────────────────────
+# ── ADR-0028: fail-closed enforcement profiles ──────────────────────────
 # Which adapters MUST produce a reading in a given environment. A required
 # adapter that returns null is a HARD FAIL; a non-required one is a loud
-# skip (see ADR-0027). Default profile is `strict`; select a leaner one
+# skip (see ADR-0028). Default profile is `strict`; select a leaner one
 # with `--profile=local` or SENSORS_PROFILE=local.
 [profiles.strict]
 required_adapters = ["sentrux", "apss-topology", "complexity", "cruiser-coupling", "ubs-security", "license", "deadcode", "hyperfine-perf", "suite-duration", "coverage"]
@@ -702,7 +702,7 @@ git commit -m "ci(sensors): pin fitness gate to --profile=strict (fail-closed in
 
 ### Task 8: End-to-end verification — strict fails on this clone, local passes loud
 
-**Files:** none (verification task; may add a short note to ADR-0027 if behavior diverged)
+**Files:** none (verification task; may add a short note to ADR-0028 if behavior diverged)
 
 - [ ] **Step 1: Run the gate in strict (default) on this checkout**
 
@@ -726,18 +726,18 @@ Expected: all sensors tests PASS, including the five new files.
 
 - [ ] **Step 5: Reconcile ADR if needed + commit any doc delta**
 
-If Task 6's Declared-N/A simplification (advisory-dimension instead of `exempt=true`) or any naming changed, add a one-paragraph "Implementation note" to `docs/adrs/ADR-0027-fail-closed-fitness-profiles.md` recording it. Commit:
+If Task 6's Declared-N/A simplification (advisory-dimension instead of `exempt=true`) or any naming changed, add a one-paragraph "Implementation note" to `docs/adrs/ADR-0028-fail-closed-fitness-profiles.md` recording it. Commit:
 
 ```bash
-git add docs/adrs/ADR-0027-fail-closed-fitness-profiles.md
-git commit -m "docs(adr): ADR-0027 implementation note — advisory-dim reuse for Declared-N/A"
+git add docs/adrs/ADR-0028-fail-closed-fitness-profiles.md
+git commit -m "docs(adr): ADR-0028 implementation note — advisory-dim reuse for Declared-N/A"
 ```
 
 ---
 
 ## Self-Review
 
-**Spec coverage (ADR-0027 → tasks):**
+**Spec coverage (ADR-0028 → tasks):**
 - Four-state taxonomy → Task 3 (measured/required-missing/skipped/declared-N/A).
 - Profiles in governance.toml, adapter granularity → Tasks 1 (map), 2 (resolve), 6 (ship).
 - Default strict, unknown=error, precedence flag›env›default → Tasks 2 + 5.
