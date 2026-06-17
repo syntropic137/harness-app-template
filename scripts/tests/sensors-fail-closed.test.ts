@@ -20,7 +20,17 @@ function baselineWithGodFileFloor() {
 }
 
 const strict = { name: 'strict', requiredAdapters: new Set(['sentrux']) };
-const lean = { name: 'local', requiredAdapters: new Set(['deadcode']) };
+// lean: no adapters required — verifies that an absent non-required adapter goes to skipped,
+// not failedMissing, and ok stays true.
+const lean = { name: 'local', requiredAdapters: new Set<string>() };
+
+function baselineWithNullSentrux() {
+  return {
+    dimensions: {
+      MT01: { metrics: { 'sentrux-god-file-count': { baseline: null } } },
+    },
+  };
+}
 
 describe('fail-closed four-state', () => {
   test('strict + required adapter missing → FAIL + failedMissing populated', () => {
@@ -40,5 +50,18 @@ describe('fail-closed four-state', () => {
     // biome-ignore lint/suspicious/noExplicitAny: plain ESM gate; no .d.ts
     expect(r.skipped.some((s: any) => s.adapter === 'sentrux')).toBe(true);
     expect(r.failedMissing.length).toBe(0);
+  });
+
+  // Regression guard for ADR-0027 hollow-pass fix: a required adapter with BOTH
+  // baseline=null AND current=null (fresh-clone scenario, tool never ran) must
+  // still produce ok===false. The defect in e318d88 gated requiredMissing on
+  // hasBaseline, letting the both-null case fall through to a silent pass.
+  test('strict + required adapter missing with null baseline → FAIL (both-null hollow-pass guard)', () => {
+    const r = compareFitnessBaseline(baselineWithNullSentrux(), reportWithNoSentrux(), {
+      profile: strict,
+    });
+    expect(r.ok).toBe(false);
+    // biome-ignore lint/suspicious/noExplicitAny: plain ESM gate; no .d.ts
+    expect(r.failedMissing.some((f: any) => f.adapter === 'sentrux')).toBe(true);
   });
 });

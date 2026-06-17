@@ -280,13 +280,11 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     const baselineReport = reportFrom({ circular_edges: 0 });
     const baseline = extractApssFitnessBaseline(baselineReport);
     // current report omits circular_edges; ST01's value() returns null;
-    // missingBaselines counter increments but ok stays true.
+    // adapter is not required (no profile) → loud skip, ok stays true.
     const current = reportFrom({});
     const result = compareFitnessBaseline(baseline, current);
     expect(result.ok).toBe(true);
-    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'ST01')).toBe(
-      true,
-    );
+    expect(result.skipped.some((s: { dimension: string }) => s.dimension === 'ST01')).toBe(true);
   });
 
   test('SC01: a critical UBS finding in the current run trips ok=false', () => {
@@ -357,11 +355,8 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     const baseline = extractApssFitnessBaseline(baselineReport);
     const result = compareFitnessBaseline(baseline, baselineReport);
     expect(result.ok).toBe(true);
-    // missingBaselines counter records SC01 since both baseline and current
-    // resolved to null and the rule can't be evaluated.
-    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'SC01')).toBe(
-      true,
-    );
+    // adapter is not required (no profile) → loud skip, ok stays true.
+    expect(result.skipped.some((s: { dimension: string }) => s.dimension === 'SC01')).toBe(true);
   });
 
   test('LG01: a denied license in the current scan trips ok=false', () => {
@@ -432,9 +427,8 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
       licenses: { available: false, denied_count: 0, scanned: 0, denied: [] },
     });
     expect(result.ok).toBe(true);
-    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'LG01')).toBe(
-      true,
-    );
+    // adapter is not required (no profile) → loud skip, ok stays true.
+    expect(result.skipped.some((s: { dimension: string }) => s.dimension === 'LG01')).toBe(true);
   });
 
   test('compareBaseline aggregates legacy folder-level I/D regressions AND MT01/MD01 fitness regressions', () => {

@@ -1437,15 +1437,14 @@ function assessMetricComparisonState({ code, metricId, currentMetric, baselineMe
 
   const currentIsNumber = typeof currentValue === 'number';
   const adapterMissing = !currentIsNumber;
-  const hasBaseline = typeof baselineValue === 'number';
   const enforced = code !== 'AC01' && code !== 'AV01'; // advisory dims = Declared-N/A
   const adapter = metricAdapter(code, metricId);
   const required = options?.profile?.requiredAdapters?.has(adapter) ?? false;
-  // requiredMissing / skippedAdapter only fire when we have a baseline (the metric was
-  // previously tracked); without a baseline there is no expectation of a current reading
-  // and the both-null case falls through to missing=1 (same as before).
-  const requiredMissing = adapterMissing && hasBaseline && enforced && required;
-  const skippedAdapter = adapterMissing && hasBaseline && enforced && !required;
+  // ADR-0027: a required adapter that produced no reading is a hard fail regardless of
+  // whether a baseline exists. A fresh clone has no baselines, but required tools must
+  // still run — absent them the gate must not silently pass.
+  const requiredMissing = adapterMissing && enforced && required;
+  const skippedAdapter = adapterMissing && enforced && !required;
 
   return {
     baselineValue,
@@ -1463,10 +1462,10 @@ function assessMetricComparisonState({ code, metricId, currentMetric, baselineMe
     evaluated: 0,
     failed: requiredMissing ? 1 : 0,
     warned: 0,
-    // When adapter produced no reading AND we have a baseline: not a missing-baseline (handled
-    // via skippedAdapter / requiredMissing paths). When current IS a number but baseline is
-    // null (new metric snapshot) OR both are null (adapter never wired): count as missing-baseline.
-    missing: adapterMissing && hasBaseline ? 0 : 1,
+    // When adapter produced no reading it is classified as requiredMissing/skippedAdapter/
+    // Declared-N/A — never a missing-baseline. Only a present number with a null baseline
+    // (new metric snapshot) counts as missing=1.
+    missing: adapterMissing ? 0 : 1,
     hasBothValues,
   };
 }
