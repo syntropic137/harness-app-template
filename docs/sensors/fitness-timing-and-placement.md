@@ -1,3 +1,8 @@
+---
+name: "Fitness-function timing and placement"
+description: "Wall-clock budget of every fitness function, the discipline rule per tier, and the rationale behind the CI-only placement of the full sensors gate."
+---
+
 # Fitness-function timing and placement
 
 This page records the wall-clock budget of every fitness function the

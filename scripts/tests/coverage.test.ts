@@ -66,6 +66,8 @@ describe('lib/coverage lane definitions', () => {
       'ws_apps/example-rust/Cargo.toml',
       '--package',
       'example-rust',
+      '--profile',
+      'cov',
       '--fail-under-lines',
       '100',
       '--fail-under-functions',
@@ -73,7 +75,10 @@ describe('lib/coverage lane definitions', () => {
       '--fail-under-regions',
       '100',
     ]);
-    expect(cov.env).toEqual({ CARGO_TARGET_DIR: coverageTargetDir(ROOT) });
+    expect(cov.env).toEqual({
+      CARGO_TARGET_DIR: coverageTargetDir(ROOT),
+      CARGO_INCREMENTAL: '0',
+    });
     expect(cov.cwd).toBeUndefined();
   });
 
@@ -85,14 +90,27 @@ describe('lib/coverage lane definitions', () => {
     expect(commands).toHaveLength(2);
     const [build, cov] = commands as [CoverageCommand, CoverageCommand];
     expect(build.command).toBe('cargo');
-    expect(build.args).toEqual(['build', '--manifest-path', manifest, '--bin', pkg]);
-    expect(build.env).toEqual({ CARGO_TARGET_DIR: coverageTargetDir(ROOT) });
+    expect(build.args).toEqual([
+      'build',
+      '--manifest-path',
+      manifest,
+      '--bin',
+      pkg,
+      '--profile',
+      'cov',
+    ]);
+    expect(build.env).toEqual({
+      CARGO_TARGET_DIR: coverageTargetDir(ROOT),
+      CARGO_INCREMENTAL: '0',
+    });
     expect(cov.args).toEqual([
       'llvm-cov',
       '--manifest-path',
       manifest,
       '--package',
       pkg,
+      '--profile',
+      'cov',
       '--lib',
       '--ignore-filename-regex',
       'main\\.rs',
@@ -101,7 +119,10 @@ describe('lib/coverage lane definitions', () => {
       '--fail-under-functions',
       '100',
     ]);
-    expect(cov.env).toEqual({ CARGO_TARGET_DIR: coverageTargetDir(ROOT) });
+    expect(cov.env).toEqual({
+      CARGO_TARGET_DIR: coverageTargetDir(ROOT),
+      CARGO_INCREMENTAL: '0',
+    });
   });
 
   test('py lane dispatches pytest through with-uv.sh from the app directory', () => {
