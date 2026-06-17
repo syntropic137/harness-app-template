@@ -342,6 +342,14 @@ case "${1:-}" in
           gate_args+=("$1")
           shift
           ;;
+        --profile=*)
+          gate_args+=("$1")
+          shift
+          ;;
+        --profile)
+          gate_args+=("--profile=${2:-}")
+          shift 2 || true
+          ;;
         *)
           echo "error: unknown gate flag: $1" >&2
           exit 2

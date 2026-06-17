@@ -2142,9 +2142,15 @@ export async function main(
   let firstRunMode = 'snapshot';
   let ratchetEnabled = (io.env?.RATCHET ?? '').toLowerCase() !== 'off';
   let skipRelaxationGuard = false;
+  let profileName = io.env?.SENSORS_PROFILE ?? 'strict';
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a.startsWith('--baseline=')) {
+    if (a.startsWith('--profile=')) {
+      profileName = a.slice('--profile='.length);
+    } else if (a === '--profile') {
+      profileName = argv[i + 1] ?? profileName;
+      i += 1;
+    } else if (a.startsWith('--baseline=')) {
       baselinePath = a.slice('--baseline='.length);
     } else if (a === '--baseline') {
       baselinePath = argv[i + 1] ?? baselinePath;
@@ -2220,6 +2226,23 @@ export async function main(
     return 2;
   }
 
+  let policy;
+  try {
+    policy = policyState(policyPath, explicitPolicy, io);
+  } catch (err) {
+    io.writeErr(`gate: failed to load policy (${err.message})\n`);
+    return 2;
+  }
+
+  let profile;
+  try {
+    const policyRaw = io.fileExists(policyPath) ? io.readFile(policyPath) : '';
+    profile = resolveProfile({ profiles: parseProfiles(policyRaw), profileName });
+  } catch (e) {
+    io.writeErr(`gate: ${e.message}\n`);
+    return 2;
+  }
+
   const fitnessOptions = {
     perfPath,
     securityPath,
@@ -2228,15 +2251,9 @@ export async function main(
     deadcodePath,
     coveragePath,
     suiteDurationPath,
+    profile,
     io,
   };
-  let policy;
-  try {
-    policy = policyState(policyPath, explicitPolicy, io);
-  } catch (err) {
-    io.writeErr(`gate: failed to load policy (${err.message})\n`);
-    return 2;
-  }
 
   let raw;
   try {
@@ -2515,3 +2532,17 @@ if (isScriptEntry()) {
 // override `io.readFile` with absolute paths); imported for symmetry with
 // `dirname` to satisfy the linter.
 void resolve;
+
+/**
+ * Named entry for test and programmatic use.  Accepts either the two-arg
+ * (argv, io) positional form or a single `{ argv, io }` options object so
+ * both call patterns work:
+ *   gate(['--profile=local'], ioStub)
+ *   gate({ argv: ['--profile=local'], io: ioStub })
+ */
+export async function gate(argvOrOpts, ioArg) {
+  if (argvOrOpts && !Array.isArray(argvOrOpts) && typeof argvOrOpts === 'object') {
+    return main(argvOrOpts.argv ?? [], argvOrOpts.io);
+  }
+  return main(argvOrOpts, ioArg);
+}

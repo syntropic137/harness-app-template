@@ -34,3 +34,18 @@ max_distance_from_main_sequence = { value = 0.7, severity = "warn" }
 min_acyclicity_score = { value = 0.95, severity = "warn" }
 min_modularity_score = { value = 0.4, severity = "warn" }
 max_max_depth = { value = 8, severity = "warn" }
+
+# ── ADR-0027 PROFILES ───────────────────────────────────────────────────
+# Profiles control which adapters are REQUIRED by the gate.  An adapter
+# that is absent but not required degrades to "no-reading" (skipped) rather
+# than failing the gate.  Unknown profile names are a hard error (exit 2).
+#
+# strict  — built-in: all adapters in KNOWN_ADAPTERS are required.
+#           Suitable for CI where every adapter runs.
+# local   — only the adapters that are always available offline are
+#           required (dep-cruiser coupling, abstractness, complexity,
+#           apss-topology).  Instrumented adapters (ubs-security, license,
+#           deadcode, sentrux, hyperfine-perf, suite-duration, coverage)
+#           are skipped when absent.
+[profiles.local]
+required_adapters = ["apss-topology", "complexity", "cruiser-coupling"]
