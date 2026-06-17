@@ -141,7 +141,7 @@ const DIMENSIONS = {
   },
 };
 
-const FITNESS_METRICS = {
+export const FITNESS_METRICS = {
   MT01: [
     {
       id: 'max-cognitive',
@@ -149,6 +149,7 @@ const FITNESS_METRICS = {
       objective:
         'Max function cognitive complexity from APSS functions or the local complexity adapter.',
       source: '.topology/metrics/functions.json or harness/sensors/complexity.mjs',
+      adapter: 'complexity',
       direction: 'max',
       default_threshold: 15,
       fail_on_regression: true,
@@ -165,6 +166,7 @@ const FITNESS_METRICS = {
       objective:
         'Max function cyclomatic complexity from APSS functions or the local complexity adapter.',
       source: '.topology/metrics/functions.json or harness/sensors/complexity.mjs',
+      adapter: 'complexity',
       direction: 'max',
       default_threshold: 10,
       fail_on_regression: true,
@@ -180,6 +182,7 @@ const FITNESS_METRICS = {
       name: 'Maximum Halstead Volume',
       objective: 'Max APSS Halstead volume per function when APSS emits Halstead metrics.',
       source: '.topology/metrics/functions.json metrics.halstead.volume',
+      adapter: 'apss-topology',
       direction: 'max',
       default_threshold: 1000,
       fail_on_regression: true,
@@ -192,6 +195,7 @@ const FITNESS_METRICS = {
         'Count of workspace functions whose cognitive complexity is at or above the HIGH_COGNITIVE_THRESHOLD line (5; the Sonar moderate-watch band). max-cognitive watches the PEAK; this watches the SPREAD — catches the death-by-a-thousand-cuts pattern where a refactor splits one ugly function but seeds several moderately-complex ones, an AI-coding regression mode that the peak metric reads as an improvement. Direction max (smaller-is-better); ratchet auto-tightens toward 0 as the workspace simplifies.',
       source:
         'aggregate workspace.high_cognitive_count (sum across modules from harness/sensors/complexity.mjs)',
+      adapter: 'complexity',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -206,6 +210,7 @@ const FITNESS_METRICS = {
       objective:
         'Geometric mean of sentrux 5 root-cause sub-scores (modularity, acyclicity, depth, equality, redundancy). Direction is min (larger-is-better). Sentrux is the 2nd architectural lens alongside APSS topology per ADR-0017; the metric ratchets up as the project improves so the floor only ever tightens.',
       source: '.sentrux/baseline.json quality_signal (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'min',
       default_threshold: 0,
       fail_on_regression: true,
@@ -217,6 +222,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of files sentrux flags as god-files (excessive responsibility / fan-in). Smaller is better; the ratchet pins the floor so a refactor that lowers the count cannot silently regress.',
       source: '.sentrux/baseline.json god_file_count (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -228,6 +234,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of code hotspots sentrux flags via its 52-language tree-sitter overlay. Smaller is better.',
       source: '.sentrux/baseline.json hotspot_count (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -239,6 +246,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of functions sentrux flags as overly complex across 52 supported languages. Complements the APSS-derived max-cognitive metric: max-cognitive watches the peak, this watches the spread.',
       source: '.sentrux/baseline.json complex_fn_count (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -250,6 +258,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of named exports declared under ws_apps/<app>/src/ and ws_packages/<pkg>/src/ that have zero whole-word references elsewhere in the workspace. Detector is a deterministic scoped grep (no node_modules / npx / network dependency), so the same input produces the same count locally and on every CI lane. The "no broken windows" rot ratchet: orphaned exports AI coding agents create when they refactor without cleanup. Direction max (smaller-is-better); ratchet tightens toward 0. Soft-skip when no workspace package exists yields a null reading so a broken scanner cannot silently pass. See ADR-0024-dead-code-ratchet.md.',
       source: 'harness/sensors/deadcode_scan.mjs (pure-source scoped grep)',
+      adapter: 'deadcode',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -263,6 +272,7 @@ const FITNESS_METRICS = {
       objective:
         'Max module efferent coupling from APSS coupling or the dependency-cruiser fallback.',
       source: '.topology/metrics/coupling.json or aggregate workspace modules',
+      adapter: 'cruiser-coupling',
       direction: 'max',
       default_threshold: 20,
       fail_on_regression: true,
@@ -277,6 +287,7 @@ const FITNESS_METRICS = {
       name: 'Maximum Distance from Main Sequence',
       objective: 'Max module distance from the Martin main sequence.',
       source: '.topology/metrics/coupling.json or aggregate workspace modules',
+      adapter: 'cruiser-coupling',
       direction: 'max',
       default_threshold: 0.7,
       fail_on_regression: true,
@@ -291,6 +302,7 @@ const FITNESS_METRICS = {
       name: 'Instability Outside Healthy Range',
       objective: 'Count modules with instability below 0.1 or above 0.9.',
       source: '.topology/metrics/coupling.json or aggregate workspace modules',
+      adapter: 'cruiser-coupling',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -305,6 +317,7 @@ const FITNESS_METRICS = {
       objective:
         'Sentrux composite coupling ratio derived from cross-module imports vs. total import edges. Smaller is better; the ratchet pins it so the modularity gain a refactor produces stays gained (no broken windows).',
       source: '.sentrux/baseline.json coupling_score (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'max',
       default_threshold: 1,
       fail_on_regression: true,
@@ -316,6 +329,7 @@ const FITNESS_METRICS = {
       objective:
         'Maximum nesting depth across the sentrux import/call graph. Smaller is better; complements MD01 by watching nesting (a known AI-coding regression pattern) rather than per-module fan-out.',
       source: '.sentrux/baseline.json max_depth (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'max',
       default_threshold: 10,
       fail_on_regression: true,
@@ -329,6 +343,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of dependency edges flagged as circular by dependency-cruiser, scoped to workspace sources (ws_apps + ws_packages). Each cycle of length N contributes N edges. Source: workspace.circular_edges in the aggregate report (bead create-harness-app-2zz.1).',
       source: 'aggregate workspace.circular_edges (dependency-cruiser circular flag)',
+      adapter: 'cruiser-coupling',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -343,6 +358,7 @@ const FITNESS_METRICS = {
       objective:
         'Cross-language strongly-connected-component count from sentrux. Overlaps with the dependency-cruiser circular_edges metric but lights up across all 52 sentrux tree-sitter language plugins, not just JS/TS. The two metrics jointly enforce ST01.',
       source: '.sentrux/baseline.json cycle_count (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -356,6 +372,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of critical-severity findings emitted by the Ultimate Bug Scanner (UBS) over template-owned source paths. The bin/sensors wrapper runs ubs --report-json scoped to a stable file list and writes the JSON to a tempfile; the gate reads totals.critical via --security=<path>. Soft-skip yields a null reading; an active scan with zero findings yields baseline 0 and the gate fails on any new critical pattern (bead create-harness-app-2zz.2).',
       source: 'ubs --report-json totals.critical (template-owned source paths)',
+      adapter: 'ubs-security',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -369,6 +386,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of installed packages whose declared license is missing or outside the OSI-permissive allowlist (MIT, ISC, Apache-2.0, BSD-2/3-Clause, MPL-2.0, CC0-1.0, etc.). Source: harness/sensors/license_scan.mjs walks every node_modules root that exists on disk. The bin/sensors wrapper invokes the scanner and passes --licenses=<path> (bead create-harness-app-2zz.3).',
       source: 'harness/sensors/license_scan.mjs denied_count',
+      adapter: 'license',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -382,6 +400,7 @@ const FITNESS_METRICS = {
       objective:
         "Advisory-by-design: a static template repository ships no rendered frontend to scan with axe-core or pa11y. AC01 stays advisory + opt-in; a consumer fork that ships an actual web frontend writes its own adapter (axe-core / pa11y over the rendered output, scoped to the fork's ws_apps/<frontend> path). Bead create-harness-app-2zz.4 closed with reason advisory-by-design.",
       source: 'advisory-by-design (no rendered frontend in a static template)',
+      adapter: 'apss-topology',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -395,6 +414,7 @@ const FITNESS_METRICS = {
       objective:
         'Maximum hyperfine benchmark mean wall-clock from harness/perf/baseline.json. PF01 enforces; a current mean above baseline (beyond EPSILON) trips the gate. In environments without hyperfine the metric reports as no-reading and the dedicated harness/perf gate is the primary enforcer (it owns the tolerance window).',
       source: 'harness/perf/baseline.json benchmarks.[*].mean',
+      adapter: 'hyperfine-perf',
       direction: 'max',
       default_threshold: 5,
       fail_on_regression: true,
@@ -406,6 +426,7 @@ const FITNESS_METRICS = {
       objective:
         'Number of benchmarks committed in harness/perf/baseline.json. Floor is the snapshotted count; the gate fails if the count drops (a removed bench is a coverage regression). Floor of zero is acceptable until hyperfine has produced a real measurement.',
       source: 'harness/perf/baseline.json benchmarks',
+      adapter: 'hyperfine-perf',
       direction: 'min',
       default_threshold: 0,
       fail_on_regression: true,
@@ -417,6 +438,7 @@ const FITNESS_METRICS = {
       objective:
         'p95 wall-clock of the test suite over N iterations from the harness/sensors/suite_duration.mjs adapter envelope. Observational at the gate (fail_on_regression=false) because wall-clock varies machine-to-machine and gate.mjs uses EPSILON=1e-6 which would convert normal CI/dev jitter into false failures. The adapter is the AUTHORITATIVE enforcer per ADR-0025: it owns the hybrid ceiling (`absolute_seconds_ceiling` + `relative_delta_percent` against `duration_p95_seconds` in `harness/sensors/suite-duration-baseline.json`, default 3.0s / 25%) plus the HARD coverage-coupling rule. null/no-reading means the adapter exited non-zero (coverage failure or suite failure); the gate reader simply sees no envelope and the cycle fails at the adapter step before this metric is ever evaluated. See ADR-0025-suite-duration-sensor-pf01.md.',
       source: 'harness/sensors/suite_duration.mjs envelope duration_p95_seconds',
+      adapter: 'suite-duration',
       direction: 'max',
       default_threshold: 5,
       fail_on_regression: false,
@@ -428,6 +450,7 @@ const FITNESS_METRICS = {
       objective:
         "Number of iterations the suite-duration adapter ran. Floor is the snapshotted count; the gate fails if the count drops (a silently lowered iteration_count is a fake speedup, mirroring startup-benchmark-count's rationale verbatim). Direction min (larger-is-better). See ADR-0025-suite-duration-sensor-pf01.md.",
       source: 'harness/sensors/suite_duration.mjs envelope iteration_count',
+      adapter: 'suite-duration',
       direction: 'min',
       default_threshold: 0,
       fail_on_regression: true,
@@ -441,6 +464,7 @@ const FITNESS_METRICS = {
       objective:
         'Advisory-by-design: a static template repository ships no running service to measure availability against. AV01 stays advisory + opt-in; a consumer fork that ships an actual service writes its own adapter (chaos-engineering hook, SLO breach counter, paired with the observability slot). Bead create-harness-app-2zz.5 closed with reason advisory-by-design.',
       source: 'advisory-by-design (no running service in a static template)',
+      adapter: 'apss-topology',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -454,6 +478,7 @@ const FITNESS_METRICS = {
       objective:
         'Minimum cargo-llvm-cov line-coverage percentage across every Rust workspace the project covers (ws_apps/example-rust, harness/doc-validator, harness/versioning). Direction min (larger-is-better); ratchet only ever tightens UPWARD toward 100 percent. The operator invariant is 100 percent or nothing. If a line is genuinely uncoverable, exclude it via cfg(coverage)/llvm-cov ignore regions rather than lowering the floor. See ADR-0025-coverage-ratchet.md.',
       source: 'harness/sensors/coverage_scan.mjs (cargo llvm-cov --json --summary-only)',
+      adapter: 'coverage',
       direction: 'min',
       default_threshold: 100,
       fail_on_regression: true,
@@ -465,6 +490,7 @@ const FITNESS_METRICS = {
       objective:
         'Minimum cargo-llvm-cov function-coverage percentage across every Rust workspace. Function coverage catches the case where a helper compiled but never invoked stays uncovered while line coverage masks it via inlining. Direction min; floor pinned at 100 by ADR-0025.',
       source: 'harness/sensors/coverage_scan.mjs (cargo llvm-cov --json --summary-only)',
+      adapter: 'coverage',
       direction: 'min',
       default_threshold: 100,
       fail_on_regression: true,
@@ -476,6 +502,7 @@ const FITNESS_METRICS = {
       objective:
         'Minimum cargo-llvm-cov region-coverage percentage across every Rust workspace. Regions are finer than lines (every branch arm contributes its own region); a sub-100 region percentage signals a branch never exercised even when line coverage is 100. Direction min; floor pinned at 100 by ADR-0025.',
       source: 'harness/sensors/coverage_scan.mjs (cargo llvm-cov --json --summary-only)',
+      adapter: 'coverage',
       direction: 'min',
       default_threshold: 100,
       fail_on_regression: true,
@@ -487,6 +514,7 @@ const FITNESS_METRICS = {
       objective:
         'pytest-cov totals.percent_covered for every uv-managed Python project the workspace ships (ws_apps/example-python). Direction min; floor pinned at 100 by ADR-0025 and by the existing cov-py recipe (`pytest --cov-fail-under=100`). Excludes integration tests that spawn subprocesses (the same exclusion the cov-py recipe enforces).',
       source: 'harness/sensors/coverage_scan.mjs (pytest --cov-report=json totals.percent_covered)',
+      adapter: 'coverage',
       direction: 'min',
       default_threshold: 100,
       fail_on_regression: true,
@@ -498,6 +526,7 @@ const FITNESS_METRICS = {
       objective:
         'Minimum vitest v8 line-coverage percentage across every TypeScript workspace the project covers (scripts/, ws_apps/example-typescript, harness/stack, harness/inspector). Direction min; floor pinned at 100 by ADR-0025 and by the existing vitest thresholds:{lines:100,branches:100,functions:100,statements:100} in every vitest.config.ts.',
       source: 'harness/sensors/coverage_scan.mjs (vitest coverage-summary.json total.lines.pct)',
+      adapter: 'coverage',
       direction: 'min',
       default_threshold: 100,
       fail_on_regression: true,
@@ -510,6 +539,7 @@ const FITNESS_METRICS = {
         'Project-wide MIN line-coverage percentage across every measured lane (rust + python + javascript). Floor pinned at 100. This is the single overall-fitness number an agent should watch; a regression in any lane drops it. Direction min.',
       source:
         'harness/sensors/coverage_scan.mjs min(rust_line_pct, python_line_pct, javascript_line_pct)',
+      adapter: 'coverage',
       direction: 'min',
       default_threshold: 100,
       fail_on_regression: true,
@@ -517,6 +547,24 @@ const FITNESS_METRICS = {
     },
   ],
 };
+
+export const KNOWN_ADAPTERS = new Set([
+  'sentrux',
+  'apss-topology',
+  'complexity',
+  'cruiser-coupling',
+  'ubs-security',
+  'license',
+  'deadcode',
+  'hyperfine-perf',
+  'suite-duration',
+  'coverage',
+]);
+
+export function metricAdapter(dimensionCode, metricId) {
+  const metric = (FITNESS_METRICS[dimensionCode] ?? []).find((m) => m.id === metricId);
+  return metric?.adapter ?? null;
+}
 
 function moduleValues(report, read) {
   return (report?.workspace?.modules ?? []).map(read).filter((v) => typeof v === 'number');
