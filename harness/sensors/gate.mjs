@@ -1082,18 +1082,32 @@ export function parseProfiles(raw) {
   try {
     doc = toml.parse(raw);
   } catch {
-    return {};
+    // IMPORTANT 2: fail closed on malformed TOML — throw so the CLI exits 2
+    throw new Error('profile config: malformed TOML in governance file');
   }
   const profiles = doc?.profiles ?? {};
   const out = {};
   for (const [name, table] of Object.entries(profiles)) {
-    const required = Array.isArray(table?.required_adapters) ? table.required_adapters : [];
-    out[name] = { required_adapters: required };
+    if (!Array.isArray(table?.required_adapters)) {
+      // Missing or non-array required_adapters in a profile table is a config error
+      throw new Error(`profile '${name}' is missing a valid required_adapters array`);
+    }
+    // IMPORTANT 2: reject unknown adapter names to fail closed on typos
+    for (const adapter of table.required_adapters) {
+      if (!KNOWN_ADAPTERS.has(adapter)) {
+        throw new Error(`profile '${name}' lists unknown adapter '${adapter}'`);
+      }
+    }
+    out[name] = { required_adapters: table.required_adapters };
   }
   return out;
 }
 
 export function resolveProfile({ profiles, profileName }) {
+  // 'none' is the explicit profile opt-out — leave profile undefined (legacy behavior)
+  if (profileName === 'none') {
+    return null;
+  }
   // profiles is always the plain-object output of parseProfiles (never null); the ?. is defensive only
   const table = profiles?.[profileName];
   if (!table) {
@@ -1875,18 +1889,18 @@ export function renderReport(comparison) {
   const failedMissing = comparison.failedMissing ?? comparison.fitness?.failedMissing ?? [];
   const skipped = comparison.skipped ?? comparison.fitness?.skipped ?? [];
   if (failedMissing.length > 0) {
-    const adapters = [...new Set(failedMissing.map((f) => f.adapter))].join(', ');
+    const uniqueAdapters = [...new Set(failedMissing.map((f) => f.adapter))];
     lines.push(
-      `MISSING REQUIRED: ${failedMissing.length} adapter(s) required by profile ` +
-        `'${failedMissing[0].profile}' produced no reading: ${adapters}. ` +
+      `MISSING REQUIRED: ${uniqueAdapters.length} adapter(s) required by profile ` +
+        `'${failedMissing[0].profile}' produced no reading: ${uniqueAdapters.join(', ')}. ` +
         `Install the tool(s) or select a leaner profile with --profile=local.`,
     );
   }
   if (skipped.length > 0) {
-    const adapters = [...new Set(skipped.map((s) => s.adapter))].join(', ');
+    const uniqueAdapters = [...new Set(skipped.map((s) => s.adapter))];
     lines.push(
-      `DEGRADED: ${skipped.length} adapter(s) skipped — not required by profile ` +
-        `'${skipped[0].profile}': ${adapters}. These dimensions did NOT run.`,
+      `DEGRADED: ${uniqueAdapters.length} adapter(s) skipped — not required by profile ` +
+        `'${skipped[0].profile}': ${uniqueAdapters.join(', ')}. These dimensions did NOT run.`,
     );
   }
   const { comparedFolders, newFolders, removedFolders } = comparison.summary;
@@ -2049,8 +2063,15 @@ function loadReadingsFrom(path, io) {
 
 function jsonPayload(base, policy) {
   const exitCode = base.exit_code;
+  // IMPORTANT 1: ADR-0027 §4 specifies top-level skipped[] and failed_missing[].
+  // Pull them from base.baseline.* (the nested location) and promote to top-level.
+  // Keep the nested copies as compatibility aliases for existing consumers.
+  const skipped = base.baseline?.skipped ?? [];
+  const failedMissing = base.baseline?.failed_missing ?? [];
   return {
     ...base,
+    skipped,
+    failed_missing: failedMissing,
     readings: policy.readings,
     violations: policy.violations,
     policy: {
@@ -2243,15 +2264,18 @@ export async function main(
 
   let profile;
   try {
-    // --policy=none means "no governance file and no profile enforcement". Leaving
-    // profile=undefined preserves the pre-ADR-0027 legacy behavior for callers that
-    // predate profiles (e.g. internal tests that use --policy=none). The production
-    // CLI always passes --profile=strict or --profile=local explicitly, so those
-    // paths are unaffected.
-    if (policyPath !== 'none') {
-      const policyRaw = io.fileExists(policyPath) ? io.readFile(policyPath) : '';
-      profile = resolveProfile({ profiles: parseProfiles(policyRaw), profileName });
-    }
+    // Profile resolution is INDEPENDENT of policy (governance constraints).
+    // --policy=none only disables governance constraint evaluation; it does NOT
+    // disable profile enforcement. Pass --profile=none to opt out of profiles
+    // (which preserves pre-ADR-0027 legacy behavior for callers that predate profiles).
+    //
+    // When policyPath is 'none', there is no governance.toml to read profiles from,
+    // so we parse from an empty string. For 'strict' this falls back to the
+    // fail-safe KNOWN_ADAPTERS set. For 'local' (or other named profiles) this
+    // will throw an unknown-profile error — correct, since no profile table is loaded.
+    const policyRaw =
+      policyPath !== 'none' && io.fileExists(policyPath) ? io.readFile(policyPath) : '';
+    profile = resolveProfile({ profiles: parseProfiles(policyRaw), profileName });
   } catch (e) {
     io.writeErr(`gate: ${e.message}\n`);
     return 2;
@@ -2349,7 +2373,31 @@ export async function main(
     });
   };
 
+  // IMPORTANT 3: Helper to check for required-but-missing adapters before writing a
+  // baseline. Snapshotting null metrics as baselines would silently weaken
+  // "default strict => fail-safe" on subsequent runs.
+  const checkPreWriteAdapterGuard = () => {
+    if (!profile) {
+      return null; // no profile enforcement; write is allowed
+    }
+    const preWriteCheck = compareFitnessBaseline(currentBaseline, report, fitnessOptions);
+    if (preWriteCheck.failedMissing.length === 0) {
+      return null; // all required adapters present; write is allowed
+    }
+    return [...new Set(preWriteCheck.failedMissing.map((f) => f.adapter))];
+  };
+
   if (updateBaseline) {
+    // IMPORTANT 3: Refuse to write when required adapters are missing under the active profile.
+    const missingAdapters = checkPreWriteAdapterGuard();
+    if (missingAdapters) {
+      io.writeErr(
+        `gate: refusing to write baseline — ${missingAdapters.length} required adapter(s) ` +
+          `produced no reading under profile '${profile.name}': ${missingAdapters.join(', ')}. ` +
+          `Run the missing tool(s) first, or use --profile=local / --profile=none to opt out.\n`,
+      );
+      return 1;
+    }
     // Carry forward approval markers from the existing baseline so the
     // relaxation guard can recognise deliberate BASELINE-RELAX-OK notes
     // even when the freshly-generated baseline doesn't have them yet.
@@ -2424,6 +2472,16 @@ export async function main(
           'run with --update-baseline once to create it.\n',
       );
       return 2;
+    }
+    // IMPORTANT 3: Refuse to create baseline when required adapters are missing under the active profile.
+    const missingAdaptersFirstRun = checkPreWriteAdapterGuard();
+    if (missingAdaptersFirstRun) {
+      io.writeErr(
+        `gate: refusing to create baseline — ${missingAdaptersFirstRun.length} required adapter(s) ` +
+          `produced no reading under profile '${profile.name}': ${missingAdaptersFirstRun.join(', ')}. ` +
+          `Run the missing tool(s) first, or use --profile=local / --profile=none to opt out.\n`,
+      );
+      return 1;
     }
     io.writeFile(baselinePath, `${JSON.stringify(currentBaseline, null, 2)}\n`);
     const exitCode = policyOk ? 0 : 1;

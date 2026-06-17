@@ -343,7 +343,7 @@ describe('sensors gate - CLI main', () => {
   test('first run with no baseline writes a snapshot and exits 0', async () => {
     const report = JSON.stringify(reportWith([{ name: 'ws_apps/a', I: 0.5, D: 0.2 }]));
     const { io, writes, stdout } = makeIo({ stdin: report });
-    const code = await main([], io);
+    const code = await main(['--profile=none'], io);
     expect(code).toBe(0);
     expect(writes['harness/sensors/baseline.json']).toBeTruthy();
     expect(stdout.join('')).toContain('baseline created');
@@ -397,7 +397,10 @@ describe('sensors gate - CLI main', () => {
       stdin: report,
       files: { 'harness/sensors/baseline.json': baseline },
     });
-    const code = await main(['--baseline-reference=none', '--update-baseline'], io);
+    const code = await main(
+      ['--baseline-reference=none', '--update-baseline', '--profile=none'],
+      io,
+    );
     expect(code).toBe(0);
     expect(stdout.join('')).toContain('baseline updated');
     let written: { folders?: Record<string, { I: number; D: number }> } = {};
@@ -412,7 +415,7 @@ describe('sensors gate - CLI main', () => {
   test('--baseline=<path> overrides the default baseline path', async () => {
     const report = JSON.stringify(reportWith([{ name: 'ws_apps/a', I: 0.5, D: 0.2 }]));
     const { io, writes } = makeIo({ stdin: report });
-    const code = await main(['--baseline=/tmp/custom-baseline.json'], io);
+    const code = await main(['--baseline=/tmp/custom-baseline.json', '--profile=none'], io);
     expect(code).toBe(0);
     expect(writes['/tmp/custom-baseline.json']).toBeTruthy();
     expect(writes['harness/sensors/baseline.json']).toBeUndefined();
@@ -490,6 +493,41 @@ describe('sensors gate - CLI main', () => {
       observed: 3,
       threshold: 0,
     });
+  });
+
+  // IMPORTANT 1: ADR-0027 §4 requires skipped[] and failed_missing[] at the TOP LEVEL of JSON
+  test('--format=json emits top-level skipped and failed_missing arrays (ADR-0027 §4)', async () => {
+    const baseline = JSON.stringify({
+      folders: {},
+      dimensions: {
+        MT01: { metrics: { 'sentrux-god-file-count': { baseline: 0 } } },
+      },
+    });
+    const emptyReport = JSON.stringify({
+      workspace: { folders: [], modules: [], circular_edges: 0 },
+    });
+    const { io, stdout } = makeIo({
+      stdin: emptyReport,
+      files: {
+        'harness/sensors/baseline.json': baseline,
+        'harness/.harness/governance.toml':
+          '[profiles.local]\nrequired_adapters = ["deadcode", "cruiser-coupling", "complexity"]\n',
+      },
+    });
+    const code = await main(['--baseline-reference=none', '--profile=local', '--format=json'], io);
+    // exit 0 or 1 — only care about shape
+    expect(typeof code).toBe('number');
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(stdout.join(''));
+    } catch (err) {
+      throw new Error(`expected JSON payload: ${(err as Error).message}`);
+    }
+    // ADR-0027 §4 contract: top-level skipped[] and failed_missing[]
+    expect(Array.isArray(payload.skipped), 'top-level skipped must be an array').toBe(true);
+    expect(Array.isArray(payload.failed_missing), 'top-level failed_missing must be an array').toBe(
+      true,
+    );
   });
 
   test('warning-only governance violations do not fail the combined gate', async () => {

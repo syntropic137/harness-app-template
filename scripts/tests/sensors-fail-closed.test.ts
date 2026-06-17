@@ -2,6 +2,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   compareFitnessBaseline,
+  gate,
   // @ts-expect-error plain ESM, no .d.ts ships with the slot.
 } from '../../harness/sensors/gate.mjs';
 
@@ -63,5 +64,79 @@ describe('fail-closed four-state', () => {
     expect(r.ok).toBe(false);
     // biome-ignore lint/suspicious/noExplicitAny: plain ESM gate; no .d.ts
     expect(r.failedMissing.some((f: any) => f.adapter === 'sentrux')).toBe(true);
+  });
+});
+
+// CRITICAL regression: --policy=none --profile=strict must NOT be fail-open.
+// Previously, --policy=none skipped resolveProfile entirely, making strict a no-op.
+describe('--policy=none --profile=strict fail-closed regression', () => {
+  function ioStub(files: Record<string, string>) {
+    const out: string[] = [];
+    const err: string[] = [];
+    return {
+      io: {
+        read: async () => '{}',
+        write: (s: string) => out.push(s),
+        writeErr: (s: string) => err.push(s),
+        readFile: (p: string) => files[p] ?? '',
+        writeFile: () => {},
+        fileExists: (p: string) => p in files,
+        env: {},
+      },
+      out,
+      err,
+    };
+  }
+
+  test('--policy=none --profile=strict with missing required adapter → exit 1 (hole closed)', async () => {
+    // Use a baseline with dimensions so we reach the comparison path.
+    // Strict enforcement must fire even when policy=none.
+    const baselineJson = JSON.stringify({
+      folders: {},
+      dimensions: {
+        MT01: { metrics: { 'sentrux-god-file-count': { baseline: 0 } } },
+      },
+    });
+    const { io, out, err } = ioStub({
+      'harness/sensors/baseline.json': baselineJson,
+    });
+    const code = await gate({
+      argv: ['--policy=none', '--profile=strict', '--baseline-reference=none'],
+      io,
+    });
+    // Must FAIL: strict profile requires sentrux but it produced no reading
+    expect(code).toBe(1);
+    const combined = out.join('') + err.join('');
+    // Either VERDICT: FAIL (in comparison path) or MISSING REQUIRED
+    expect(combined).toMatch(/VERDICT: FAIL|MISSING REQUIRED|refusing to write/);
+  });
+
+  // IMPORTANT 3: baseline-write guard test
+  test('--update-baseline + strict profile refuses to write when required adapter missing', async () => {
+    const baselineJson = JSON.stringify({
+      folders: {},
+      dimensions: {
+        MT01: { metrics: { 'sentrux-god-file-count': { baseline: 0 } } },
+      },
+    });
+    const writes: string[] = [];
+    const err: string[] = [];
+    const ioWithWrites = {
+      read: async () => '{}',
+      write: () => {},
+      writeErr: (s: string) => err.push(s),
+      readFile: (p: string) => ({ 'harness/sensors/baseline.json': baselineJson })[p] ?? '',
+      writeFile: (p: string, _s: string) => writes.push(p),
+      fileExists: (p: string) => p === 'harness/sensors/baseline.json',
+      env: {},
+    };
+    const code = await gate({
+      argv: ['--policy=none', '--profile=strict', '--update-baseline', '--baseline-reference=none'],
+      io: ioWithWrites,
+    });
+    // Must refuse to write (exit 1) with a clear error
+    expect(code).toBe(1);
+    expect(writes.length).toBe(0); // baseline must NOT be written
+    expect(err.join('')).toMatch(/refusing to write baseline/);
   });
 });

@@ -50,4 +50,20 @@ describe('profile resolution', () => {
     expect(r.requiredAdapters.has('deadcode')).toBe(true);
     expect(r.requiredAdapters.size).toBe(10);
   });
+
+  // IMPORTANT 2: fail-closed on typos in profile config
+  test('parseProfiles throws on unknown adapter name (fail-closed typo guard)', () => {
+    const badToml = '[profiles.custom]\nrequired_adapters = ["sentrx"]\n'; // "sentrx" is a typo
+    expect(() => parseProfiles(badToml)).toThrow(/profile 'custom' lists unknown adapter 'sentrx'/);
+  });
+
+  test('parseProfiles throws on malformed TOML (fail-closed)', () => {
+    expect(() => parseProfiles('[broken TOML{')).toThrow(/malformed TOML/);
+  });
+
+  // CRITICAL fix: --profile=none is the explicit opt-out sentinel, returns null
+  test('resolveProfile returns null for profileName=none (explicit opt-out)', () => {
+    const r = resolveProfile({ profiles: parseProfiles(TOML), profileName: 'none' });
+    expect(r).toBeNull();
+  });
 });
