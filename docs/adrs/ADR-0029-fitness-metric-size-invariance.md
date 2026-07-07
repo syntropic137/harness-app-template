@@ -139,7 +139,7 @@ incidental headroom.
 |---|---|---|
 | `max-fan-out` (APSS/Martin Ce, canonical) | Pass (per-module max) | **Stays enforcing.** Add the §2 `ratchet_floor` clamp at the designed threshold, and relax the current floor of 2 to that threshold **before** it fires (a deliberate, audited baseline edit — a raw `--update-baseline` writes the current measurement, so the clamp/edit is required). Remains the **single canonical enforcing coupling metric** per ADR-0017 § one-canonical-signal. |
 | `max-main-sequence-distance` (canonical) | Pass (per-module max) | **Stays enforcing.** Same §2 clamp applies once it begins tightening (floor is currently 1.0, the theoretical max, so it gates nothing yet). |
-| `instability-out-of-range-count` | Fail (raw count; new entrypoint → I=1.0 increments it) | **Reshape before it fires.** Exclude entrypoint and test modules (definitionally I≈1 and, at A≈0, sitting *on* the main sequence — not defects) via the governance ignore/exclude vocabulary, and/or gate a *density* with a tolerance band. Until reshaped, it is the next PR-#4 waiting to happen. |
+| `instability-out-of-range-count` | Fail (raw count; new entrypoint → I=1.0 increments it) | **Reshaped.** Count a module only when its instability is extreme AND it sits *off* the main sequence (Martin distance `D > 0.1`). An extreme-instability module ON the sequence (a leaf/entrypoint at I≈1,A≈0, or a stable-abstract module at I≈0,A≈1) is a healthy design point and is not counted — so adding one never trips the gate. This main-sequence-proximity test is the mechanism actually shipped (cleaner than the entrypoint/test name-exclusion or density-band alternatives first considered). A module whose `D` is unreadable is not counted (a deliberate fail-open on that one path; full coverage assumes the abstractness adapter is provisioned). |
 | `sentrux-coupling-score` | Fail (global composite ratio) | **Removed from the enforced set.** Delete the metric from `FITNESS_METRICS` and from `harness/sensors/baseline.json`. `sentrux_scan.mjs` continues to compute `coupling_score` in its envelope for anyone who wants to read it, but the gate no longer governs it. Removing the unreliable ratio is clearer than shipping a "present but permanently disabled" metric every future scaffold must learn to ignore. |
 | `sentrux-max-depth` | Mostly pass (a well-layered feature can add one level) | **Stays enforcing** with the §2 clamp at the designed threshold (10; ratcheted value 3 is incidental headroom). |
 
@@ -174,8 +174,10 @@ kept; the wrong-shaped signal is not hard-gated.
      tighten path); wire it on the MD01 coupling maxima only.
   2. Remove `sentrux-coupling-score` from `FITNESS_METRICS` (MD01) and from
      `harness/sensors/baseline.json`.
-  3. Reshape `instability-out-of-range-count` (entrypoint/test exclusion
-     and/or density-with-tolerance).
+  3. Reshape `instability-out-of-range-count` to count only extreme-instability
+     modules that are also off the main sequence (`D > 0.1`); an unreadable `D`
+     is not counted (fail-open on that path, gated by abstractness-adapter
+     provisioning).
   4. Relax the `max-fan-out` floor from 2 to the designed threshold via an
      audited baseline edit before the clamp lands.
   5. Add a fixture test in `harness/sensors/tests/` that appends a synthetic

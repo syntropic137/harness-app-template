@@ -310,7 +310,7 @@ export const FITNESS_METRICS = {
       id: 'instability-out-of-range-count',
       name: 'Instability Outside Healthy Range',
       objective:
-        'Count modules whose instability is below 0.1 or above 0.9 AND that sit off the Martin main sequence (distance > 0.1). A module at an instability extreme that is ON the main sequence — a leaf/entrypoint at I≈1,A≈0 or a stable-abstract module at I≈0,A≈1 — is a healthy design point, not a defect; counting it is the size-variance category error ADR-0029 § 3 removes (otherwise every new entrypoint increments the count). A module with no abstractness reading (D unknown) is NOT counted, so a missing abstractness adapter degrades to "no offenders" rather than a false trip; the adapter-missing case is governed by ADR-0028.',
+        'Count modules whose instability is below 0.1 or above 0.9 AND that sit off the Martin main sequence (distance > 0.1). A module at an instability extreme that is ON the main sequence — a leaf/entrypoint at I≈1,A≈0 or a stable-abstract module at I≈0,A≈1 — is a healthy design point, not a defect; counting it is the size-variance category error ADR-0029 § 3 removes (otherwise every new entrypoint increments the count). Coverage relies on the abstractness (ts-morph) adapter being present so D is known; a module whose D is unreadable is deliberately NOT counted (counting it would re-introduce the false trip on every leaf when abstractness is absent). This is a fail-open on that one path — full coverage assumes the abstractness adapter is provisioned in the active profile.',
       source: '.topology/metrics/coupling.json or aggregate workspace modules',
       adapter: 'cruiser-coupling',
       direction: 'max',

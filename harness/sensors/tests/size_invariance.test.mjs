@@ -377,3 +377,62 @@ test('guard: removing a metric WITHOUT a marker is still blocked', () => {
   assert.equal(guard.ok, false, 'an unmarked metric removal must be blocked');
   assert.ok(guard.violations.some((v) => v.path === path));
 });
+
+test('guard: dropping a STILL-ENFORCED metric floor is blocked even WITH a marker', () => {
+  // Adversarial (independent review): a marker must not disable a live gate by
+  // deleting the metric's floor entry. The metric is gone from the working
+  // baseline but STILL present in the code (generated). This must be blocked —
+  // otherwise the comparator treats the metric as "missing baseline" (not a
+  // regression) and enforcement silently stops. Guards the NaN fallthrough
+  // (Math.abs(current - undefined)) that the ratchet_floor hardening did not
+  // cover (it protected a floor's value, not the dropping of its entry).
+  const path = 'dimensions|MD01|max-fan-out';
+  const reference = dimBaseline('max-fan-out', { direction: 'max', baseline: 20 });
+  const working = {
+    dimensions: { MD01: { metrics: {} } },
+    _baseline_relaxation_approvals: { [path]: `${MARKER}: sneaky delete of a live gate` },
+  };
+  // Still in the code with a real current measurement — NOT a deliberate removal.
+  const generated = dimBaseline('max-fan-out', {
+    direction: 'max',
+    ratchet_floor: 20,
+    baseline: 3,
+  });
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(guard.ok, false, 'deleting a still-enforced metric floor must be blocked');
+  assert.ok(
+    guard.violations.some((v) => v.path === path && /floor-dropped-while-enforced/.test(v.reason)),
+    `expected a floor-dropped violation; got ${JSON.stringify(guard.violations)}`,
+  );
+});
+
+test('instability-out-of-range-count: a module with unknown D is NOT counted (documented degradation)', () => {
+  // ADR-0029 reshape: the count needs a KNOWN distance to prove a module is off
+  // the main sequence. A module at an instability extreme whose abstractness
+  // (and thus D) is unreadable is deliberately NOT counted — counting it would
+  // re-introduce the false-trip on every leaf when abstractness is absent. This
+  // pins that behavior explicitly; see the note in the metric objective about
+  // relying on the abstractness adapter being present for full coverage.
+  const metric = FITNESS_METRICS.MD01.find((m) => m.id === 'instability-out-of-range-count');
+  const report = {
+    workspace: {
+      folders: [],
+      modules: [{ source: 'ws_apps/a/x.ts', I: 0.95, D: null }],
+      circular_edges: 0,
+    },
+  };
+  assert.equal(metric.value(report), 0, 'an extreme-I module with unknown D is not counted');
+});
+
+test('ratchetBaseline: a null measurement seeds a null floor (clamp passes through non-numbers)', () => {
+  // clampRatchetFloor must not coerce a null measurement to the ratchet_floor;
+  // an empty workspace yields max-fan-out = null, which seeds a null floor and
+  // only clamps once a real measurement arrives (null-to-real path).
+  const empty = { workspace: { folders: [], modules: [], circular_edges: 0 } };
+  const { next } = ratchetBaseline({ schema_version: '1.0.0', folders: {}, dimensions: {} }, empty);
+  assert.equal(next.dimensions.MD01.metrics['max-fan-out'].baseline, null);
+});

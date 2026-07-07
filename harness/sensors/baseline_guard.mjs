@@ -170,6 +170,29 @@ function applyDirectionDeviation(
   if (issue === 'missing-direction' && metricRemovedFromGenerated(generatedBaseline, path)) {
     return true;
   }
+  // Fail-closed: the metric's floor entry was dropped from the WORKING
+  // baseline (no working value) but the metric is STILL enforced in code
+  // (present in the generated baseline). A marker must not silently disable
+  // a live gate this way — deleting the floor makes the comparator treat the
+  // metric as "missing baseline" (not a regression), so enforcement stops.
+  // Without this branch the `Math.abs(current - undefined)` fallthrough below
+  // is NaN, never exceeds EPSILON, and lets the deletion pass. (Caught by the
+  // independent ADR-0029 review; the ratchet_floor hardening protected a
+  // floor's VALUE but not the dropping of its ENTRY.)
+  if (!isNumber(workingValue)) {
+    violations.push({
+      kind: 'metric-direction',
+      path,
+      direction: workingDirection,
+      reference: referenceDirection,
+      working: workingValue ?? null,
+      reason: `${directionIssueGeneratedSuffix[issue]}-floor-dropped-while-enforced`,
+      severity: 'loosened',
+      message: `metric ${path} is still enforced in code but its floor was removed from the working baseline`,
+      note,
+    });
+    return true;
+  }
   const current = readNumberFromGenerated(generatedBaseline, path);
   if (current === null) {
     violations.push({
