@@ -66,20 +66,24 @@ function readNumberFromGenerated(generated, path) {
 
 /**
  * Read a metric's declared `ratchet_floor` (the ADR-0029 § 2 clamp target)
- * from the working baseline, by relaxation path. A deliberate relax up to a
- * metric's ratchet_floor is sanctioned — it moves the floor to the designed
- * threshold, not to an arbitrary lax value — so the guard accepts it as an
- * alternative to the "regenerated to current measurement" target.
+ * from the GENERATED, code-derived baseline — NEVER from the working file.
+ * `ratchet_floor` is defined in `FITNESS_METRICS` (source code), so the
+ * regenerated baseline carries the authoritative value. Reading it from the
+ * editable working baseline would let anyone relax an arbitrary floor by
+ * simply adding a `ratchet_floor` field to `baseline.json`; the guard exists
+ * precisely to block silent loosening, so its trust anchor must be the code.
+ * A relax up to this value is sanctioned only for `direction: max` metrics
+ * (smaller-is-better, where sub-threshold headroom is incidental).
  */
-function readRatchetFloorFromWorking(workingBaseline, path) {
-  if (typeof path !== 'string') {
+function readTrustedRatchetFloor(generatedBaseline, path, direction) {
+  if (typeof path !== 'string' || direction !== 'max') {
     return null;
   }
   const [kind, bucket, metric] = path.split(RELAXATION_SEGMENT_SEP);
   if (kind !== 'dimensions') {
     return null;
   }
-  const value = workingBaseline?.dimensions?.[bucket]?.metrics?.[metric]?.ratchet_floor;
+  const value = generatedBaseline?.dimensions?.[bucket]?.metrics?.[metric]?.ratchet_floor;
   return isNumber(value) ? value : null;
 }
 
@@ -244,8 +248,10 @@ function evaluateCandidate({ kind, path, direction, reference, working, generate
   // § 2). The latter is how a metric's floor is deliberately relaxed UP to
   // its designed threshold (e.g. max-fan-out 2 -> 20) so it stops pinning a
   // tiny scaffold's incidental headroom — a value the current measurement
-  // alone would never reach.
-  const ratchetFloor = readRatchetFloorFromWorking(this?.workingBaseline, path);
+  // alone would never reach. The ratchet_floor is read from the CODE-derived
+  // generated baseline (not the editable working file) so a spoofed
+  // `ratchet_floor` in baseline.json cannot authorize an arbitrary relax.
+  const ratchetFloor = readTrustedRatchetFloor(generated, path, direction);
   if (isNumber(ratchetFloor) && Math.abs(ratchetFloor - working) <= EPSILON) {
     return;
   }

@@ -174,7 +174,7 @@
         },
         "instability-out-of-range-count": {
           "name": "Instability Outside Healthy Range",
-          "objective": "Count modules with instability below 0.1 or above 0.9.",
+          "objective": "Count modules whose instability is below 0.1 or above 0.9 AND that sit off the Martin main sequence (distance > 0.1). An instability extreme ON the main sequence (a leaf/entrypoint at I~1,A~0) is healthy by design and not counted (ADR-0029 size-invariance); unknown distance degrades to not-an-offender.",
           "source": ".topology/metrics/coupling.json or aggregate workspace modules",
           "direction": "max",
           "default_threshold": 0,

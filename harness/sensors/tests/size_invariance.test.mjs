@@ -230,7 +230,12 @@ test('guard: relaxing a floor UP to its ratchet_floor is allowed with a marker',
     { [path]: `${MARKER}: ADR-0029 clamp to designed threshold` },
   );
   const reference = dimBaseline('max-fan-out', { direction: 'max', baseline: 2 });
-  const generated = dimBaseline('max-fan-out', { direction: 'max', baseline: 2 });
+  // The generated (code-derived) baseline carries the trusted ratchet_floor.
+  const generated = dimBaseline('max-fan-out', {
+    direction: 'max',
+    ratchet_floor: 20,
+    baseline: 2,
+  });
   const guard = evaluateBaselineRelaxationGuard({
     workingBaseline: working,
     referenceBaseline: reference,
@@ -254,13 +259,86 @@ test('guard: relaxing ABOVE the ratchet_floor without matching current is still 
     { [path]: `${MARKER}: over-relaxed` },
   );
   const reference = dimBaseline('max-fan-out', { direction: 'max', baseline: 2 });
-  const generated = dimBaseline('max-fan-out', { direction: 'max', baseline: 2 });
+  // Even with the trusted ratchet_floor=20 declared in the generated baseline,
+  // a working floor of 50 matches neither the floor nor the current (2).
+  const generated = dimBaseline('max-fan-out', {
+    direction: 'max',
+    ratchet_floor: 20,
+    baseline: 2,
+  });
   const guard = evaluateBaselineRelaxationGuard({
     workingBaseline: working,
     referenceBaseline: reference,
     generatedBaseline: generated,
   });
   assert.equal(guard.ok, false, 'an arbitrary relax beyond the ratchet_floor must be blocked');
+});
+
+test('guard: a SPOOFED ratchet_floor in the working baseline cannot authorize a relax', () => {
+  // Adversarial (Codex review): ratchet_floor must be read from the trusted
+  // code-derived generated baseline, NOT the editable working file. Here the
+  // working baseline invents ratchet_floor:15 for max-cognitive (which the
+  // code does NOT declare) and relaxes the floor 5 -> 15 with a marker. The
+  // guard must still block it because the generated baseline has no
+  // ratchet_floor for the metric.
+  const path = 'dimensions|MT01|max-cognitive';
+  const working = {
+    dimensions: {
+      MT01: { metrics: { 'max-cognitive': { direction: 'max', ratchet_floor: 15, baseline: 15 } } },
+    },
+    _baseline_relaxation_approvals: { [path]: `${MARKER}: spoofed` },
+  };
+  const reference = {
+    dimensions: { MT01: { metrics: { 'max-cognitive': { direction: 'max', baseline: 5 } } } },
+  };
+  // Generated (code-derived) has NO ratchet_floor for max-cognitive, and the
+  // current measurement is 5 — not 15.
+  const generated = {
+    dimensions: { MT01: { metrics: { 'max-cognitive': { direction: 'max', baseline: 5 } } } },
+  };
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(
+    guard.ok,
+    false,
+    'a spoofed working-baseline ratchet_floor must not authorize a relax',
+  );
+});
+
+test('guard: a direction=min floor cannot be relaxed via ratchet_floor', () => {
+  // Even if the code declared a ratchet_floor on a min metric, the guard only
+  // honors the clamp for direction:max (a higher coverage floor is a genuine
+  // gain, never incidental headroom). Relaxing a coverage floor 100 -> 0 must
+  // be blocked.
+  const path = 'dimensions|CV01|rust-line-coverage-pct';
+  const metric = { direction: 'min', ratchet_floor: 0, baseline: 0 };
+  const working = {
+    dimensions: { CV01: { metrics: { 'rust-line-coverage-pct': metric } } },
+    _baseline_relaxation_approvals: { [path]: `${MARKER}: min-relax attempt` },
+  };
+  const reference = {
+    dimensions: {
+      CV01: { metrics: { 'rust-line-coverage-pct': { direction: 'min', baseline: 100 } } },
+    },
+  };
+  const generated = {
+    dimensions: {
+      CV01: {
+        metrics: {
+          'rust-line-coverage-pct': { direction: 'min', ratchet_floor: 0, baseline: 100 },
+        },
+      },
+    },
+  };
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(guard.ok, false, 'a direction=min floor must never be relaxable via ratchet_floor');
 });
 
 test('guard: deliberately removing a metric is allowed with a marker', () => {
