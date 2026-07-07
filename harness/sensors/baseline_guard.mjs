@@ -232,6 +232,33 @@ function evaluateCandidate({ kind, path, direction, reference, working, generate
   }
   if (working === null || working === undefined) {
     const note = hasRelaxationMarker(this?.workingBaseline, path);
+    // Fail-closed: if the metric/folder is still actively measured (present in
+    // the code-derived generated baseline with a numeric reading), dropping its
+    // floor is a loosening that silently disables enforcement — the comparator
+    // then treats it as "missing baseline" (not a regression). Block it even
+    // WITH a marker. A marker only sanctions dropping a floor whose metric no
+    // longer exists (a deliberate ADR-0029 removal, or a refactored-away
+    // folder), where the generated reading is null. This is the universal
+    // fallback: it covers folder I/D metrics and dimension metrics whose
+    // `baseline` key was dropped while `direction` was retained (paths that
+    // never reach applyDirectionDeviation). Found by the Gemini cross-model
+    // review; the applyDirectionDeviation guard still covers the distinct
+    // whole-block deletion (missing-direction) path, which short-circuits here.
+    const current = readNumberFromGenerated(generated, path);
+    if (isNumber(current)) {
+      violations.push({
+        kind,
+        path,
+        direction,
+        reference,
+        working: working ?? null,
+        reason: 'floor-dropped-while-enforced',
+        severity: 'loosened',
+        message: `floor for ${path} was dropped while the metric is still enforced`,
+        ...(note ? { note } : {}),
+      });
+      return;
+    }
     if (!note) {
       violations.push({
         kind,

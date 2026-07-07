@@ -410,6 +410,79 @@ test('guard: dropping a STILL-ENFORCED metric floor is blocked even WITH a marke
   );
 });
 
+test('guard: dropping a FOLDER I/D floor is blocked even WITH a marker (Gemini review)', () => {
+  // Folder metrics never reach applyDirectionDeviation (no direction field);
+  // they go straight to evaluateCandidate. Deleting a folder's I floor while
+  // the folder is still measured must be blocked even with a marker.
+  const path = 'folders|ws_apps/a/src|I';
+  const reference = { folders: { 'ws_apps/a/src': { I: 0.2, D: 0.2 } }, dimensions: {} };
+  const working = {
+    folders: { 'ws_apps/a/src': { D: 0.2 } },
+    dimensions: {},
+    _baseline_relaxation_approvals: { [path]: `${MARKER}: sneaky folder-I drop` },
+  };
+  const generated = { folders: { 'ws_apps/a/src': { I: 0.9, D: 0.2 } }, dimensions: {} };
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(guard.ok, false, 'dropping a still-measured folder floor must be blocked');
+  assert.ok(
+    guard.violations.some((v) => v.path === path && /floor-dropped-while-enforced/.test(v.reason)),
+  );
+});
+
+test('guard: dropping only a dimension metric BASELINE key (direction retained) is blocked WITH a marker (Gemini review)', () => {
+  // Deleting just the baseline key while keeping direction produces no
+  // direction issue, so applyDirectionDeviation is skipped and evaluation
+  // falls through to evaluateCandidate. Must still be blocked.
+  const path = 'dimensions|MD01|max-fan-out';
+  const reference = dimBaseline('max-fan-out', { direction: 'max', baseline: 20 });
+  const working = {
+    dimensions: { MD01: { metrics: { 'max-fan-out': { direction: 'max' } } } },
+    _baseline_relaxation_approvals: { [path]: `${MARKER}: sneaky baseline-key drop` },
+  };
+  const generated = dimBaseline('max-fan-out', {
+    direction: 'max',
+    ratchet_floor: 20,
+    baseline: 3,
+  });
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(guard.ok, false, 'dropping a still-enforced baseline key must be blocked');
+  assert.ok(
+    guard.violations.some((v) => v.path === path && /floor-dropped-while-enforced/.test(v.reason)),
+  );
+});
+
+test('guard: a refactored-away folder (absent from generated) may drop its floor with a marker', () => {
+  // The legitimate counterpart: a folder that no longer exists in the current
+  // report (absent from generated) is not "still enforced", so dropping its
+  // floor with a marker is allowed — the generated reading is null.
+  const path = 'folders|ws_apps/gone/src|I';
+  const reference = { folders: { 'ws_apps/gone/src': { I: 0.2, D: null } }, dimensions: {} };
+  const working = {
+    folders: {},
+    dimensions: {},
+    _baseline_relaxation_approvals: { [path]: `${MARKER}: folder refactored away` },
+  };
+  const generated = { folders: {}, dimensions: {} };
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(
+    guard.ok,
+    true,
+    `a refactored-away folder may drop its floor; violations: ${JSON.stringify(guard.violations)}`,
+  );
+});
+
 test('instability-out-of-range-count: a module with unknown D is NOT counted (documented degradation)', () => {
   // ADR-0029 reshape: the count needs a KNOWN distance to prove a module is off
   // the main sequence. A module at an instability extreme whose abstractness
