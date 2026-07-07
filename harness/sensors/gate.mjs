@@ -61,6 +61,12 @@ import {
 } from './baseline_guard.mjs';
 
 const EPSILON = 1e-6;
+// A module whose Martin distance-from-main-sequence is at or below this band
+// is treated as sitting ON the main sequence: its instability extreme is a
+// healthy design point (a leaf/entrypoint at I≈1,A≈0 or a stable-abstract
+// module at I≈0,A≈1), not a defect. Used to keep instability-out-of-range
+// size-invariant per ADR-0029 § 3.
+const ON_MAIN_SEQUENCE_MAX = 0.1;
 const FITNESS_SCHEMA_VERSION = '1.0.0';
 const DEFAULT_POLICY_PATH = 'harness/.harness/governance.toml';
 const DEPCRUISER_SENSOR = 'dep-cruiser@17.4.0';
@@ -270,11 +276,12 @@ export const FITNESS_METRICS = {
       id: 'max-fan-out',
       name: 'Maximum Efferent Coupling',
       objective:
-        'Max module efferent coupling from APSS coupling or the dependency-cruiser fallback.',
+        'Max module efferent coupling from APSS coupling or the dependency-cruiser fallback. Per-module maximum, so a new module below the threshold cannot move it (size-invariant per ADR-0029). ratchet_floor clamps the auto-ratchet at the designed threshold so the floor never captures the incidental headroom of a tiny scaffold (which would fail the first real feature module).',
       source: '.topology/metrics/coupling.json or aggregate workspace modules',
       adapter: 'cruiser-coupling',
       direction: 'max',
       default_threshold: 20,
+      ratchet_floor: 20,
       fail_on_regression: true,
       value: (report) =>
         maxNumber([
@@ -285,11 +292,13 @@ export const FITNESS_METRICS = {
     {
       id: 'max-main-sequence-distance',
       name: 'Maximum Distance from Main Sequence',
-      objective: 'Max module distance from the Martin main sequence.',
+      objective:
+        'Max module distance from the Martin main sequence. Per-module maximum (size-invariant per ADR-0029); ratchet_floor clamps the auto-ratchet at the designed threshold so incidental headroom is not frozen into policy.',
       source: '.topology/metrics/coupling.json or aggregate workspace modules',
       adapter: 'cruiser-coupling',
       direction: 'max',
       default_threshold: 0.7,
+      ratchet_floor: 0.7,
       fail_on_regression: true,
       value: (report) =>
         maxNumber([
@@ -300,38 +309,46 @@ export const FITNESS_METRICS = {
     {
       id: 'instability-out-of-range-count',
       name: 'Instability Outside Healthy Range',
-      objective: 'Count modules with instability below 0.1 or above 0.9.',
+      objective:
+        'Count modules whose instability is below 0.1 or above 0.9 AND that sit off the Martin main sequence (distance > 0.1). A module at an instability extreme that is ON the main sequence — a leaf/entrypoint at I≈1,A≈0 or a stable-abstract module at I≈0,A≈1 — is a healthy design point, not a defect; counting it is the size-variance category error ADR-0029 § 3 removes (otherwise every new entrypoint increments the count). A module with no abstractness reading (D unknown) is NOT counted, so a missing abstractness adapter degrades to "no offenders" rather than a false trip; the adapter-missing case is governed by ADR-0028.',
       source: '.topology/metrics/coupling.json or aggregate workspace modules',
       adapter: 'cruiser-coupling',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
       value: (report) =>
-        moduleValues(report, (m) => m.apss?.instability ?? m.I).filter(
-          (v) => typeof v === 'number' && (v < 0.1 || v > 0.9),
-        ).length,
+        (report?.workspace?.modules ?? []).filter((m) => {
+          const instability = m.apss?.instability ?? m.I;
+          if (typeof instability !== 'number' || (instability >= 0.1 && instability <= 0.9)) {
+            return false;
+          }
+          // Count only when the module is PROVABLY off the main sequence.
+          // Unknown distance (no abstractness reading) degrades to "not an
+          // offender" rather than a false trip.
+          const distance = m.apss?.distance_from_main_sequence ?? m.D;
+          return typeof distance === 'number' && distance > ON_MAIN_SEQUENCE_MAX;
+        }).length,
     },
-    {
-      id: 'sentrux-coupling-score',
-      name: 'Sentrux Coupling Score',
-      objective:
-        'Sentrux composite coupling ratio derived from cross-module imports vs. total import edges. Smaller is better; the ratchet pins it so the modularity gain a refactor produces stays gained (no broken windows).',
-      source: '.sentrux/baseline.json coupling_score (via harness/sensors/sentrux_scan.mjs)',
-      adapter: 'sentrux',
-      direction: 'max',
-      default_threshold: 1,
-      fail_on_regression: true,
-      value: (_report, options) => sentruxMetricValue(options, 'coupling_score'),
-    },
+    // NOTE: `sentrux-coupling-score` was removed from the enforced MD01 set
+    // per ADR-0029. It is a global composite ratio (cross-module edges /
+    // total import edges) that fails the "new well-designed module" test:
+    // a clean multi-module feature legitimately adds cross-module edges and
+    // nudges the ratio on a rounding scale, so every firing was a false
+    // positive and the gate kept getting disabled. `sentrux_scan.mjs` still
+    // computes `coupling_score` in its envelope for anyone who wants to read
+    // the trend; it is simply no longer a baseline-governed hard gate. The
+    // canonical size-invariant `max-fan-out` remains the coupling authority
+    // (ADR-0017 one-canonical-signal-per-axis).
     {
       id: 'sentrux-max-depth',
       name: 'Sentrux Maximum Import/Call Depth',
       objective:
-        'Maximum nesting depth across the sentrux import/call graph. Smaller is better; complements MD01 by watching nesting (a known AI-coding regression pattern) rather than per-module fan-out.',
+        'Maximum nesting depth across the sentrux import/call graph. Smaller is better; complements MD01 by watching nesting (a known AI-coding regression pattern) rather than per-module fan-out. ratchet_floor clamps the auto-ratchet at the designed threshold (ADR-0029) so a well-layered feature that adds one legitimate level is not punished.',
       source: '.sentrux/baseline.json max_depth (via harness/sensors/sentrux_scan.mjs)',
       adapter: 'sentrux',
       direction: 'max',
       default_threshold: 10,
+      ratchet_floor: 10,
       fail_on_regression: true,
       value: (_report, options) => sentruxMetricValue(options, 'max_depth'),
     },
@@ -1324,6 +1341,9 @@ export function extractApssFitnessBaseline(report, options = {}) {
         source: metric.source,
         direction: metric.direction,
         default_threshold: metric.default_threshold,
+        ...(typeof metric.ratchet_floor === 'number'
+          ? { ratchet_floor: metric.ratchet_floor }
+          : {}),
         baseline,
         fail_on_regression: metric.fail_on_regression,
       };
@@ -1683,6 +1703,28 @@ function isNullToReal(baseline, current) {
   return (baseline === null || baseline === undefined) && typeof current === 'number';
 }
 
+/**
+ * Clamp a would-be ratchet floor at the metric's designed threshold
+ * (ADR-0029 § 2). The clamp is OPT-IN: only a metric that declares a
+ * numeric `ratchet_floor` is affected, and only in the `max`
+ * (smaller-is-better) direction, where headroom below the designed
+ * threshold is incidental (a tiny scaffold happening to have fan-out 2)
+ * rather than a real, defensible gain. Metrics without a `ratchet_floor`
+ * — including every `min` metric and the complexity peaks that
+ * intentionally tighten below their threshold — are returned unchanged
+ * so the ratchet still captures their genuine improvements.
+ */
+function clampRatchetFloor(metricDef, value) {
+  const floor = metricDef?.ratchet_floor;
+  if (typeof floor !== 'number' || typeof value !== 'number') {
+    return value;
+  }
+  if (metricDef.direction === 'max') {
+    return Math.max(value, floor);
+  }
+  return value;
+}
+
 function hasCoverageFailure(options, metricId) {
   return coverageInputRequested(options) && options.coverageReadFailures?.[metricId];
 }
@@ -1767,7 +1809,13 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
       if (!curDim) {
         continue;
       }
-      const baseDim = next.dimensions[code] ?? curDim;
+      // When the dimension is absent from the baseline (a fresh scaffold
+      // generating its first floor), seed a fresh metrics container so every
+      // metric flows through the `!existing` clamp-aware seed path below.
+      // Aliasing curDim directly would pin each floor at the raw measured
+      // value and bypass the ratchet_floor clamp — re-introducing the
+      // fan-out-floor-of-2 time bomb on every fresh baseline (ADR-0029 § 2).
+      const baseDim = next.dimensions[code] ?? { ...curDim, metrics: {} };
       next.dimensions[code] = baseDim;
       baseDim.metrics = baseDim.metrics ?? {};
       for (const [metricId, curMetric] of Object.entries(curDim.metrics ?? {})) {
@@ -1781,9 +1829,13 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
         // definition is still seeded into baseline.json so reviewers
         // see the same shape for every metric.
         const observational = curMetric.fail_on_regression === false;
+        // Clamp the measured value at the metric's designed threshold before
+        // it can become a floor (ADR-0029 § 2). No-op for metrics without a
+        // ratchet_floor, so all other metrics ratchet exactly as before.
+        const clamped = clampRatchetFloor(curMetric, cur);
         if (!existing) {
-          baseDim.metrics[metricId] = { ...curMetric };
-          if (typeof cur === 'number' && !observational) {
+          baseDim.metrics[metricId] = { ...curMetric, baseline: clamped };
+          if (typeof clamped === 'number' && !observational) {
             tightenings.push({
               kind: 'dimension',
               dimension: code,
@@ -1791,7 +1843,7 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
               metricName: curMetric.name,
               direction: curMetric.direction,
               previous: null,
-              next: cur,
+              next: clamped,
               reason: 'new-metric',
             });
           }
@@ -1801,8 +1853,12 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
           continue;
         }
         const prev = existing.baseline;
-        if (improved(curMetric.direction, cur, prev) || isNullToReal(prev, cur)) {
-          existing.baseline = cur;
+        // Only a clamped value that is still a genuine improvement over the
+        // existing floor moves it. When the clamp pins the floor at the
+        // threshold (e.g. measured 2 against a floor already at 20), this is
+        // a no-op — no write, no churn.
+        if (improved(curMetric.direction, clamped, prev) || isNullToReal(prev, clamped)) {
+          existing.baseline = clamped;
           tightenings.push({
             kind: 'dimension',
             dimension: code,
@@ -1810,8 +1866,8 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
             metricName: curMetric.name,
             direction: curMetric.direction,
             previous: prev ?? null,
-            next: cur,
-            reason: isNullToReal(prev, cur) ? 'null-to-real' : 'tightened',
+            next: clamped,
+            reason: isNullToReal(prev, clamped) ? 'null-to-real' : 'tightened',
           });
         }
       }

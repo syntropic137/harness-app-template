@@ -1,0 +1,301 @@
+// Tests for the size-invariance principle recorded in
+// ADR-0029-fitness-metric-size-invariance.md.
+//
+// The invariant, restated as a test (ADR-0029 § 3.6): every ENFORCING
+// MD01 coupling metric must satisfy "adding a well-designed module does
+// not change the verdict." A module with fan-out below the designed
+// threshold, sitting on the Martin main sequence, must not trip the gate.
+//
+// Two mechanisms make this hold:
+//   1. `ratchet_floor` clamps a per-module maximum's floor at its designed
+//      threshold, so the floor never captures incidental headroom (a
+//      fan-out floor of 2 against a designed 20 would fail the first real
+//      feature module).
+//   2. The growth-sensitive `sentrux-coupling-score` (a global composite
+//      ratio) is removed from the enforced set entirely, so a clean
+//      multi-module feature can never trip it.
+//
+// Run via: node --test harness/sensors/tests/size_invariance.test.mjs
+
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import { evaluateBaselineRelaxationGuard } from '../baseline_guard.mjs';
+import {
+  compareBaseline,
+  extractApssFitnessBaseline,
+  FITNESS_METRICS,
+  ratchetBaseline,
+} from '../gate.mjs';
+
+// A workspace report carrying explicit per-module Martin readings, the
+// shape max-fan-out / max-main-sequence-distance / instability read.
+function reportWithModules(modules) {
+  return {
+    workspace: {
+      folders: [],
+      modules: modules.map((m) => ({
+        source: m.source,
+        Ce: m.Ce ?? 0,
+        I: m.I ?? null,
+        D: m.D ?? null,
+      })),
+      circular_edges: 0,
+    },
+  };
+}
+
+// A single well-designed module: fan-out below the designed threshold,
+// I=1.0 (a leaf/entrypoint) but sitting ON the main sequence (D=0).
+function wellDesignedModule(source, fanOut) {
+  return { source, Ce: fanOut, I: 1.0, D: 0.0 };
+}
+
+test('MD01 no longer enforces sentrux-coupling-score (growth-sensitive ratio removed)', () => {
+  const ids = FITNESS_METRICS.MD01.map((m) => m.id);
+  assert.ok(
+    !ids.includes('sentrux-coupling-score'),
+    'sentrux-coupling-score must not appear in the enforced MD01 metric set (ADR-0029 § 3)',
+  );
+  // The size-invariant coupling authority stays enforcing.
+  assert.ok(ids.includes('max-fan-out'), 'max-fan-out remains the canonical coupling metric');
+});
+
+test('max-fan-out declares a ratchet_floor at its designed threshold', () => {
+  const fanOut = FITNESS_METRICS.MD01.find((m) => m.id === 'max-fan-out');
+  assert.equal(fanOut.ratchet_floor, fanOut.default_threshold);
+  assert.equal(typeof fanOut.ratchet_floor, 'number');
+  assert.ok(
+    fanOut.ratchet_floor > 2,
+    'ratchet_floor must be the designed threshold, not the incidental floor of 2',
+  );
+});
+
+test('ratchetBaseline: a metric with ratchet_floor does NOT tighten below it (seed path)', () => {
+  // A fresh baseline (no MD01 entry) seeded from a tiny workspace must NOT
+  // pin the floor at the measured max of 2; it clamps at the designed
+  // threshold so the first real feature module has headroom.
+  const baseline = { schema_version: '1.0.0', folders: {}, dimensions: {} };
+  const tiny = reportWithModules([wellDesignedModule('ws_apps/a/src', 2)]);
+  const { next } = ratchetBaseline(baseline, tiny);
+  const seeded = next.dimensions.MD01.metrics['max-fan-out'].baseline;
+  const threshold = FITNESS_METRICS.MD01.find((m) => m.id === 'max-fan-out').ratchet_floor;
+  assert.equal(seeded, threshold, `expected seeded floor to clamp at ${threshold}, got ${seeded}`);
+});
+
+test('ratchetBaseline: a metric with ratchet_floor does NOT tighten below it (tighten path)', () => {
+  const baseline = {
+    schema_version: '1.0.0',
+    folders: {},
+    dimensions: {
+      MD01: {
+        metrics: {
+          'max-fan-out': {
+            name: 'Maximum Efferent Coupling',
+            direction: 'max',
+            default_threshold: 20,
+            ratchet_floor: 20,
+            baseline: 20,
+            fail_on_regression: true,
+          },
+        },
+      },
+    },
+  };
+  // Current measurement is a tiny peak of 2 — an "improvement" the ratchet
+  // must clamp, not capture.
+  const tiny = reportWithModules([wellDesignedModule('ws_apps/a/src', 2)]);
+  const { next, tightenings } = ratchetBaseline(baseline, tiny);
+  assert.equal(next.dimensions.MD01.metrics['max-fan-out'].baseline, 20);
+  assert.ok(
+    !tightenings.some((t) => t.metric === 'max-fan-out'),
+    'a measured value below the clamped floor must not tighten max-fan-out',
+  );
+});
+
+test('ratchetBaseline: below-threshold metrics without ratchet_floor still tighten (no regression)', () => {
+  // Guard: the clamp is OPT-IN. max-cognitive (threshold 15, no ratchet_floor)
+  // must still ratchet to its measured peak.
+  const baseline = {
+    schema_version: '1.0.0',
+    folders: {},
+    dimensions: {
+      MT01: {
+        metrics: {
+          'max-cognitive': {
+            name: 'Maximum Cognitive Complexity',
+            direction: 'max',
+            default_threshold: 15,
+            baseline: 12,
+            fail_on_regression: true,
+          },
+        },
+      },
+    },
+  };
+  const better = {
+    workspace: {
+      folders: [],
+      modules: [
+        { source: 'ws_apps/x/src/a.ts', apss: { functions: [{ cognitive: 5, cyclomatic: 2 }] } },
+      ],
+      circular_edges: 0,
+    },
+  };
+  const { next } = ratchetBaseline(baseline, better);
+  assert.equal(
+    next.dimensions.MT01.metrics['max-cognitive'].baseline,
+    5,
+    'max-cognitive has no ratchet_floor, so it must still tighten to the measured peak of 5',
+  );
+});
+
+test('the new-well-designed-module test: adding a clean module keeps the gate green', () => {
+  // ADR-0029 § 3.6. Seed a baseline at the designed thresholds, then add a
+  // well-designed module (fan-out = threshold - 1, on the main sequence).
+  // The gate MUST stay green.
+  const fanOutThreshold = FITNESS_METRICS.MD01.find((m) => m.id === 'max-fan-out').ratchet_floor;
+
+  // Seed the baseline the way a fresh scaffold actually does: run the ratchet
+  // over an empty baseline, so max-fan-out clamps at its designed threshold
+  // (not the incidental measured peak of 1).
+  const seedReport = reportWithModules([wellDesignedModule('ws_apps/existing/src', 1)]);
+  const { next: baseline } = ratchetBaseline(
+    { schema_version: '1.0.0', folders: {}, dimensions: {} },
+    seedReport,
+  );
+  assert.equal(
+    baseline.dimensions.MD01.metrics['max-fan-out'].baseline,
+    fanOutThreshold,
+    'sanity: fresh scaffold seeds the fan-out floor at the designed threshold',
+  );
+
+  // Now the "next commit": the existing module plus one impeccably-designed
+  // new module importing (threshold - 1) packages.
+  const grownReport = reportWithModules([
+    wellDesignedModule('ws_apps/existing/src', 1),
+    wellDesignedModule('ws_apps/feature/src', fanOutThreshold - 1),
+  ]);
+
+  const cmp = compareBaseline(baseline, grownReport);
+  assert.equal(
+    cmp.ok,
+    true,
+    `adding a well-designed module (fan-out ${fanOutThreshold - 1}) must not trip the gate; ` +
+      `regressions: ${JSON.stringify(cmp.regressions)}`,
+  );
+});
+
+test('the gate still catches genuine over-coupling above the threshold', () => {
+  // The inverse guard: a module that actually exceeds the designed fan-out
+  // policy MUST fail. Size-invariance is not "never fail".
+  const fanOutThreshold = FITNESS_METRICS.MD01.find((m) => m.id === 'max-fan-out').ratchet_floor;
+  const seedReport = reportWithModules([wellDesignedModule('ws_apps/existing/src', 1)]);
+  const baseline = extractApssFitnessBaseline(seedReport);
+
+  const overCoupled = reportWithModules([
+    wellDesignedModule('ws_apps/existing/src', 1),
+    wellDesignedModule('ws_apps/godmodule/src', fanOutThreshold + 5),
+  ]);
+  const cmp = compareBaseline(baseline, overCoupled);
+  assert.equal(
+    cmp.ok,
+    false,
+    'a module exceeding the designed fan-out threshold must fail the gate',
+  );
+  assert.ok(
+    cmp.regressions.some((r) => r.metric === 'max-fan-out'),
+    'expected a max-fan-out regression for the over-coupled module',
+  );
+});
+
+// --- Baseline relaxation guard understands the two ADR-0029 operations ---
+
+const MARKER = 'BASELINE-RELAX-OK';
+
+function dimBaseline(metricId, metric, approvals = {}) {
+  return {
+    dimensions: { MD01: { metrics: { [metricId]: metric } } },
+    _baseline_relaxation_approvals: approvals,
+  };
+}
+
+test('guard: relaxing a floor UP to its ratchet_floor is allowed with a marker', () => {
+  // origin/main floor was 2; the working baseline relaxes it to the designed
+  // ratchet_floor of 20 — a value the current measurement (2) never reaches.
+  const path = 'dimensions|MD01|max-fan-out';
+  const working = dimBaseline(
+    'max-fan-out',
+    { direction: 'max', ratchet_floor: 20, baseline: 20 },
+    { [path]: `${MARKER}: ADR-0029 clamp to designed threshold` },
+  );
+  const reference = dimBaseline('max-fan-out', { direction: 'max', baseline: 2 });
+  const generated = dimBaseline('max-fan-out', { direction: 'max', baseline: 2 });
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(
+    guard.ok,
+    true,
+    `expected guard PASS; violations: ${JSON.stringify(guard.violations)}`,
+  );
+});
+
+test('guard: relaxing ABOVE the ratchet_floor without matching current is still blocked', () => {
+  // Guard rail: the ratchet_floor is the only sanctioned relax target beyond
+  // the current measurement. A floor of 50 (neither current=2 nor floor=20)
+  // must still be rejected.
+  const path = 'dimensions|MD01|max-fan-out';
+  const working = dimBaseline(
+    'max-fan-out',
+    { direction: 'max', ratchet_floor: 20, baseline: 50 },
+    { [path]: `${MARKER}: over-relaxed` },
+  );
+  const reference = dimBaseline('max-fan-out', { direction: 'max', baseline: 2 });
+  const generated = dimBaseline('max-fan-out', { direction: 'max', baseline: 2 });
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(guard.ok, false, 'an arbitrary relax beyond the ratchet_floor must be blocked');
+});
+
+test('guard: deliberately removing a metric is allowed with a marker', () => {
+  // sentrux-coupling-score existed on origin/main; the working baseline and
+  // the code (generated) both drop it. With a marker this is a sanctioned
+  // ADR-0029 removal, not an accidental direction deletion.
+  const path = 'dimensions|MD01|sentrux-coupling-score';
+  const working = {
+    dimensions: { MD01: { metrics: {} } },
+    _baseline_relaxation_approvals: { [path]: `${MARKER}: ADR-0029 removal` },
+  };
+  const reference = dimBaseline('sentrux-coupling-score', { direction: 'max', baseline: 0.17 });
+  const generated = { dimensions: { MD01: { metrics: {} } } };
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(
+    guard.ok,
+    true,
+    `expected guard PASS; violations: ${JSON.stringify(guard.violations)}`,
+  );
+});
+
+test('guard: removing a metric WITHOUT a marker is still blocked', () => {
+  const path = 'dimensions|MD01|sentrux-coupling-score';
+  const working = { dimensions: { MD01: { metrics: {} } }, _baseline_relaxation_approvals: {} };
+  const reference = dimBaseline('sentrux-coupling-score', { direction: 'max', baseline: 0.17 });
+  const generated = { dimensions: { MD01: { metrics: {} } } };
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(guard.ok, false, 'an unmarked metric removal must be blocked');
+  assert.ok(guard.violations.some((v) => v.path === path));
+});

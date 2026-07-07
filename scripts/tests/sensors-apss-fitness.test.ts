@@ -219,18 +219,24 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     ).toBe(true);
   });
 
-  test('MD01: more modules in the unhealthy instability range (<0.1 or >0.9) trips ok=false', () => {
+  test('MD01: more modules at an instability extreme AND off the main sequence trips ok=false', () => {
+    // ADR-0029 reshape: a module is only counted when it is BOTH at an
+    // instability extreme (I<0.1 or I>0.9) AND off the main sequence
+    // (D>0.1). Both baseline modules sit on the sequence (D=0), so the
+    // regression comes from the two new off-sequence extremes.
     const baselineReport = reportFrom({
       modules: [
-        { source: 'ws_apps/a/x.ts', I: 0.5 },
-        { source: 'ws_apps/a/y.ts', I: 0.5 },
+        { source: 'ws_apps/a/x.ts', I: 0.5, D: 0 },
+        { source: 'ws_apps/a/y.ts', I: 0.5, D: 0 },
       ],
     });
     const baseline = extractApssFitnessBaseline(baselineReport);
     const worse = reportFrom({
       modules: [
-        { source: 'ws_apps/a/x.ts', I: 0.05 },
-        { source: 'ws_apps/a/y.ts', I: 0.95 },
+        // Stable-concrete "zone of pain": I≈0 with high D.
+        { source: 'ws_apps/a/x.ts', I: 0.05, D: 0.6 },
+        // Unstable-abstract "zone of uselessness": I≈1 with high D.
+        { source: 'ws_apps/a/y.ts', I: 0.95, D: 0.6 },
       ],
     });
     const result = compareFitnessBaseline(baseline, worse);
@@ -240,6 +246,23 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
         (r) => r.dimension === 'MD01' && r.metric === 'instability-out-of-range-count',
       ),
     ).toBe(true);
+  });
+
+  test('MD01: an instability extreme ON the main sequence is NOT counted (ADR-0029 size-invariance)', () => {
+    // A leaf/entrypoint at I≈1 sitting on the main sequence (D≈0) is a
+    // healthy design point; adding one must not trip the gate.
+    const baselineReport = reportFrom({
+      modules: [{ source: 'ws_apps/a/x.ts', I: 0.5, D: 0 }],
+    });
+    const baseline = extractApssFitnessBaseline(baselineReport);
+    const grown = reportFrom({
+      modules: [
+        { source: 'ws_apps/a/x.ts', I: 0.5, D: 0 },
+        { source: 'ws_apps/a/leaf.ts', I: 1.0, D: 0 },
+      ],
+    });
+    const result = compareFitnessBaseline(baseline, grown);
+    expect(result.ok).toBe(true);
   });
 
   test('ST01: a new circular dependency edge (workspace.circular_edges) trips ok=false', () => {

@@ -111,14 +111,27 @@ hard-fails the canonical coupling gate. That is a size-invariance failure
 *introduced by the ratchet itself*, on a metric whose shape is otherwise
 sound.
 
-**Rule: the ratchet stops tightening at the metric's designed threshold.**
-For a `direction: max` (smaller-is-better) metric, the effective floor is
-`max(measured_best, designed_threshold)` — the ratchet burns down debt
-*toward* the threshold and clamps there. "No broken windows" applies to
-*debt*, not to *headroom*: defending fan-out 2 over 3 buys nothing (both
-are healthy) while costing trust. This is expressed as a per-metric
-`ratchet_floor` (default = `default_threshold`); the ratchet does not move
-the floor past it.
+**Rule: where a designed threshold represents headroom, the ratchet stops
+tightening at it.** For a `direction: max` (smaller-is-better) metric that
+opts in, the effective floor is `max(measured_best, ratchet_floor)` — the
+ratchet burns down debt *toward* the floor and clamps there. "No broken
+windows" applies to *debt*, not to *headroom*: defending fan-out 2 over 3
+buys nothing (both are healthy) while costing trust.
+
+This is expressed as an **opt-in per-metric `ratchet_floor`**. A metric that
+declares it is clamped there; a metric that does not is unchanged and
+ratchets to its measured best as before. The clamp is deliberately *not* a
+blanket `default = default_threshold`, because some `max` metrics are meant
+to ratchet *below* their threshold: `max-cognitive` has
+`default_threshold: 15` (the Sonar watch line) yet the template intentionally
+tightens its floor to the measured peak (e.g. 5), so a function regressing
+from 5 back toward 15 fails. Coupling headroom (fan-out 2 vs 20) is
+incidental; complexity headroom (cognitive 5 vs 15) is a real, defensible
+gain worth pinning. The two cannot share one default, so `ratchet_floor` is
+opt-in and wired only where headroom is genuinely incidental — the MD01
+coupling maxima (§3). The min-direction (larger-is-better) metrics never
+clamp: a higher quality signal is always a genuine improvement, never
+incidental headroom.
 
 ### 3. Applying the rule to MD01 (Modularity and Coupling)
 
@@ -156,8 +169,9 @@ kept; the wrong-shaped signal is not hard-gated.
   does not block, exactly as ADR-0017 intends. Two enforcing metrics on one
   axis would double the false-positive rate for near-zero added recall.
 - **Follow-on implementation (separate beads/PR, not this ADR):**
-  1. Add the per-metric `ratchet_floor` clamp to `ratchetBaseline()` in
-     `harness/sensors/gate.mjs`; default it to `default_threshold`.
+  1. Add the opt-in per-metric `ratchet_floor` clamp to `ratchetBaseline()`
+     in `harness/sensors/gate.mjs` (both the new-metric seed path and the
+     tighten path); wire it on the MD01 coupling maxima only.
   2. Remove `sentrux-coupling-score` from `FITNESS_METRICS` (MD01) and from
      `harness/sensors/baseline.json`.
   3. Reshape `instability-out-of-range-count` (entrypoint/test exclusion

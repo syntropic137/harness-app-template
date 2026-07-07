@@ -11,9 +11,13 @@ The slot currently runs:
 - `sentrux_scan.mjs`: sentrux 52-language tree-sitter overlay
   (`ADR-0017-sensors-v03-apss-canonical.md`). Activated as the SECOND
   architectural lens reconciled into the same upward ratchet — feeds
-  `quality_signal`, `coupling_score`, `cycle_count`, `god_file_count`,
-  `hotspot_count`, `complex_fn_count`, and `max_depth` into MT01 /
-  MD01 / ST01. Soft-skips when the `sentrux` binary is absent.
+  `quality_signal`, `cycle_count`, `god_file_count`, `hotspot_count`,
+  `complex_fn_count`, and `max_depth` into MT01 / MD01 / ST01.
+  `coupling_score` is still lifted into the envelope but is NOT gated:
+  it was removed from the enforced MD01 set per
+  `ADR-0029-fitness-metric-size-invariance.md` (a global composite
+  ratio that false-tripped on healthy growth). Soft-skips when the
+  `sentrux` binary is absent.
 - `deadcode_scan.mjs`: deterministic scoped-grep unused-export
   adapter (`ADR-0024-dead-code-ratchet.md`). Feeds the MT01
   `unused-export-count` ratchet by reading source files under

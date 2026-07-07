@@ -64,6 +64,47 @@ function readNumberFromGenerated(generated, path) {
   return null;
 }
 
+/**
+ * Read a metric's declared `ratchet_floor` (the ADR-0029 § 2 clamp target)
+ * from the working baseline, by relaxation path. A deliberate relax up to a
+ * metric's ratchet_floor is sanctioned — it moves the floor to the designed
+ * threshold, not to an arbitrary lax value — so the guard accepts it as an
+ * alternative to the "regenerated to current measurement" target.
+ */
+function readRatchetFloorFromWorking(workingBaseline, path) {
+  if (typeof path !== 'string') {
+    return null;
+  }
+  const [kind, bucket, metric] = path.split(RELAXATION_SEGMENT_SEP);
+  if (kind !== 'dimensions') {
+    return null;
+  }
+  const value = workingBaseline?.dimensions?.[bucket]?.metrics?.[metric]?.ratchet_floor;
+  return isNumber(value) ? value : null;
+}
+
+/**
+ * True when the metric named by `path` is entirely ABSENT from the generated
+ * (code-derived) baseline — i.e. it was deliberately removed from
+ * FITNESS_METRICS, not merely reading null this run. Distinguishes an
+ * ADR-0029 metric deletion (allowed with a marker) from an accidental
+ * direction drop.
+ */
+function metricRemovedFromGenerated(generated, path) {
+  if (typeof path !== 'string') {
+    return false;
+  }
+  const [kind, bucket, metric] = path.split(RELAXATION_SEGMENT_SEP);
+  if (kind !== 'dimensions') {
+    return false;
+  }
+  const metrics = generated?.dimensions?.[bucket]?.metrics;
+  if (!metrics || typeof metrics !== 'object') {
+    return false;
+  }
+  return !(metric in metrics);
+}
+
 function isDirectionValue(value) {
   return value === 'max' || value === 'min';
 }
@@ -117,6 +158,14 @@ function applyDirectionDeviation(
     return true;
   }
 
+  // A deliberate ADR-0029 metric REMOVAL: the metric is gone from the
+  // code's FITNESS_METRICS (absent from the generated baseline) and the
+  // approval carries a marker. There is no measurement to reconcile because
+  // the metric no longer exists, so the "regenerated baseline" match does
+  // not apply. Allow it.
+  if (issue === 'missing-direction' && metricRemovedFromGenerated(generatedBaseline, path)) {
+    return true;
+  }
   const current = readNumberFromGenerated(generatedBaseline, path);
   if (current === null) {
     violations.push({
@@ -188,6 +237,16 @@ function evaluateCandidate({ kind, path, direction, reference, working, generate
       severity: 'loosened',
       message: 'baseline relaxed without explicit BASELINE-RELAX-OK marker',
     });
+    return;
+  }
+  // A relax is valid when the working floor is regenerated to the current
+  // measurement OR clamped to the metric's designed ratchet_floor (ADR-0029
+  // § 2). The latter is how a metric's floor is deliberately relaxed UP to
+  // its designed threshold (e.g. max-fan-out 2 -> 20) so it stops pinning a
+  // tiny scaffold's incidental headroom — a value the current measurement
+  // alone would never reach.
+  const ratchetFloor = readRatchetFloorFromWorking(this?.workingBaseline, path);
+  if (isNumber(ratchetFloor) && Math.abs(ratchetFloor - working) <= EPSILON) {
     return;
   }
   const current = readNumberFromGenerated(generated, path);
