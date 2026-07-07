@@ -12,6 +12,7 @@ import {
   APSS_FUNCTION_METRICS,
   APSS_MODULE_METRICS,
   analyzeFromTopology,
+  attachProduceDiagnosis,
   extractMetrics,
   findApssBinary,
   findTopologyFiles,
@@ -243,6 +244,26 @@ describe('apss_topology — producer wiring (n48.X closed loop)', () => {
     expect(out.ran).toBe(false);
     expect(out.reason).toBe('apss-exit-2');
     expect(out.stderr).toContain('boom');
+  });
+
+  test('attachProduceDiagnosis surfaces a failed producer reason on an unavailable result', () => {
+    // A producer failure must not collapse into an ambiguous no-reading: the
+    // reason rides along so the fail-closed gate reports the actionable cause.
+    const out = attachProduceDiagnosis(
+      { tool: 'apss-topology', available: false, readings: [] },
+      { ran: false, reason: 'apss-exit-2' },
+    );
+    expect(out.available).toBe(false);
+    expect(out.produce_error).toBe('apss-exit-2');
+  });
+
+  test('attachProduceDiagnosis leaves a successful/available result untouched', () => {
+    const available = { tool: 'apss-topology', available: true, readings: [{ source: 'a' }] };
+    expect(attachProduceDiagnosis(available, { ran: true })).toEqual(available);
+    // A skipped producer (null) also passes through unchanged.
+    const unavailable = { tool: 'apss-topology', available: false, readings: [] };
+    expect(attachProduceDiagnosis(unavailable, null)).toEqual(unavailable);
+    expect(attachProduceDiagnosis(unavailable, null).produce_error).toBeUndefined();
   });
 });
 
