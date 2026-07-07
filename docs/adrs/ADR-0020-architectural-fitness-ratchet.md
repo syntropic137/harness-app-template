@@ -377,3 +377,11 @@ integration lane's wiring lands:
   row on the same metric. Consider a short-lived `--allow-regression`
   flag for time-boxed reverts (with auto-expiry). Not needed today; the
   current `--update-baseline` covers the one-shot deliberate relax.
+- The ratchet tightens a floor past the metric's *designed threshold*,
+  freezing incidental headroom (today's small codebase) as policy nobody
+  chose — e.g. `max-fan-out` ratcheting to a floor of 2 against a
+  designed threshold of 20, so the first real feature module hard-fails.
+  [ADR-0029-fitness-metric-size-invariance](./ADR-0029-fitness-metric-size-invariance.md)
+  § 2 clamps the ratchet at the designed threshold (a per-metric
+  `ratchet_floor`, default = `default_threshold`); `ratchetBaseline`
+  reads it and stops tightening there.
