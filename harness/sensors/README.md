@@ -67,6 +67,30 @@ ratchet (~3.6 s extra wall-clock for a ~380-file workspace on the bare
 scaffold). Telemetry is force-disabled per-invocation by the adapter via
 `SENTRUX_ANALYTICS=off`.
 
+### Optional: install UBS (activates the SC01 security adapter + commit-time bug scanning)
+
+[UBS (Ultimate Bug Scanner)](https://github.com/Dicklesworthstone/ultimate_bug_scanner)
+powers the SC01 `ubs-security` adapter and the local `ubs-staged`
+(pre-commit) and `ubs-diff` (Claude file-write) hooks. It soft-skips when
+`ubs` is absent, so bugs are caught on commit locally with CI as the
+backstop. It is fully offline at scan time — no LLM/API calls, no keys.
+
+Use the pinned, checksum-verified installer (mirrors `install-sentrux.sh`):
+
+```sh
+bash .github/scripts/install-ubs.sh   # installs ubs@v5.3.4 to ~/.local/bin
+```
+
+Runtime dependencies (install once): `bash >= 4.0`, `jq`, `ripgrep` (`rg`),
+and `ast-grep` (`sg`). On macOS the system bash is 3.2 — `brew install bash
+ast-grep ripgrep jq`. UBS auto-downloads its per-language scanner modules on
+first run. Verified SHA-256 (`ubs@v5.3.4`):
+`2fe136285e26e717168352f9a64a38668a1c38855766874f24e12e65f11514fb`.
+
+After installation, `just sensors gate --profile=strict` includes the SC01
+critical-finding count as a hard gate; `just sensors gate` (default local
+profile) leaves it skip-loud.
+
 ## APSS Fitness Model
 
 The committed `baseline.json` includes:

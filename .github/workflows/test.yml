@@ -244,6 +244,18 @@ jobs:
         # soft-skips and sentrux-* baseline floors silently stop
         # gating — exactly the drift this branch was opened to fix.
         run: bash .github/scripts/install-sentrux.sh
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
+        with:
+          # UBS runtime deps: ripgrep + ast-grep power the SC01 security
+          # scanner (jq is preinstalled on the runner). Without them the
+          # ubs-security adapter produces no reading and the strict profile
+          # fails closed (ADR-0028).
+          tool: ripgrep,ast-grep
+      - name: Install UBS (activates the SC01 security adapter in gate)
+        # Without ubs on PATH the SC01 security adapter soft-skips and the
+        # strict profile reports ubs-security as MISSING REQUIRED. See
+        # .github/scripts/install-ubs.sh (pinned + checksum-verified).
+        run: bash .github/scripts/install-ubs.sh
       - name: Install root deps for vitest coverage
         run: pnpm install --frozen-lockfile
       - name: Prepare CV01 Python coverage envelope (pytest --cov-report=json)
