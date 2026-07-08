@@ -460,6 +460,29 @@ describe('doctor', () => {
     ]);
   });
 
+  test('provenanceFieldIssues skips format validation when a rule field is absent', () => {
+    // schemaVersion is a provenanceFieldRules field; making it a non-string
+    // means stringField() returns undefined, so the `value ? validate(value) :
+    // undefined` ternary takes its alternate (falsy) branch — no format issue
+    // is raised for it, only the "missing string field" issue from the first
+    // loop. A sibling rule field (mode) with an invalid value still produces a
+    // message, exercising the truthy branch in the same pass.
+    const cwd = '/repo';
+    const partial = fakeFs({
+      [`${cwd}/.harness-provenance.json`]: JSON.stringify({
+        ...validProvenance,
+        schemaVersion: 123,
+        mode: 'bad',
+      }),
+      [`${cwd}/harness.manifest.json`]: `${JSON.stringify(validManifest)}\n`,
+    });
+    const issues = provenanceIssues(cwd, partial.exists, partial.readText);
+    expect(issues).toContain('.harness-provenance.json missing string field schemaVersion');
+    expect(issues).toContain('.harness-provenance.json mode must be fresh or updated');
+    // No schemaVersion *format* issue — the format rule was skipped for it.
+    expect(issues).not.toContain('.harness-provenance.json schemaVersion must be 1.0');
+  });
+
   test('profiling probe passes on the valid fixture and uses real defaults safely', () => {
     const cwd = '/repo';
     const fs = fakeFs(validFiles(cwd));

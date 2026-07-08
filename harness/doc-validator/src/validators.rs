@@ -23,60 +23,79 @@ pub fn validate_adr_directory(root: &Path) -> Vec<ValidationFinding> {
         return findings;
     }
 
+    check_required_context_files(&adr_dir, &mut findings);
+    validate_adr_index(&adr_dir.join("README.md"), &mut findings);
+    scan_adr_entries(&adr_dir, &mut findings);
+
+    findings
+}
+
+/// Ensure the required README/CLAUDE/AGENTS context files exist and that the
+/// agent context files describe ADR backlink guidance.
+fn check_required_context_files(adr_dir: &Path, findings: &mut Vec<ValidationFinding>) {
     for filename in ["README.md", "CLAUDE.md", "AGENTS.md"] {
         let path = adr_dir.join(filename);
         if !path.is_file() {
             findings.push(finding(&path, "required ADR context/index file is missing"));
             continue;
         }
-        if filename != "README.md" {
-            let text = std::fs::read_to_string(&path).unwrap_or_default();
-            if !text.contains("ADR-") || !text.contains("backlink") {
-                findings.push(finding(
-                    &path,
-                    "ADR context file must describe ADR backlink/reference guidance",
-                ));
-            }
+        if filename == "README.md" {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        if !text.contains("ADR-") || !text.contains("backlink") {
+            findings.push(finding(
+                &path,
+                "ADR context file must describe ADR backlink/reference guidance",
+            ));
         }
     }
+}
 
-    validate_adr_index(&adr_dir.join("README.md"), &mut findings);
-
-    let Ok(entries) = std::fs::read_dir(&adr_dir) else {
-        return findings;
+/// Validate every candidate ADR record file in the directory.
+fn scan_adr_entries(adr_dir: &Path, findings: &mut Vec<ValidationFinding>) {
+    let Ok(entries) = std::fs::read_dir(adr_dir) else {
+        return;
     };
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("md") {
+        let Some(filename) = adr_candidate_filename(&path) else {
             continue;
-        }
-        let filename = path
-            .file_name()
-            .map(|name| name.to_string_lossy())
-            .unwrap_or_default();
-        if ["README.md", "CLAUDE.md", "AGENTS.md"].contains(&filename.as_ref()) {
-            continue;
-        }
-        // Skip files beginning with `_` - by convention these are meta /
-        // template / coordination docs (e.g., `_template.md` documents the
-        // ADR shape itself, per bead create-harness-app-n48.12). Mirrors the
-        // APSS ADR01 spec's note that non-ADR files don't belong in the
-        // ADR directory - the underscore prefix is the documented signal
-        // for "in this directory but not an ADR record".
-        if filename.starts_with('_') {
-            continue;
-        }
+        };
         if !valid_adr_filename(&filename) {
             findings.push(finding(
                 &path,
                 "ADR filename must match ADR-NNNN-kebab-case-title.md",
             ));
         }
-        validate_adr_file(&path, &mut findings);
+        validate_adr_file(&path, findings);
     }
+}
 
-    findings
+/// Return the file name of an ADR record candidate, or `None` for entries that
+/// are not ADR records (non-Markdown, reserved context files, or meta files).
+fn adr_candidate_filename(path: &Path) -> Option<String> {
+    if path.extension().and_then(|s| s.to_str()) != Some("md") {
+        return None;
+    }
+    let filename = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if ["README.md", "CLAUDE.md", "AGENTS.md"].contains(&filename.as_str()) {
+        return None;
+    }
+    // Skip files beginning with `_` - by convention these are meta /
+    // template / coordination docs (e.g., `_template.md` documents the
+    // ADR shape itself, per bead create-harness-app-n48.12). Mirrors the
+    // APSS ADR01 spec's note that non-ADR files don't belong in the
+    // ADR directory - the underscore prefix is the documented signal
+    // for "in this directory but not an ADR record".
+    if filename.starts_with('_') {
+        return None;
+    }
+    Some(filename)
 }
 
 pub fn validate_manifest_decisions(root: &Path) -> Vec<ValidationFinding> {
@@ -331,8 +350,16 @@ mod tests {
             "## Index\n\n| Document | Description |\n|---|---|\n",
         )
         .unwrap();
-        fs::write(adr_dir.join("CLAUDE.md"), "# ADR Context\n\nADR backlink references establish traceability.").unwrap();
-        fs::write(adr_dir.join("AGENTS.md"), "# ADR Guidance\n\nAgents should understand ADR- backlink references.").unwrap();
+        fs::write(
+            adr_dir.join("CLAUDE.md"),
+            "# ADR Context\n\nADR backlink references establish traceability.",
+        )
+        .unwrap();
+        fs::write(
+            adr_dir.join("AGENTS.md"),
+            "# ADR Guidance\n\nAgents should understand ADR- backlink references.",
+        )
+        .unwrap();
         fs::write(adr_dir.join("_template.md"), "not an ADR").unwrap();
         fs::write(adr_dir.join("notes.txt"), "not markdown").unwrap();
         fs::write(
@@ -369,8 +396,16 @@ mod tests {
         let adr_dir = tmp.path().join("docs/adrs");
         fs::create_dir_all(&adr_dir).unwrap();
         fs::create_dir(adr_dir.join("README.md")).unwrap();
-        fs::write(adr_dir.join("CLAUDE.md"), "# ADR Context\n\nADR backlink references establish traceability.").unwrap();
-        fs::write(adr_dir.join("AGENTS.md"), "# ADR Guidance\n\nAgents should understand ADR- backlink references.").unwrap();
+        fs::write(
+            adr_dir.join("CLAUDE.md"),
+            "# ADR Context\n\nADR backlink references establish traceability.",
+        )
+        .unwrap();
+        fs::write(
+            adr_dir.join("AGENTS.md"),
+            "# ADR Guidance\n\nAgents should understand ADR- backlink references.",
+        )
+        .unwrap();
 
         let findings = validate_adr_directory(tmp.path());
 
@@ -394,8 +429,16 @@ mod tests {
             "## Index\n\n| Document | Description |\n|---|---|\n",
         )
         .unwrap();
-        fs::write(adr_dir.join("CLAUDE.md"), "# ADR Context\n\nADR backlink references establish traceability.").unwrap();
-        fs::write(adr_dir.join("AGENTS.md"), "# ADR Guidance\n\nAgents should understand ADR- backlink references.").unwrap();
+        fs::write(
+            adr_dir.join("CLAUDE.md"),
+            "# ADR Context\n\nADR backlink references establish traceability.",
+        )
+        .unwrap();
+        fs::write(
+            adr_dir.join("AGENTS.md"),
+            "# ADR Guidance\n\nAgents should understand ADR- backlink references.",
+        )
+        .unwrap();
         let original = fs::metadata(&adr_dir).unwrap().permissions();
         let mut locked = original.clone();
         locked.set_mode(0o0);

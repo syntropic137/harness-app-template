@@ -116,10 +116,7 @@ export interface ProtectMainResolved {
   branch: string;
 }
 
-export function resolveTarget(
-  argv: readonly string[],
-  spawn: SpawnFn,
-): ProtectMainResolved | { error: string } {
+function parseTargetArgs(argv: readonly string[]): { repo: string | null; branch: string } {
   let repo: string | null = null;
   let branch = 'main';
   for (let i = 0; i < argv.length; i += 1) {
@@ -132,21 +129,38 @@ export function resolveTarget(
       i += 1;
     }
   }
-  if (!repo) {
-    const remote = spawn('git', ['remote', 'get-url', 'origin']);
-    if (remote.status !== 0) {
-      return {
-        error: 'protect-main: --repo not provided and `git remote get-url origin` failed',
-      };
-    }
-    repo = parseGitHubRepo(remote.stdout);
-    if (!repo) {
-      return {
-        error: `protect-main: could not parse owner/repo from origin URL: ${remote.stdout.trim()}`,
-      };
-    }
-  }
   return { repo, branch };
+}
+
+function resolveRepoFromOrigin(spawn: SpawnFn): string | { error: string } {
+  const remote = spawn('git', ['remote', 'get-url', 'origin']);
+  if (remote.status !== 0) {
+    return {
+      error: 'protect-main: --repo not provided and `git remote get-url origin` failed',
+    };
+  }
+  const repo = parseGitHubRepo(remote.stdout);
+  if (!repo) {
+    return {
+      error: `protect-main: could not parse owner/repo from origin URL: ${remote.stdout.trim()}`,
+    };
+  }
+  return repo;
+}
+
+export function resolveTarget(
+  argv: readonly string[],
+  spawn: SpawnFn,
+): ProtectMainResolved | { error: string } {
+  const { repo, branch } = parseTargetArgs(argv);
+  if (repo) {
+    return { repo, branch };
+  }
+  const resolved = resolveRepoFromOrigin(spawn);
+  if (typeof resolved !== 'string') {
+    return resolved;
+  }
+  return { repo: resolved, branch };
 }
 
 export function main(deps: ProtectMainDeps): void {

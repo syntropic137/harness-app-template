@@ -20,7 +20,7 @@ use anyhow::{Result, anyhow};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 #[derive(Debug, Clone)]
 pub struct Cli {
@@ -61,35 +61,11 @@ pub fn validate(root: &Path, excludes: &[String]) -> Result<ValidationReport> {
     let mut report = ValidationReport::default();
 
     for entry in WalkDir::new(root) {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(error) => return Err(anyhow!("walk docs: {error}")),
+        let entry = entry.map_err(|error| anyhow!("walk docs: {error}"))?;
+        let Some(content) = markdown_content(&entry, excludes)? else {
+            continue;
         };
-        if !should_descend(entry.path(), excludes) {
-            continue;
-        }
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        if entry.path().extension().and_then(|s| s.to_str()) != Some("md") {
-            continue;
-        }
-
-        let content = match std::fs::read_to_string(entry.path()) {
-            Ok(content) => content,
-            Err(error) => return Err(anyhow!("read {}: {error}", entry.path().display())),
-        };
-        let links = extract_links(&content);
-        report.links.total_links += links.len();
-        for link in &links {
-            if link.kind != LinkKind::External {
-                report.links.checked_links += 1;
-            }
-        }
-        report
-            .links
-            .broken
-            .extend(check_links(entry.path(), &links));
+        collect_links(entry.path(), &content, &mut report.links);
     }
 
     report.findings.extend(validate_adr_directory(root));
@@ -97,6 +73,37 @@ pub fn validate(root: &Path, excludes: &[String]) -> Result<ValidationReport> {
     report.findings.extend(validate_principles(root));
 
     Ok(report)
+}
+
+/// Read a walked entry's contents if it is a non-excluded Markdown file.
+///
+/// Returns `Ok(None)` when the entry should be skipped (excluded path,
+/// non-file, or non-`.md`) and `Err` only when a Markdown file cannot be read.
+fn markdown_content(entry: &DirEntry, excludes: &[String]) -> Result<Option<String>> {
+    if !should_descend(entry.path(), excludes) {
+        return Ok(None);
+    }
+    if !entry.file_type().is_file() {
+        return Ok(None);
+    }
+    if entry.path().extension().and_then(|s| s.to_str()) != Some("md") {
+        return Ok(None);
+    }
+    match std::fs::read_to_string(entry.path()) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) => Err(anyhow!("read {}: {error}", entry.path().display())),
+    }
+}
+
+fn collect_links(path: &Path, content: &str, links: &mut CheckReport) {
+    let extracted = extract_links(content);
+    links.total_links += extracted.len();
+    for link in &extracted {
+        if link.kind != LinkKind::External {
+            links.checked_links += 1;
+        }
+    }
+    links.broken.extend(check_links(path, &extracted));
 }
 
 fn should_descend(path: &Path, excludes: &[String]) -> bool {
@@ -181,8 +188,16 @@ mod tests {
             "## Index\n\n| Document | Description |\n|---|---|\n",
         )
         .unwrap();
-        fs::write(adr_dir.join("CLAUDE.md"), "# ADR Context\n\nADR backlink references like ADR-0001-demo establish traceability.").unwrap();
-        fs::write(adr_dir.join("AGENTS.md"), "# ADR Guidance\n\nAgents should understand ADR- backlink references for decisions.").unwrap();
+        fs::write(
+            adr_dir.join("CLAUDE.md"),
+            "# ADR Context\n\nADR backlink references like ADR-0001-demo establish traceability.",
+        )
+        .unwrap();
+        fs::write(
+            adr_dir.join("AGENTS.md"),
+            "# ADR Guidance\n\nAgents should understand ADR- backlink references for decisions.",
+        )
+        .unwrap();
         fs::write(
             adr_dir.join("ADR-0001-demo.md"),
             "---\nname: Demo\ndescription: Demo\nstatus: accepted\n---\n\n# ADR-0001: Demo\n\n**Date:** 2026-05-30\n**Category:** Test\n\n## Context\n\n## Decision\n\n## Consequences\n",

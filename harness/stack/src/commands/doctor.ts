@@ -10,18 +10,27 @@ interface DoctorOpts {
   explainId?: string;
 }
 
+function applyArg(opts: DoctorOpts, args: string[], i: number): number {
+  const a = args[i];
+  if (a === '--json') {
+    opts.json = true;
+    return i;
+  }
+  if (a === '--explain') {
+    const next = args[i + 1];
+    if (next) opts.explainId = next;
+    return i + 1;
+  }
+  if (a && !a.startsWith('--')) {
+    opts.probeFilter = a;
+  }
+  return i;
+}
+
 function parseArgs(args: string[]): DoctorOpts {
   const opts: DoctorOpts = { json: false };
   for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === '--json') {
-      opts.json = true;
-    } else if (a === '--explain') {
-      const next = args[++i];
-      if (next) opts.explainId = next;
-    } else if (a && !a.startsWith('--')) {
-      opts.probeFilter = a;
-    }
+    i = applyArg(opts, args, i);
   }
   return opts;
 }
@@ -106,26 +115,39 @@ async function runProbe(probe: Probe): Promise<ProbeResult> {
   };
 }
 
+function probeHeader(probe: ProbeResult): string {
+  return probe.fail === 0
+    ? `✅ ${probe.name} — ${probe.description}`
+    : `❌ ${probe.name} — ${probe.description} (${probe.fail} fail)`;
+}
+
+function checkIcon(status: CheckResult['status']): string {
+  if (status === 'pass') return '  ✓';
+  if (status === 'skip') return '  ⊘';
+  return '  ✗';
+}
+
+function checkLines(check: CheckResult): string[] {
+  const lines = [`${checkIcon(check.status)} ${check.id} — ${check.description}`];
+  if (check.status === 'fail' && check.remediation) {
+    for (const ln of check.remediation.split('\n')) lines.push(`      ${ln}`);
+  }
+  if (check.status === 'skip' && check.skipReason) {
+    lines.push(`      ${check.skipReason}`);
+  }
+  return lines;
+}
+
+function probeLines(probe: ProbeResult): string[] {
+  const lines = [probeHeader(probe)];
+  for (const check of probe.checks) lines.push(...checkLines(check));
+  lines.push('');
+  return lines;
+}
+
 function formatHuman(report: DoctorReport): string {
   const lines: string[] = [];
-  for (const probe of report.probes) {
-    const header =
-      probe.fail === 0
-        ? `✅ ${probe.name} — ${probe.description}`
-        : `❌ ${probe.name} — ${probe.description} (${probe.fail} fail)`;
-    lines.push(header);
-    for (const check of probe.checks) {
-      const icon = check.status === 'pass' ? '  ✓' : check.status === 'skip' ? '  ⊘' : '  ✗';
-      lines.push(`${icon} ${check.id} — ${check.description}`);
-      if (check.status === 'fail' && check.remediation) {
-        for (const ln of check.remediation.split('\n')) lines.push(`      ${ln}`);
-      }
-      if (check.status === 'skip' && check.skipReason) {
-        lines.push(`      ${check.skipReason}`);
-      }
-    }
-    lines.push('');
-  }
+  for (const probe of report.probes) lines.push(...probeLines(probe));
   return lines.join('\n');
 }
 
@@ -147,19 +169,31 @@ function explain(probes: Probe[], id: string): string {
   return `Unknown check id: ${id}`;
 }
 
+function emitReport(report: DoctorReport, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    console.log(formatHuman(report));
+  }
+}
+
+function reportEmpty(opts: DoctorOpts): number {
+  const report: DoctorReport = { probes: [], overallExit: 0 };
+  if (opts.json) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    console.log('No doctor probes configured.');
+  }
+  return 0;
+}
+
 export async function doctor(args: string[]): Promise<number> {
   const opts = parseArgs(args);
   const iso = detectIsolation();
   const probesDir = join(iso.worktreePath, 'infra', 'doctor');
   const all = loadProbes(probesDir);
   if (all.length === 0 && !opts.probeFilter && !opts.explainId) {
-    const report: DoctorReport = { probes: [], overallExit: 0 };
-    if (opts.json) {
-      console.log(JSON.stringify(report, null, 2));
-    } else {
-      console.log('No doctor probes configured.');
-    }
-    return 0;
+    return reportEmpty(opts);
   }
 
   if (opts.explainId) {
@@ -176,11 +210,6 @@ export async function doctor(args: string[]): Promise<number> {
   const results = await Promise.all(selected.map(runProbe));
   const overallExit: 0 | 1 = results.some((r) => r.fail > 0) ? 1 : 0;
   const report: DoctorReport = { probes: results, overallExit };
-
-  if (opts.json) {
-    console.log(JSON.stringify(report, null, 2));
-  } else {
-    console.log(formatHuman(report));
-  }
+  emitReport(report, opts.json);
   return overallExit;
 }

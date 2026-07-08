@@ -32,6 +32,38 @@ export function readUtf8(path: string): string {
   return readFileSync(path, 'utf8');
 }
 
+interface FlagSpec {
+  takesValue: boolean;
+  apply: (options: HarnessReviewOptions, value: string) => void;
+}
+
+const REVIEW_FLAGS: Record<string, FlagSpec> = {
+  '--dry-run': {
+    takesValue: false,
+    apply: (options) => {
+      options.dryRun = true;
+    },
+  },
+  '--skills-dir': {
+    takesValue: true,
+    apply: (options, value) => {
+      options.skillsDir = value;
+    },
+  },
+  '--subset': {
+    takesValue: true,
+    apply: (options, value) => {
+      options.subset = value;
+    },
+  },
+  '--target': {
+    takesValue: true,
+    apply: (options, value) => {
+      options.target = value;
+    },
+  },
+};
+
 export function parseReviewArgs(argv: string[]): HarnessReviewOptions {
   const options: HarnessReviewOptions = {
     dryRun: false,
@@ -39,17 +71,12 @@ export function parseReviewArgs(argv: string[]): HarnessReviewOptions {
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === '--dry-run') {
-      options.dryRun = true;
-    } else if (arg === '--skills-dir') {
-      options.skillsDir = argv[i + 1];
-      i += 1;
-    } else if (arg === '--subset') {
-      options.subset = argv[i + 1];
-      i += 1;
-    } else if (arg === '--target') {
-      options.target = argv[i + 1];
-      i += 1;
+    const flag = REVIEW_FLAGS[arg];
+    if (flag) {
+      flag.apply(options, argv[i + 1]);
+      if (flag.takesValue) {
+        i += 1;
+      }
     } else if (options.target === '.') {
       options.target = arg;
     } else {

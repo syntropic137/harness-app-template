@@ -109,8 +109,47 @@ function runJsLane(opts: LaneRunOptions): LaneResult {
   };
 }
 
-function runRustLane(opts: LaneRunOptions): LaneResult[] {
+// Shared audit-result reporter for the cargo + pip lanes: stream the tool's
+// stdout/stderr through the lane loggers, then classify by exit status.
+function reportAudit(
+  result: SpawnResult,
+  lane: string,
+  opts: LaneRunOptions,
+  passReason: string,
+  failLabel: string,
+): LaneResult {
+  const { log, errLog } = opts;
+  if (result.stdout) log(result.stdout.trimEnd());
+  if (result.stderr) errLog(result.stderr.trimEnd());
+  if (result.status === 0) {
+    return { lane, status: 'pass', reason: passReason };
+  }
+  return { lane, status: 'fail', reason: `${failLabel} exited ${result.status}` };
+}
+
+function auditCargoManifest(manifest: string, opts: LaneRunOptions): LaneResult {
   const { cwd, spawn, fs, log, errLog } = opts;
+  const lane = `rust:${manifest}`;
+  if (!fs.exists(join(cwd, manifest))) {
+    return { lane, status: 'skip', reason: 'manifest absent' };
+  }
+  log(`dep-audit[rust]: cargo audit --file ${dirname(manifest)}/Cargo.lock`);
+  const gen = spawn('cargo', ['generate-lockfile', '--manifest-path', manifest], { cwd });
+  if (gen.status !== 0 && gen.status !== null) {
+    if (gen.stderr) errLog(gen.stderr.trimEnd());
+    return {
+      lane,
+      status: 'fail',
+      reason: `cargo generate-lockfile exited ${gen.status}`,
+    };
+  }
+  const lockfile = join(dirname(manifest), 'Cargo.lock');
+  const audit = spawn('cargo', ['audit', '--file', lockfile], { cwd });
+  return reportAudit(audit, lane, opts, 'no advisories', 'cargo audit');
+}
+
+function runRustLane(opts: LaneRunOptions): LaneResult[] {
+  const { cwd, spawn, fs, errLog } = opts;
   if (!fs.exists(join(cwd, 'Cargo.toml'))) {
     return [{ lane: 'rust', status: 'skip', reason: 'no Cargo.toml at repo root' }];
   }
@@ -122,50 +161,55 @@ function runRustLane(opts: LaneRunOptions): LaneResult[] {
     errLog('dep-audit[rust]: cargo-audit not on PATH; failing CLOSED.');
     return [{ lane: 'rust', status: 'fail', reason: 'cargo-audit missing' }];
   }
-  const results: LaneResult[] = [];
-  for (const manifest of CARGO_MANIFESTS) {
-    if (!fs.exists(join(cwd, manifest))) {
-      results.push({
-        lane: `rust:${manifest}`,
-        status: 'skip',
-        reason: 'manifest absent',
-      });
-      continue;
-    }
-    log(`dep-audit[rust]: cargo audit --file ${dirname(manifest)}/Cargo.lock`);
-    const gen = spawn('cargo', ['generate-lockfile', '--manifest-path', manifest], { cwd });
-    if (gen.status !== 0 && gen.status !== null) {
-      if (gen.stderr) errLog(gen.stderr.trimEnd());
-      results.push({
-        lane: `rust:${manifest}`,
-        status: 'fail',
-        reason: `cargo generate-lockfile exited ${gen.status}`,
-      });
-      continue;
-    }
-    const lockfile = join(dirname(manifest), 'Cargo.lock');
-    const audit = spawn('cargo', ['audit', '--file', lockfile], { cwd });
-    if (audit.stdout) log(audit.stdout.trimEnd());
-    if (audit.stderr) errLog(audit.stderr.trimEnd());
-    if (audit.status === 0) {
-      results.push({
-        lane: `rust:${manifest}`,
-        status: 'pass',
-        reason: 'no advisories',
-      });
-    } else {
-      results.push({
-        lane: `rust:${manifest}`,
-        status: 'fail',
-        reason: `cargo audit exited ${audit.status}`,
-      });
-    }
+  return CARGO_MANIFESTS.map((manifest) => auditCargoManifest(manifest, opts));
+}
+
+function auditPythonProject(project: string, stagingDir: string, opts: LaneRunOptions): LaneResult {
+  const { cwd, spawn, fs, log, errLog } = opts;
+  const lane = `python:${project}`;
+  // Defensive iteration-time skip: PYTHON_PROJECTS is a static
+  // one-element list today, so the outer .every() catches the
+  // absent-project case. This branch fires only when a future
+  // consumer adds a second entry and one of them is missing.
+  /* v8 ignore start */
+  if (!fs.exists(join(cwd, project, 'pyproject.toml'))) {
+    return { lane, status: 'skip', reason: 'manifest absent' };
   }
-  return results;
+  /* v8 ignore stop */
+  const reqPath = join(stagingDir, `${project.replace(/[\\/]/g, '_')}-requirements.txt`);
+  log(`dep-audit[python]: uv export --project ${project} -> ${reqPath}`);
+  // Emit hashes (uv export's default). pip-audit's --disable-pip
+  // path requires either hashes OR --no-deps; --no-deps would skip
+  // transitive scanning which is the whole point, so we keep hashes.
+  // --no-emit-workspace drops the editable workspace members (which
+  // have no hashes and would error pip-audit with "does not contain
+  // a hash"); we only want to scan third-party deps anyway.
+  const exp = spawn(
+    'uv',
+    [
+      'export',
+      '--project',
+      project,
+      '--no-dev',
+      '--no-emit-workspace',
+      '--format',
+      'requirements-txt',
+      '-o',
+      reqPath,
+    ],
+    { cwd },
+  );
+  if (exp.status !== 0) {
+    if (exp.stderr) errLog(exp.stderr.trimEnd());
+    return { lane, status: 'fail', reason: `uv export exited ${exp.status}` };
+  }
+  log(`dep-audit[python]: uvx pip-audit -r ${reqPath}`);
+  const audit = spawn('uvx', ['pip-audit', '-r', reqPath, '--disable-pip'], { cwd });
+  return reportAudit(audit, lane, opts, 'no advisories', 'pip-audit');
 }
 
 function runPythonLane(opts: LaneRunOptions): LaneResult[] {
-  const { cwd, spawn, fs, log, errLog } = opts;
+  const { cwd, spawn, fs, errLog } = opts;
   if (PYTHON_PROJECTS.every((p) => !fs.exists(join(cwd, p, 'pyproject.toml')))) {
     return [{ lane: 'python', status: 'skip', reason: 'no Python projects found' }];
   }
@@ -173,79 +217,13 @@ function runPythonLane(opts: LaneRunOptions): LaneResult[] {
     errLog('dep-audit[python]: uv not on PATH; failing CLOSED.');
     return [{ lane: 'python', status: 'fail', reason: 'uv missing' }];
   }
-  const results: LaneResult[] = [];
   const stagingDir = join(cwd, '.dep-audit');
   fs.mkdirp(stagingDir);
   try {
-    for (const project of PYTHON_PROJECTS) {
-      // Defensive iteration-time skip: PYTHON_PROJECTS is a static
-      // one-element list today, so the outer .every() catches the
-      // absent-project case. This branch fires only when a future
-      // consumer adds a second entry and one of them is missing.
-      /* v8 ignore start */
-      if (!fs.exists(join(cwd, project, 'pyproject.toml'))) {
-        results.push({
-          lane: `python:${project}`,
-          status: 'skip',
-          reason: 'manifest absent',
-        });
-        continue;
-      }
-      /* v8 ignore stop */
-      const reqPath = join(stagingDir, `${project.replace(/[\\/]/g, '_')}-requirements.txt`);
-      log(`dep-audit[python]: uv export --project ${project} -> ${reqPath}`);
-      // Emit hashes (uv export's default). pip-audit's --disable-pip
-      // path requires either hashes OR --no-deps; --no-deps would skip
-      // transitive scanning which is the whole point, so we keep hashes.
-      // --no-emit-workspace drops the editable workspace members (which
-      // have no hashes and would error pip-audit with "does not contain
-      // a hash"); we only want to scan third-party deps anyway.
-      const exp = spawn(
-        'uv',
-        [
-          'export',
-          '--project',
-          project,
-          '--no-dev',
-          '--no-emit-workspace',
-          '--format',
-          'requirements-txt',
-          '-o',
-          reqPath,
-        ],
-        { cwd },
-      );
-      if (exp.status !== 0) {
-        if (exp.stderr) errLog(exp.stderr.trimEnd());
-        results.push({
-          lane: `python:${project}`,
-          status: 'fail',
-          reason: `uv export exited ${exp.status}`,
-        });
-        continue;
-      }
-      log(`dep-audit[python]: uvx pip-audit -r ${reqPath}`);
-      const audit = spawn('uvx', ['pip-audit', '-r', reqPath, '--disable-pip'], { cwd });
-      if (audit.stdout) log(audit.stdout.trimEnd());
-      if (audit.stderr) errLog(audit.stderr.trimEnd());
-      if (audit.status === 0) {
-        results.push({
-          lane: `python:${project}`,
-          status: 'pass',
-          reason: 'no advisories',
-        });
-      } else {
-        results.push({
-          lane: `python:${project}`,
-          status: 'fail',
-          reason: `pip-audit exited ${audit.status}`,
-        });
-      }
-    }
+    return PYTHON_PROJECTS.map((project) => auditPythonProject(project, stagingDir, opts));
   } finally {
     fs.rm(stagingDir);
   }
-  return results;
 }
 
 function hasOnPath(spawn: SpawnFn, tool: string): boolean {
@@ -293,15 +271,9 @@ export function summarize(results: readonly LaneResult[]): {
   failed: number;
   skipped: number;
 } {
-  let passed = 0;
-  let failed = 0;
-  let skipped = 0;
-  for (const r of results) {
-    if (r.status === 'pass') passed += 1;
-    else if (r.status === 'fail') failed += 1;
-    else skipped += 1;
-  }
-  return { passed, failed, skipped };
+  const counts: Record<LaneStatus, number> = { pass: 0, fail: 0, skip: 0 };
+  for (const r of results) counts[r.status] += 1;
+  return { passed: counts.pass, failed: counts.fail, skipped: counts.skip };
 }
 
 export function main(deps: DepAuditDeps): void {

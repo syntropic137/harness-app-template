@@ -70,17 +70,41 @@ function assertSafeSourcePath(sourcePath: string): void {
   }
 }
 
+function assertOptionalString(value: Record<string, unknown>, field: '$comment' | 'note'): void {
+  if (field in value && typeof value[field] !== 'string') {
+    validationError(`${field} must be a string when present`);
+  }
+}
+
+function validateSkills(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    validationError('skills must be a non-empty string list');
+  }
+  return value.map((skill) => {
+    if (typeof skill !== 'string') {
+      validationError('skills entries must be non-empty strings');
+    }
+    assertSafeSkillName(skill);
+    return skill;
+  });
+}
+
+function optionalStringFields(
+  value: Record<string, unknown>,
+): Partial<Pick<SlpSource, '$comment' | 'note'>> {
+  return {
+    ...(typeof value.$comment === 'string' ? { $comment: value.$comment } : {}),
+    ...(typeof value.note === 'string' ? { note: value.note } : {}),
+  };
+}
+
 function validateSource(value: unknown): SlpSource {
   if (!isRecord(value)) {
     validationError('manifest must be a JSON object');
   }
 
-  if ('$comment' in value && typeof value.$comment !== 'string') {
-    validationError('$comment must be a string when present');
-  }
-  if ('note' in value && typeof value.note !== 'string') {
-    validationError('note must be a string when present');
-  }
+  assertOptionalString(value, '$comment');
+  assertOptionalString(value, 'note');
 
   const source = Object.fromEntries(
     STRING_FIELDS.map((field) => [field, requireStringField(value, field)]),
@@ -91,20 +115,10 @@ function validateSource(value: unknown): SlpSource {
   }
   assertSafeSourcePath(source.sourcePath);
 
-  if (!Array.isArray(value.skills) || value.skills.length === 0) {
-    validationError('skills must be a non-empty string list');
-  }
-  const skills = value.skills.map((skill) => {
-    if (typeof skill !== 'string') {
-      validationError('skills entries must be non-empty strings');
-    }
-    assertSafeSkillName(skill);
-    return skill;
-  });
+  const skills = validateSkills(value.skills);
 
   return {
-    ...(typeof value.$comment === 'string' ? { $comment: value.$comment } : {}),
-    ...(typeof value.note === 'string' ? { note: value.note } : {}),
+    ...optionalStringFields(value),
     ...source,
     skills,
   };
@@ -121,7 +135,9 @@ function writeSource(repoRoot: string, source: SlpSource): void {
 }
 
 function cloneUpstream(upstream: string, ref: string, dir: string): string {
-  execFileSync('git', ['clone', '--quiet', upstream, dir], { stdio: ['ignore', 'inherit', 'inherit'] });
+  execFileSync('git', ['clone', '--quiet', upstream, dir], {
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
   execFileSync('git', ['-C', dir, 'fetch', '--quiet', 'origin', ref], {
     stdio: ['ignore', 'inherit', 'inherit'],
   });
@@ -149,7 +165,12 @@ function existingRealPath(path: string): string | undefined {
   return existsSync(path) ? realpathSync(path) : undefined;
 }
 
-function stageSkills(srcDir: string, stagingDir: string, source: SlpSource, repoRoot: string): void {
+function stageSkills(
+  srcDir: string,
+  stagingDir: string,
+  source: SlpSource,
+  repoRoot: string,
+): void {
   const upstreamRoot = realpathSync(resolve(srcDir, source.sourcePath));
   const skillsRoot = realpathSync(resolve(repoRoot, SKILLS_DIR));
 

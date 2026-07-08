@@ -128,6 +128,31 @@ export function validateHarnessEngineeringSkills(
   return issues;
 }
 
+// Flag -> mutation handler. Each handler applies its effect and returns the
+// number of extra argv slots it consumed (0 for boolean flags, 1 for
+// value-taking flags), so the loop advances uniformly.
+type SkillArgHandler = (options: SkillCheckOptions, argv: string[], index: number) => number;
+
+const skillArgHandlers: Record<string, SkillArgHandler> = {
+  '--skills-dir': (options, argv, index) => {
+    options.skillsDir = argv[index + 1];
+    options.freshClone = false;
+    return 1;
+  },
+  '--fresh-clone': (options) => {
+    options.freshClone = true;
+    return 0;
+  },
+  '--keep-clone': (options) => {
+    options.keepClone = true;
+    return 0;
+  },
+  '--remote-url': (options, argv, index) => {
+    options.remoteUrl = argv[index + 1];
+    return 1;
+  },
+};
+
 export function parseArgs(argv: string[]): SkillCheckOptions {
   const options: SkillCheckOptions = {
     freshClone: true,
@@ -135,29 +160,17 @@ export function parseArgs(argv: string[]): SkillCheckOptions {
     remoteUrl: upstreamHarnessEngineeringRepo,
   };
   for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === '--skills-dir') {
-      options.skillsDir = argv[i + 1];
-      options.freshClone = false;
-      i += 1;
-    } else if (arg === '--fresh-clone') {
-      options.freshClone = true;
-    } else if (arg === '--keep-clone') {
-      options.keepClone = true;
-    } else if (arg === '--remote-url') {
-      options.remoteUrl = argv[i + 1];
-      i += 1;
-    } else {
-      throw new Error(`unknown argument: ${arg}`);
+    const handler = skillArgHandlers[argv[i]];
+    if (!handler) {
+      throw new Error(`unknown argument: ${argv[i]}`);
     }
+    i += handler(options, argv, i);
   }
   return options;
 }
 
-export function runSkillReachabilityCheck(
-  options: SkillCheckOptions,
-  deps: SkillCheckDeps,
-): number {
+// Returns the remote HEAD sha, or undefined after reporting an unreachable remote.
+function resolveRemoteHead(options: SkillCheckOptions, deps: SkillCheckDeps): string | undefined {
   const remote = deps.spawn('git', ['ls-remote', options.remoteUrl, 'HEAD'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -165,45 +178,73 @@ export function runSkillReachabilityCheck(
   if (remote.status !== 0) {
     deps.stderr.error(`harness-engineering: cannot reach ${options.remoteUrl}`);
     deps.stderr.error(remote.stderr.trim());
+    return undefined;
+  }
+  return remote.stdout.trim().split(/\s+/)[0];
+}
+
+// Clones the remote into cloneRoot and returns the skills directory, or
+// undefined after reporting a clone failure.
+function cloneSkillsDir(
+  options: SkillCheckOptions,
+  deps: SkillCheckDeps,
+  cloneRoot: string,
+): string | undefined {
+  const clone = deps.spawn('git', ['clone', '--depth=1', options.remoteUrl, cloneRoot], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (clone.status !== 0) {
+    deps.stderr.error(`harness-engineering: fresh clone failed for ${options.remoteUrl}`);
+    deps.stderr.error(clone.stderr.trim());
+    return undefined;
+  }
+  return join(cloneRoot, 'skills');
+}
+
+function validateAndReport(
+  skillsDir: string | undefined,
+  sha: string,
+  deps: SkillCheckDeps,
+): number {
+  if (!skillsDir) {
+    deps.stderr.error('harness-engineering: provide --skills-dir or use --fresh-clone');
+    return 1;
+  }
+  const issues = validateHarnessEngineeringSkills(skillsDir, deps.exists, deps.readText);
+  if (issues.length > 0) {
+    for (const issue of issues) {
+      deps.stderr.error(`harness-engineering: ${issue}`);
+    }
+    return 1;
+  }
+  deps.stdout.log(`harness-engineering: remote HEAD ${sha.slice(0, 12)}`);
+  deps.stdout.log(
+    `harness-engineering: validated ${expectedHarnessEngineeringSkills.length} skills from ${skillsDir}`,
+  );
+  return 0;
+}
+
+export function runSkillReachabilityCheck(
+  options: SkillCheckOptions,
+  deps: SkillCheckDeps,
+): number {
+  const sha = resolveRemoteHead(options, deps);
+  if (sha === undefined) {
     return 1;
   }
 
-  const sha = remote.stdout.trim().split(/\s+/)[0];
   let cloneRoot: string | undefined;
-  let skillsDir = options.skillsDir;
   try {
+    let skillsDir = options.skillsDir;
     if (options.freshClone) {
       cloneRoot = deps.mkdtemp(join(tmpdir(), 'harness-engineering-'));
-      const clone = deps.spawn('git', ['clone', '--depth=1', options.remoteUrl, cloneRoot], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      if (clone.status !== 0) {
-        deps.stderr.error(`harness-engineering: fresh clone failed for ${options.remoteUrl}`);
-        deps.stderr.error(clone.stderr.trim());
+      skillsDir = cloneSkillsDir(options, deps, cloneRoot);
+      if (skillsDir === undefined) {
         return 1;
       }
-      skillsDir = join(cloneRoot, 'skills');
     }
-
-    if (!skillsDir) {
-      deps.stderr.error('harness-engineering: provide --skills-dir or use --fresh-clone');
-      return 1;
-    }
-
-    const issues = validateHarnessEngineeringSkills(skillsDir, deps.exists, deps.readText);
-    if (issues.length > 0) {
-      for (const issue of issues) {
-        deps.stderr.error(`harness-engineering: ${issue}`);
-      }
-      return 1;
-    }
-
-    deps.stdout.log(`harness-engineering: remote HEAD ${sha.slice(0, 12)}`);
-    deps.stdout.log(
-      `harness-engineering: validated ${expectedHarnessEngineeringSkills.length} skills from ${skillsDir}`,
-    );
-    return 0;
+    return validateAndReport(skillsDir, sha, deps);
   } finally {
     if (cloneRoot && !options.keepClone) {
       deps.removeTree(cloneRoot);

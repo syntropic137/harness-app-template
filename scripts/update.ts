@@ -121,18 +121,25 @@ function readProvenance(cwd: string): HarnessProvenance | null {
  */
 function commitSummary(cwd: string, base: string, target: string): string[] {
   const log = git(
-    ['log', '--oneline', '--no-decorate', '-n', '10', `${base}..${target}`, '--', ...HARNESS_OWNED_PATHS],
+    [
+      'log',
+      '--oneline',
+      '--no-decorate',
+      '-n',
+      '10',
+      `${base}..${target}`,
+      '--',
+      ...HARNESS_OWNED_PATHS,
+    ],
     { cwd, allowFailure: true },
   );
-  return log.split('\n').filter(Boolean).map((line) => `- ${line}`);
+  return log
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => `- ${line}`);
 }
 
-export function updateProject(options: UpdateOptions = {}): string {
-  const cwd = options.cwd ?? process.cwd();
-  const strategy = options.strategy ?? (process.stdout.isTTY ? 'merge' : 'preview');
-  const ref = upstreamRef(cwd);
-  const target = `upstream/${ref}`;
-
+function assertUpdatable(cwd: string, options: UpdateOptions): string[] {
   if (!git(['remote', 'get-url', 'upstream'], { cwd, allowFailure: true })) {
     throw new Error(
       'no `upstream` remote configured.\nTo configure (one-time):\n  git remote add upstream https://github.com/syntropic137/harness-app-template',
@@ -141,25 +148,24 @@ export function updateProject(options: UpdateOptions = {}): string {
   if (provenanceDirty(cwd)) {
     throw new Error('.harness-provenance.json is immutable after init; revert it before updating');
   }
-
   const dirty = dirtyHarnessPaths(cwd);
   if (dirty.length > 0 && !options.force) {
-    throw new Error(`dirty harness-owned paths would be overwritten:\n${dirty.map((path) => `  ${path}`).join('\n')}`);
+    throw new Error(
+      `dirty harness-owned paths would be overwritten:\n${dirty.map((path) => `  ${path}`).join('\n')}`,
+    );
   }
+  return dirty;
+}
 
-  git(['fetch', 'upstream', ref], { cwd });
-  const templateBase = git(['merge-base', 'HEAD', target], { cwd });
-  const upstreamSha = git(['rev-parse', target], { cwd });
-
-  if (templateBase === upstreamSha) {
-    return `already up to date with upstream ${shortSha(upstreamSha)} (${ref})`;
-  }
-
+function buildSummaryLines(cwd: string, templateBase: string, target: string): string[] {
   const commitCount = git(['rev-list', '--count', `${templateBase}..${target}`], { cwd });
-  const localHarnessChanges = git(['diff', '--name-only', `${templateBase}..HEAD`, '--', ...HARNESS_OWNED_PATHS], {
-    cwd,
-    allowFailure: true,
-  })
+  const localHarnessChanges = git(
+    ['diff', '--name-only', `${templateBase}..HEAD`, '--', ...HARNESS_OWNED_PATHS],
+    {
+      cwd,
+      allowFailure: true,
+    },
+  )
     .split('\n')
     .filter(Boolean);
   const provenance = readProvenance(cwd);
@@ -175,21 +181,39 @@ export function updateProject(options: UpdateOptions = {}): string {
   if (localHarnessChanges.length > 0) {
     summaryLines.push(`local harness edits: ${localHarnessChanges.join(', ')}`);
   }
+  return summaryLines;
+}
 
-  if (options.check) {
-    throw new Error(summaryLines.join('\n'));
+function stashPreimage(cwd: string, dirty: string[], options: UpdateOptions): boolean {
+  if (dirty.length === 0 || !options.force) {
+    return false;
   }
-  if (strategy === 'preview') {
-    return `${summaryLines.join('\n')}\njust update: preview only (no TTY detected). rerun with\n  \`just update -- --strategy=merge\` to apply harness updates.`;
-  }
-
-  let stashed = false;
-  if (dirty.length > 0 && options.force) {
-    const stashOutput = git(['stash', 'push', '--include-untracked', '-m', 'just update harness-owned preimage', '--', ...dirty], {
+  const stashOutput = git(
+    [
+      'stash',
+      'push',
+      '--include-untracked',
+      '-m',
+      'just update harness-owned preimage',
+      '--',
+      ...dirty,
+    ],
+    {
       cwd,
-    });
-    stashed = !stashOutput.includes('No local changes to save');
-  }
+    },
+  );
+  return !stashOutput.includes('No local changes to save');
+}
+
+function applyUpdate(
+  cwd: string,
+  target: string,
+  ref: string,
+  upstreamSha: string,
+  dirty: string[],
+  options: UpdateOptions,
+): string {
+  const stashed = stashPreimage(cwd, dirty, options);
 
   const paths = existingHarnessPathsAt(cwd, target);
   if (paths.length === 0) {
@@ -214,27 +238,75 @@ export function updateProject(options: UpdateOptions = {}): string {
   return `updated: ${refreshed.length} harness file(s) refreshed; ws_apps/ws_packages untouched`;
 }
 
+export function updateProject(options: UpdateOptions = {}): string {
+  const cwd = options.cwd ?? process.cwd();
+  const strategy = options.strategy ?? (process.stdout.isTTY ? 'merge' : 'preview');
+  const ref = upstreamRef(cwd);
+  const target = `upstream/${ref}`;
+
+  const dirty = assertUpdatable(cwd, options);
+
+  git(['fetch', 'upstream', ref], { cwd });
+  const templateBase = git(['merge-base', 'HEAD', target], { cwd });
+  const upstreamSha = git(['rev-parse', target], { cwd });
+
+  if (templateBase === upstreamSha) {
+    return `already up to date with upstream ${shortSha(upstreamSha)} (${ref})`;
+  }
+
+  const summaryLines = buildSummaryLines(cwd, templateBase, target);
+
+  if (options.check) {
+    throw new Error(summaryLines.join('\n'));
+  }
+  if (strategy === 'preview') {
+    return `${summaryLines.join('\n')}\njust update: preview only (no TTY detected). rerun with\n  \`just update -- --strategy=merge\` to apply harness updates.`;
+  }
+
+  return applyUpdate(cwd, target, ref, upstreamSha, dirty, options);
+}
+
+const FLAG_HANDLERS: Record<string, (options: UpdateOptions) => void> = {
+  '--help': () => {
+    console.log('usage: bun run scripts/update.ts [--check] [--strategy=preview|merge] [--force]');
+    process.exit(0);
+  },
+  '--check': (options) => {
+    options.check = true;
+  },
+  '--write': (options) => {
+    options.strategy = 'merge';
+  },
+  '--force': (options) => {
+    options.force = true;
+  },
+};
+
+function applyStrategyArg(options: UpdateOptions, arg: string): void {
+  const strategy = arg.slice('--strategy='.length);
+  if (strategy !== 'merge' && strategy !== 'preview') {
+    throw new Error('--strategy must be merge or preview');
+  }
+  options.strategy = strategy;
+}
+
+function applyArg(options: UpdateOptions, arg: string): void {
+  const handler = FLAG_HANDLERS[arg];
+  if (handler) {
+    handler(options);
+    return;
+  }
+  if (arg.startsWith('--strategy=')) {
+    applyStrategyArg(options, arg);
+    return;
+  }
+  throw new Error(`unknown argument: ${arg}`);
+}
+
 export function parseCli(argv: string[]): UpdateOptions {
   const options: UpdateOptions = {};
   for (const arg of argv) {
-    if (arg === '--help') {
-      console.log('usage: bun run scripts/update.ts [--check] [--strategy=preview|merge] [--force]');
-      process.exit(0);
-    } else if (arg === '--check') {
-      options.check = true;
-    } else if (arg === '--write') {
-      options.strategy = 'merge';
-    } else if (arg === '--force') {
-      options.force = true;
-    } else if (arg.startsWith('--strategy=')) {
-      const strategy = arg.slice('--strategy='.length);
-      if (strategy !== 'merge' && strategy !== 'preview') {
-        throw new Error('--strategy must be merge or preview');
-      }
-      options.strategy = strategy;
-    } else {
-      throw new Error(`unknown argument: ${arg}`);
-    }
+    applyArg(options, arg);
   }
   return options;
 }

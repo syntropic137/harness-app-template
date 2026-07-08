@@ -22,53 +22,61 @@ pub struct CheckReport {
 }
 
 pub fn check_links(source: &Path, links: &[Link]) -> Vec<BrokenLink> {
-    let mut broken = Vec::new();
     let base = source.parent().unwrap_or(Path::new(""));
+    links
+        .iter()
+        .filter_map(|link| check_link(source, base, link))
+        .collect()
+}
 
-    for link in links {
-        if link.kind == LinkKind::External {
-            continue;
-        }
-
-        let (path_part, anchor_part) = split_target(&link.target);
-        let resolved = if path_part.is_empty() {
-            source.to_path_buf()
-        } else {
-            base.join(path_part)
-        };
-
-        if !resolved.exists() {
-            broken.push(BrokenLink {
-                source: source.to_path_buf(),
-                line: link.line,
-                target: link.target.clone(),
-                reason: "target file not found".to_string(),
-                resolved,
-            });
-            continue;
-        }
-
-        if let Some(anchor) = anchor_part {
-            if resolved.extension().and_then(|s| s.to_str()) != Some("md") {
-                continue;
-            }
-            let Ok(content) = std::fs::read_to_string(&resolved) else {
-                continue;
-            };
-            let anchors = extract_anchors(&content);
-            if !anchor_exists(anchor, &anchors) {
-                broken.push(BrokenLink {
-                    source: source.to_path_buf(),
-                    line: link.line,
-                    target: link.target.clone(),
-                    reason: format!("anchor #{anchor} not found"),
-                    resolved,
-                });
-            }
-        }
+/// Check a single link, returning the broken-link record if it fails to
+/// resolve to an existing file or (for Markdown targets) a present anchor.
+fn check_link(source: &Path, base: &Path, link: &Link) -> Option<BrokenLink> {
+    if link.kind == LinkKind::External {
+        return None;
     }
 
-    broken
+    let (path_part, anchor_part) = split_target(&link.target);
+    let resolved = if path_part.is_empty() {
+        source.to_path_buf()
+    } else {
+        base.join(path_part)
+    };
+
+    if !resolved.exists() {
+        return Some(broken_link(
+            source,
+            link,
+            "target file not found".to_string(),
+            resolved,
+        ));
+    }
+
+    let anchor = anchor_part?;
+    if resolved.extension().and_then(|s| s.to_str()) != Some("md") {
+        return None;
+    }
+    let content = std::fs::read_to_string(&resolved).ok()?;
+    let anchors = extract_anchors(&content);
+    if anchor_exists(anchor, &anchors) {
+        return None;
+    }
+    Some(broken_link(
+        source,
+        link,
+        format!("anchor #{anchor} not found"),
+        resolved,
+    ))
+}
+
+fn broken_link(source: &Path, link: &Link, reason: String, resolved: PathBuf) -> BrokenLink {
+    BrokenLink {
+        source: source.to_path_buf(),
+        line: link.line,
+        target: link.target.clone(),
+        reason,
+        resolved,
+    }
 }
 
 fn split_target(target: &str) -> (&str, Option<&str>) {

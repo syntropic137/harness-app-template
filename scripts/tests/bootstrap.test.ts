@@ -854,6 +854,66 @@ describe('main', () => {
     );
   });
 
+  test('ensurePnpmInstall early-return: install fails, no repair applies, main returns after exit', () => {
+    // A non-throwing exit lets ensurePnpmInstall actually return `true`, so the
+    // `if (ensurePnpmInstall(...)) { return; }` early-return branch executes.
+    const exitCodes: number[] = [];
+    const stdoutLog = vi.fn();
+    const stderrError = vi.fn();
+    const exit = vi.fn((code: number) => {
+      exitCodes.push(code);
+    }) as unknown as (code: number) => never;
+    const spawn = spawnRouter([
+      (_command, args) => (args[0] === '--version' ? { status: 0 } : undefined),
+      (command, args) => (command === 'pnpm' && args[0] === 'install' ? { status: 2 } : undefined),
+    ]);
+    main(
+      baseDeps({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: { log: stdoutLog },
+        stderr: { error: stderrError },
+        exit,
+        exists: () => false,
+        readdir: () => [],
+      }),
+    );
+    expect(exit).toHaveBeenCalledWith(2);
+    expect(stderrError).toHaveBeenCalledWith(
+      'bootstrap: pnpm install failed and no known auto-repair applies',
+    );
+    expect(stdoutLog).not.toHaveBeenCalledWith('bootstrap: complete');
+  });
+
+  test('runFinalChecks early-return: cargo check fails, main returns after exit', () => {
+    // Non-throwing exit so runFinalChecks returns `true` and the
+    // `if (runFinalChecks(...)) { return; }` early-return branch executes.
+    const exitCodes: number[] = [];
+    const stdoutLog = vi.fn();
+    const stderrError = vi.fn();
+    const exit = vi.fn((code: number) => {
+      exitCodes.push(code);
+    }) as unknown as (code: number) => never;
+    const spawn = vi.fn((command: string, args: readonly string[] = []) => {
+      if (args[0] === '--version') return { status: 0 };
+      if (command === 'pnpm' && args[0] === 'install') return { status: 0 };
+      if (command === 'cargo') return { status: 1 };
+      return { status: 0 };
+    });
+    main(
+      baseDeps({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: { log: stdoutLog },
+        stderr: { error: stderrError },
+        exit,
+        exists: () => false,
+        readdir: () => [],
+      }),
+    );
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(stderrError).toHaveBeenCalledWith('bootstrap: cargo check failed');
+    expect(stdoutLog).not.toHaveBeenCalledWith('bootstrap: complete');
+  });
+
   describe('real vendor-symlink filesystem exercise', () => {
     let dir: string;
     beforeEach(() => {

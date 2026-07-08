@@ -301,19 +301,11 @@ fn build_release_plan(
         Some(rev) if !rev.trim().is_empty() => Some(rev),
         _ => latest_release_tag(root, &to)?,
     };
-    let base_version = match &resolved_from {
-        Some(tag) => Version::parse_tag(tag).unwrap_or_else(Version::zero),
-        None => Version::zero(),
-    };
+    let base_version = base_version_for(resolved_from.as_deref());
     let commits = collect_commits(root, resolved_from.as_deref(), &to)?;
     let parsed = parse_commits(commits)?;
     let derived = derive_level(&parsed).unwrap_or(BumpLevel::Patch);
-    let level = match requested_level {
-        RequestedLevel::Auto => derived,
-        RequestedLevel::Patch => BumpLevel::Patch,
-        RequestedLevel::Minor => BumpLevel::Minor,
-        RequestedLevel::Major => BumpLevel::Major,
-    };
+    let level = resolve_level(requested_level, derived);
     let next_version = base_version.bump(level);
 
     Ok(ReleasePlan {
@@ -324,6 +316,26 @@ fn build_release_plan(
         level,
         commits: parsed,
     })
+}
+
+/// The starting version for the range: parsed from the resolved tag (falling
+/// back to zero for an unparseable tag) or zero when there is no prior tag.
+fn base_version_for(resolved_from: Option<&str>) -> Version {
+    match resolved_from {
+        Some(tag) => Version::parse_tag(tag).unwrap_or_else(Version::zero),
+        None => Version::zero(),
+    }
+}
+
+/// Map the requested release level onto a concrete bump, using the
+/// commit-derived level only when `Auto` is requested.
+fn resolve_level(requested: RequestedLevel, derived: BumpLevel) -> BumpLevel {
+    match requested {
+        RequestedLevel::Auto => derived,
+        RequestedLevel::Patch => BumpLevel::Patch,
+        RequestedLevel::Minor => BumpLevel::Minor,
+        RequestedLevel::Major => BumpLevel::Major,
+    }
 }
 
 fn collect_commits(root: &Path, from: Option<&str>, to: &str) -> Result<Vec<Commit>> {
@@ -411,20 +423,7 @@ fn parse_conventional(subject: &str, body: &str) -> Option<ConventionalCommit> {
         header = &header[..header.len() - 1];
     }
 
-    let (commit_type, scope) = if let Some(open) = header.find('(') {
-        if !header.ends_with(')') || open == 0 {
-            return None;
-        }
-        let close = header.len() - 1;
-        let commit_type = &header[..open];
-        let scope = &header[open + 1..close];
-        if scope.is_empty() {
-            return None;
-        }
-        (commit_type, Some(scope.to_string()))
-    } else {
-        (header, None)
-    };
+    let (commit_type, scope) = split_type_and_scope(header)?;
 
     if !is_valid_type(commit_type) {
         return None;
@@ -437,6 +436,25 @@ fn parse_conventional(subject: &str, body: &str) -> Option<ConventionalCommit> {
         description: description.to_string(),
         breaking,
     })
+}
+
+/// Split a conventional-commit header (the part before the colon, with any
+/// trailing `!` already stripped) into its type and optional scope. Returns
+/// `None` for a malformed scope (unclosed paren, empty type, or empty scope).
+fn split_type_and_scope(header: &str) -> Option<(&str, Option<String>)> {
+    let Some(open) = header.find('(') else {
+        return Some((header, None));
+    };
+    if !header.ends_with(')') || open == 0 {
+        return None;
+    }
+    let close = header.len() - 1;
+    let commit_type = &header[..open];
+    let scope = &header[open + 1..close];
+    if scope.is_empty() {
+        return None;
+    }
+    Some((commit_type, Some(scope.to_string())))
 }
 
 fn has_breaking_footer(body: &str) -> bool {
@@ -540,25 +558,8 @@ fn replace_manifest_version_text(content: &str, version: &Version) -> Result<Str
             Some(line) => (line, "\n"),
             None => (segment, ""),
         };
-        let trimmed_start = line.trim_start();
-        let indent_len = line.len() - trimmed_start.len();
-        let is_top_level_version = if indent_len == 2 {
-            match trimmed_start.strip_prefix("\"version\"") {
-                Some(rest) => rest.trim_start().starts_with(':'),
-                None => false,
-            }
-        } else {
-            false
-        };
-
-        if !replaced && is_top_level_version {
-            let trimmed_end = line.trim_end();
-            let trailing_ws = &line[trimmed_end.len()..];
-            let comma = if trimmed_end.ends_with(',') { "," } else { "" };
-            updated.push_str(&line[..indent_len]);
-            updated.push_str(&format!("\"version\": \"{next}\"{comma}"));
-            updated.push_str(trailing_ws);
-            updated.push_str(newline);
+        if !replaced && is_top_level_version_line(line) {
+            push_version_line(&mut updated, line, newline, &next);
             replaced = true;
         } else {
             updated.push_str(segment);
@@ -570,6 +571,33 @@ fn replace_manifest_version_text(content: &str, version: &Version) -> Result<Str
     }
 
     Ok(updated)
+}
+
+/// A top-level `"version": ...` line is indented exactly two spaces (one JSON
+/// nesting level) and starts with the `"version"` key followed by a colon.
+fn is_top_level_version_line(line: &str) -> bool {
+    let trimmed_start = line.trim_start();
+    let indent_len = line.len() - trimmed_start.len();
+    if indent_len != 2 {
+        return false;
+    }
+    match trimmed_start.strip_prefix("\"version\"") {
+        Some(rest) => rest.trim_start().starts_with(':'),
+        None => false,
+    }
+}
+
+/// Rewrite the value of a top-level version line while preserving its
+/// indentation, trailing comma, trailing whitespace, and newline.
+fn push_version_line(updated: &mut String, line: &str, newline: &str, next: &str) {
+    let indent_len = line.len() - line.trim_start().len();
+    let trimmed_end = line.trim_end();
+    let trailing_ws = &line[trimmed_end.len()..];
+    let comma = if trimmed_end.ends_with(',') { "," } else { "" };
+    updated.push_str(&line[..indent_len]);
+    updated.push_str(&format!("\"version\": \"{next}\"{comma}"));
+    updated.push_str(trailing_ws);
+    updated.push_str(newline);
 }
 
 fn render_changelog_release(content: &str, plan: &ReleasePlan, date: &str) -> Result<String> {
@@ -658,16 +686,26 @@ fn render_release_body(plan: &ReleasePlan) -> String {
 }
 
 fn section_for_type(commit_type: &str) -> &'static str {
-    match commit_type {
-        "feat" => "Added",
-        "fix" => "Fixed",
-        "refactor" => "Changed",
-        "perf" => "Performance",
-        "docs" => "Documentation",
-        "build" | "chore" | "ci" | "style" | "test" => "Maintenance",
-        "experiments" | "plan" | "proposal" | "retrospective" => "Harness Work",
-        _ => "Other",
-    }
+    const SECTIONS: &[(&str, &str)] = &[
+        ("feat", "Added"),
+        ("fix", "Fixed"),
+        ("refactor", "Changed"),
+        ("perf", "Performance"),
+        ("docs", "Documentation"),
+        ("build", "Maintenance"),
+        ("chore", "Maintenance"),
+        ("ci", "Maintenance"),
+        ("style", "Maintenance"),
+        ("test", "Maintenance"),
+        ("experiments", "Harness Work"),
+        ("plan", "Harness Work"),
+        ("proposal", "Harness Work"),
+        ("retrospective", "Harness Work"),
+    ];
+    SECTIONS
+        .iter()
+        .find(|(key, _)| *key == commit_type)
+        .map_or("Other", |(_, section)| *section)
 }
 
 fn scope_prefix(scope: Option<&str>) -> String {
@@ -1420,8 +1458,7 @@ mod tests {
         )
         .unwrap_err()
         .to_string();
-        let date_err_ok =
-            date_err.contains("date +%F failed") || date_err.contains("run date +%F");
+        let date_err_ok = date_err.contains("date +%F failed") || date_err.contains("run date +%F");
         assert!(date_err_ok);
         assert!(
             git(Path::new("."), &["definitely-not-a-git-subcommand"])
@@ -1447,7 +1484,10 @@ mod tests {
             pr_title("feat(versioning): validate PR title").unwrap(),
             ExitCode::SUCCESS
         );
-        assert_eq!(pr_title("fix: repair release script").unwrap(), ExitCode::SUCCESS);
+        assert_eq!(
+            pr_title("fix: repair release script").unwrap(),
+            ExitCode::SUCCESS
+        );
         assert_eq!(
             pr_title("feat(api)!: drop legacy endpoint").unwrap(),
             ExitCode::SUCCESS
@@ -1456,7 +1496,10 @@ mod tests {
 
     #[test]
     fn check_pr_title_rejects_non_conventional_subject() {
-        assert_eq!(pr_title("update release script").unwrap(), ExitCode::from(1));
+        assert_eq!(
+            pr_title("update release script").unwrap(),
+            ExitCode::from(1)
+        );
         assert_eq!(pr_title("Feat: uppercase type").unwrap(), ExitCode::from(1));
         assert_eq!(
             pr_title("fork-readiness E2E + fixes for fresh-consumer gaps").unwrap(),
