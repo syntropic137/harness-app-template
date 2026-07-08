@@ -236,6 +236,19 @@ jobs:
       - name: Compose project APSS CLI
         if: steps.cache-apss-composed.outputs.cache-hit != 'true'
         run: apss install
+      - name: Produce APSS topology + assert (.topology/metrics/*.json)
+        # The gate's apss-topology adapter reads .topology/metrics/*.json.
+        # Run the producer explicitly and FAIL LOUD if it errors or emits no
+        # metrics — otherwise a producer failure collapses into an ambiguous
+        # "apss-topology produced no reading" under the strict profile with no
+        # actionable cause. (Codex fitness diagnosis rec #4.)
+        run: |
+          .apss/bin/apss run code-topology analyze .
+          if ! ls .topology/metrics/*.json >/dev/null 2>&1; then
+            echo "::error::apss produced no .topology/metrics/*.json — see the producer output above"
+            exit 1
+          fi
+          ls -la .topology/metrics/
       - name: Install sensors slot deps (ts-morph)
         working-directory: harness/sensors
         run: npm install --no-package-lock --no-audit --no-fund --ignore-scripts --silent
