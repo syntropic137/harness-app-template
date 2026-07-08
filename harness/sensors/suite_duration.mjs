@@ -59,7 +59,6 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
@@ -138,7 +137,12 @@ export function parseCoverage(text) {
     if (!row.includes('|')) {
       continue;
     }
-    if (/^\s*(?:ℹ\s*)?all files\b/i.test(row)) {
+    // Tolerate a leading marker before "all files": bun/vitest prefix the
+    // summary row with `ℹ`, and node's --experimental-test-coverage emits it
+    // as a TAP comment (`# all files | line % | branch % | funcs %`). Without
+    // the `#` alternative, node 22's coverage row is never matched and the
+    // adapter wrongly reports missing-all-files-row.
+    if (/^\s*(?:#\s*|ℹ\s*)?all files\b/i.test(row)) {
       valueRow = row;
       break;
     }

@@ -77,6 +77,17 @@ const NODE_OUTPUT_REGRESSION = `
 ℹ end of coverage report
 `;
 
+// Node 22's --experimental-test-coverage emits the summary as TAP comments
+// (`# all files ...`), NOT the `ℹ` info prefix above. The real adapter failed
+// with missing-all-files-row against this exact shape until the parser learned
+// the `#` prefix; this fixture pins that.
+const NODE22_TAP_OUTPUT_PASS = `
+# start of coverage report
+# file             | line % | branch % | funcs % | uncovered lines
+# all files        | 100.00 |   100.00 |  100.00 |
+# end of coverage report
+`;
+
 const BUN_OUTPUT_PASS = `
 -----------|---------|---------|---------|---------
 File       | % Stmts | % Branch | % Funcs | % Lines
@@ -92,6 +103,15 @@ test('parseCoverage returns parsed columns from node test output', () => {
   assert.equal(result.columns.branches, 100);
   assert.equal(result.columns.functions, 100);
   // node does not emit statements; the parser must NOT invent it as 100.
+  assert.equal(result.columns.statements, undefined);
+});
+
+test('parseCoverage parses node 22 TAP-comment coverage (# all files)', () => {
+  const result = parseCoverage(NODE22_TAP_OUTPUT_PASS);
+  assert.equal(result.mode, 'parsed');
+  assert.equal(result.columns.lines, 100);
+  assert.equal(result.columns.branches, 100);
+  assert.equal(result.columns.functions, 100);
   assert.equal(result.columns.statements, undefined);
 });
 
