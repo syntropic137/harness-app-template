@@ -578,6 +578,22 @@ export const KNOWN_ADAPTERS = new Set([
   'coverage',
 ]);
 
+// Adapters whose enforcement is OWNED by a dedicated gate, not the sensors
+// gate — so `strict` does NOT require them even though their metrics are
+// known (and validly tag them). `hyperfine-perf`'s own metric objective says
+// the dedicated `harness/perf/gate.mjs` is the primary enforcer (it owns the
+// tolerance window); the PF01 startup-benchmark-mean legitimately reads null
+// on a scaffold with no committed benchmarks, which is "nothing to measure
+// yet", not an adapter failure. Requiring it in `strict` would hard-fail the
+// bare scaffold and inject machine-variable wall-clock into an EPSILON gate.
+// See ADR-0028 (strict-requires-everything, with this documented carve-out).
+export const PERF_GATE_OWNED_ADAPTERS = new Set(['hyperfine-perf']);
+
+/** The adapters `strict` requires: every known adapter except perf-gate-owned. */
+export function strictRequiredAdapters() {
+  return new Set([...KNOWN_ADAPTERS].filter((a) => !PERF_GATE_OWNED_ADAPTERS.has(a)));
+}
+
 export function metricAdapter(dimensionCode, metricId) {
   const metric = (FITNESS_METRICS[dimensionCode] ?? []).find((m) => m.id === metricId);
   return metric?.adapter ?? null;
@@ -1129,7 +1145,7 @@ export function resolveProfile({ profiles, profileName }) {
   const table = profiles?.[profileName];
   if (!table) {
     if (profileName === 'strict') {
-      return { name: 'strict', requiredAdapters: new Set(KNOWN_ADAPTERS) };
+      return { name: 'strict', requiredAdapters: strictRequiredAdapters() };
     }
     throw new Error(`unknown profile '${profileName}'`);
   }

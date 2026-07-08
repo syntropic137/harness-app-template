@@ -2,8 +2,10 @@
 import { describe, expect, test } from 'vitest';
 import {
   KNOWN_ADAPTERS,
+  PERF_GATE_OWNED_ADAPTERS,
   parseProfiles,
   resolveProfile,
+  strictRequiredAdapters,
   // @ts-expect-error plain ESM, no .d.ts ships with the slot.
 } from '../../harness/sensors/gate.mjs';
 
@@ -29,12 +31,15 @@ describe('profile resolution', () => {
     expect(r.requiredAdapters.has('sentrux')).toBe(false);
   });
 
-  test('strict with no table defaults to ALL known adapters (fail-safe)', () => {
+  test('strict with no table defaults to every known adapter except perf-gate-owned (fail-safe)', () => {
     const r = resolveProfile({ profiles: {}, profileName: 'strict' });
-    expect(r.requiredAdapters.size).toBe(KNOWN_ADAPTERS.size);
+    expect(r.requiredAdapters).toEqual(strictRequiredAdapters());
+    // Every non-perf-owned known adapter is required; the perf-owned ones are not.
     for (const adapter of KNOWN_ADAPTERS) {
-      expect(r.requiredAdapters.has(adapter), `strict default missing '${adapter}'`).toBe(true);
+      const expected = !PERF_GATE_OWNED_ADAPTERS.has(adapter);
+      expect(r.requiredAdapters.has(adapter), `strict default '${adapter}'`).toBe(expected);
     }
+    expect(r.requiredAdapters.has('hyperfine-perf')).toBe(false);
   });
 
   test('unknown profile name throws', () => {

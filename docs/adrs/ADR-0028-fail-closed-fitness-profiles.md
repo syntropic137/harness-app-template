@@ -105,6 +105,21 @@ Two profiles ship; forks add their own. `advisory-by-design` exemptions
 they remain declared per-metric and are the **Declared-N/A** state in
 every profile.
 
+**Carve-out: perf-gate-owned adapters.** `strict` requires every known
+adapter EXCEPT those whose enforcement is owned by a dedicated gate
+(`PERF_GATE_OWNED_ADAPTERS` in `gate.mjs`, currently `hyperfine-perf`).
+`hyperfine-perf`'s own metric objective states the dedicated
+`harness/perf/gate.mjs` is the primary enforcer (it owns the tolerance
+window), and the PF01 `startup-benchmark-mean` legitimately reads `null` on a
+scaffold with no committed benchmarks — "nothing to measure yet", not an
+adapter failure. Requiring it in `strict` would hard-fail the bare scaffold
+and force machine-variable wall-clock through an EPSILON comparison. The
+adapter stays *known* (its metrics validly tag it and are gated when
+benchmarks exist) but is `skip-loud` under `strict`, not required. The
+`strict` required set is therefore `strictRequiredAdapters()` =
+`KNOWN_ADAPTERS \ PERF_GATE_OWNED_ADAPTERS`, and the governance-profiles
+parity test asserts against that (not against raw `KNOWN_ADAPTERS`).
+
 ### 3. Default `strict`, fail-safe
 
 - Selection precedence: `--profile=<name>` flag › `SENSORS_PROFILE` env
