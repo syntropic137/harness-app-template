@@ -29,6 +29,13 @@ bootstrap *args:
 doctor *args:
     bun run scripts/doctor.ts {{args}}
 
+# Install the OPTIONAL local harness adapter tools (UBS, sentrux, + deps
+# ast-grep/ripgrep/jq/hyperfine) so the git hooks and strict fitness gate run
+# locally. Idempotent; reuses the pinned .github/scripts/install-*.sh.
+[group('setup')]
+install-tools:
+    bash scripts/install-tools.sh
+
 # Link agent vendor manifests (`link`) or sync the generated AGENTS.md skill list (`skills`, `--write` to regenerate).
 [group('setup')]
 agents action="link" *args:

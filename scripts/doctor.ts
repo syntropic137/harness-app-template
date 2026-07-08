@@ -244,6 +244,30 @@ export interface ToolCheck {
   hint?: string;
 }
 
+// Optional harness adapter tools. Missing ones do NOT fail `just doctor` (they
+// degrade the fitness gate to skip-loud and the hooks to soft-skip), but they
+// are surfaced so a fresh clone knows what `just install-tools` would add.
+const OPTIONAL_ADAPTERS: { name: string; enables: string }[] = [
+  { name: 'ubs', enables: 'SC01 security adapter + ubs-staged/ubs-diff hooks' },
+  { name: 'sentrux', enables: '2nd architectural lens (sentrux-* metrics)' },
+  { name: 'ast-grep', enables: 'UBS JS/TS AST scanning' },
+  { name: 'rg', enables: 'UBS fast search' },
+  { name: 'jq', enables: 'UBS JSON/SARIF merge' },
+  { name: 'hyperfine', enables: 'PF01 startup-time benchmark' },
+];
+
+export function optionalToolChecks(spawn: typeof spawnSync): ToolCheck[] {
+  return OPTIONAL_ADAPTERS.map(({ name, enables }) => {
+    const version = toolVersion(spawn, name);
+    return {
+      name,
+      ok: Boolean(version),
+      version,
+      hint: version ? undefined : `just install-tools  (${enables})`,
+    };
+  });
+}
+
 export function toolChecks(spawn: typeof spawnSync): ToolCheck[] {
   const out: ToolCheck[] = [];
   for (const tool of required) {
@@ -295,6 +319,26 @@ function reportTools(sink: Sink, tools: ToolCheck[], width: number): number {
   return failed;
 }
 
+/**
+ * Render the optional harness adapters. These are advisory only — a missing
+ * one is `[SKIP]`, never `[FAIL]`, and never counts toward the doctor's failed
+ * total (they degrade the gate to skip-loud, not break it). Returns 0 always.
+ */
+function reportOptional(sink: Sink, optional: ToolCheck[], width: number): number {
+  if (optional.length === 0) return 0;
+  sink.log('');
+  sink.log('optional adapters (run `just install-tools` to add any [SKIP]):');
+  for (const t of optional) {
+    if (t.ok) {
+      emitRow(sink, '[ OK ]', t.name, t.version ?? 'present', width);
+    } else {
+      emitRow(sink, '[SKIP]', t.name, 'not installed — optional', width);
+      if (t.hint) emitHint(sink, width, t.hint);
+    }
+  }
+  return 0;
+}
+
 function reportRuntime(sink: Sink, runtime: RuntimeCheck[], width: number): number {
   let failed = 0;
   for (const r of runtime) {
@@ -334,11 +378,13 @@ export function printReport(
   provenance: string[],
   log: (line: string) => void,
   profiling: string[] = [],
+  optional: ToolCheck[] = [],
 ): { passed: number; failed: number; total: number } {
   const sink: Sink = { log };
   const width = Math.max(
     ...tools.map((t) => t.name.length),
     ...runtime.map((r) => r.name.length),
+    ...optional.map((t) => t.name.length),
     'provenance'.length,
   );
   sink.log('preflight checks:');
@@ -347,7 +393,8 @@ export function printReport(
     reportTools(sink, tools, width) +
     reportRuntime(sink, runtime, width) +
     reportIssues(sink, 'provenance', 'valid', provenance, width) +
-    reportIssues(sink, 'profiling', 'slot wired', profiling, width);
+    reportIssues(sink, 'profiling', 'slot wired', profiling, width) +
+    reportOptional(sink, optional, width);
   sink.log('');
   const total = tools.length + runtime.length + 2;
   return { passed: total - failed, failed, total };
@@ -360,12 +407,14 @@ export function main(deps: DoctorDeps): void {
   const runtime = runtimeChecks(deps.cwd, exists);
   const provenance = provenanceIssues(deps.cwd, exists, readText);
   const profiling = profilingIssues(deps.cwd, exists, readText);
+  const optional = optionalToolChecks(deps.spawn);
   const { passed, failed, total } = printReport(
     tools,
     runtime,
     provenance,
     (line) => deps.stdout.log(line),
     profiling,
+    optional,
   );
   if (failed > 0) {
     deps.stderr.error(

@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import {
   main,
   missingTools,
+  optionalToolChecks,
   printReport,
   profilingIssues,
   provenanceIssues,
@@ -193,6 +194,35 @@ describe('doctor', () => {
     expect(lines.some((l) => l.includes('synthetic') && l.includes('present'))).toBe(true);
   });
 
+  test('optionalToolChecks flags a missing adapter with the install-tools hint', () => {
+    const spawn = spawnWith({ ubs: 'UBS Meta-Runner v5.3.4' }); // only ubs present
+    const optional = optionalToolChecks(spawn as never);
+    const ubs = optional.find((o) => o.name === 'ubs');
+    const sentrux = optional.find((o) => o.name === 'sentrux');
+    expect(ubs?.ok).toBe(true);
+    expect(sentrux?.ok).toBe(false);
+    expect(sentrux?.hint).toContain('just install-tools');
+  });
+
+  test('printReport lists optional adapters as [SKIP] and never counts them as failed', () => {
+    const tools = toolChecks(spawnWith(DEFAULT_VERSIONS) as never);
+    const optional = optionalToolChecks(spawnWith({}) as never); // all optional missing
+    const lines: string[] = [];
+    const { failed } = printReport(
+      tools,
+      runtimeChecks('/repo', () => true),
+      [],
+      (line) => lines.push(line),
+      [],
+      optional,
+    );
+    // All required pass; the six missing optional adapters must NOT fail doctor.
+    expect(failed).toBe(0);
+    expect(lines.some((l) => l.includes('[SKIP]') && l.includes('ubs'))).toBe(true);
+    expect(lines.some((l) => l.includes('optional adapters'))).toBe(true);
+    expect(lines.some((l) => l.includes('[FAIL]') && l.includes('ubs'))).toBe(false);
+  });
+
   test('printReport prints trailing provenance issues as continuation lines', () => {
     const tools = toolChecks(spawnWith(DEFAULT_VERSIONS) as never);
     const runtime = runtimeChecks('/repo', () => true);
@@ -278,7 +308,7 @@ describe('doctor', () => {
         },
         cwd: process.cwd(),
       });
-    } catch (e) {
+    } catch {
       // Failure is fine; we just want the real fs default-fallbacks to run.
     }
     // Either the provenance line shows OK or the report flagged something
