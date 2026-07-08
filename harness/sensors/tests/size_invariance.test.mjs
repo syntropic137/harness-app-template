@@ -133,12 +133,12 @@ test('ratchetBaseline: below-threshold metrics without ratchet_floor still tight
       },
     },
   };
+  // max-cognitive sources from complexity.mjs (module max_cognitive); APSS
+  // function cognitive is interim-excluded pending the apss 0.3.0 fix.
   const better = {
     workspace: {
       folders: [],
-      modules: [
-        { source: 'ws_apps/x/src/a.ts', apss: { functions: [{ cognitive: 5, cyclomatic: 2 }] } },
-      ],
+      modules: [{ source: 'ws_apps/x/src/a.ts', max_cognitive: 5, max_cyclomatic: 2 }],
       circular_edges: 0,
     },
   };

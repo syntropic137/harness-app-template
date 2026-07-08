@@ -150,16 +150,17 @@ test('ratchetBaseline: improving APSS dimension metric tightens floor (direction
       },
     },
   };
-  // Build a report whose APSS function values surface max_cognitive = 5.
+  // Build a report whose complexity.mjs module value surfaces max_cognitive = 5.
+  // (max-cognitive sources from complexity.mjs; APSS function cognitive is
+  // interim-excluded pending the apss 0.3.0 fix — see gate.mjs objective.)
   const better = {
     workspace: {
       folders: [],
       modules: [
         {
           source: 'ws_apps/x/src/a.ts',
-          apss: {
-            functions: [{ cognitive: 5, cyclomatic: 2 }],
-          },
+          max_cognitive: 5,
+          max_cyclomatic: 2,
         },
       ],
       circular_edges: 0,

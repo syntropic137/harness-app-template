@@ -153,34 +153,34 @@ export const FITNESS_METRICS = {
       id: 'max-cognitive',
       name: 'Maximum Cognitive Complexity',
       objective:
-        'Max function cognitive complexity from APSS functions or the local complexity adapter.',
-      source: '.topology/metrics/functions.json or harness/sensors/complexity.mjs',
+        'Max function cognitive complexity from the ts-morph complexity.mjs adapter (SonarSource algorithm). APSS function cognitive is INTERIM-EXCLUDED: apss-v1-0001-code-topology 0.2.0 over-counts cognitive via an off-by-one nesting bug (the measured function counts its own definition as a nesting level) plus per-case switch charging — fixed upstream in AgentParadise PR #90 (bumps to 0.3.0). Re-add APSS as a source once 0.3.0 is pinned and the baseline is re-derived. See ADR-0017/ADR-0018.',
+      source: 'harness/sensors/complexity.mjs (APSS cognitive interim-excluded pending 0.3.0)',
       adapter: 'complexity',
       direction: 'max',
       default_threshold: 15,
       fail_on_regression: true,
       value: (report) =>
         maxNumber([
-          ...apssFunctionValues(report, 'cognitive'),
+          // APSS function cognitive intentionally omitted until 0.3.0 — see objective.
           ...moduleValues(report, (m) => m.max_cognitive),
-          ...folderValues(report, (f) => f.max_cognitive ?? f.apss_max_cognitive),
+          ...folderValues(report, (f) => f.max_cognitive),
         ]),
     },
     {
       id: 'max-cyclomatic',
       name: 'Maximum Cyclomatic Complexity',
       objective:
-        'Max function cyclomatic complexity from APSS functions or the local complexity adapter.',
-      source: '.topology/metrics/functions.json or harness/sensors/complexity.mjs',
+        'Max function cyclomatic complexity from the ts-morph complexity.mjs adapter. APSS function values are INTERIM-EXCLUDED alongside max-cognitive (the same 0.2.0 defect ships per-case switch/match charging that inflates cyclomatic too); fixed upstream in AgentParadise PR #90. Re-add once 0.3.0 is pinned.',
+      source: 'harness/sensors/complexity.mjs (APSS cyclomatic interim-excluded pending 0.3.0)',
       adapter: 'complexity',
       direction: 'max',
       default_threshold: 10,
       fail_on_regression: true,
       value: (report) =>
         maxNumber([
-          ...apssFunctionValues(report, 'cyclomatic'),
+          // APSS function cyclomatic intentionally omitted until 0.3.0 — see objective.
           ...moduleValues(report, (m) => m.max_cyclomatic),
-          ...folderValues(report, (f) => f.max_cyclomatic ?? f.apss_max_cyclomatic),
+          ...folderValues(report, (f) => f.max_cyclomatic),
         ]),
     },
     {
