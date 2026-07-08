@@ -43,10 +43,18 @@ cd "$EXAMPLE_DIR"
 # --warmup 1 absorbs filesystem-cache effects; --runs 5 keeps the bench
 # under ~15s wall-clock on a typical laptop.  --show-output discarded
 # because the example writes a single JSON log line we don't need here.
+#
+# hyperfine writes its human-readable progress table to STDOUT, so
+# `--export-json /dev/stdout` interleaves the table with the JSON and yields
+# an unparseable stream for harness/perf/gate.mjs. Export to a temp file and
+# emit ONLY that file's JSON on stdout.
+bench_json="$(mktemp -t harness-perf-bench-XXXXXX.json)"
+trap 'rm -f "$bench_json"' EXIT
 HARNESS_TELEMETRY_DISABLED=1 hyperfine \
   --warmup 1 \
   --runs 5 \
-  --export-json /dev/stdout \
+  --export-json "$bench_json" \
   --command-name "example-typescript-start" \
   "node --import tsx --import ./src/telemetry.ts src/main.ts" \
-  2>/dev/null
+  >/dev/null 2>&1
+cat "$bench_json"

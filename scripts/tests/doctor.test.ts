@@ -194,6 +194,12 @@ describe('doctor', () => {
     expect(lines.some((l) => l.includes('synthetic') && l.includes('present'))).toBe(true);
   });
 
+  test('printReport renders an ok optional adapter with no version as "present"', () => {
+    const lines: string[] = [];
+    printReport([], [], [], (line) => lines.push(line), [], [{ name: 'synthetic-opt', ok: true }]);
+    expect(lines.some((l) => l.includes('synthetic-opt') && l.includes('present'))).toBe(true);
+  });
+
   test('optionalToolChecks flags a missing adapter with the install-tools hint', () => {
     const spawn = spawnWith({ ubs: 'UBS Meta-Runner v5.3.4' }); // only ubs present
     const optional = optionalToolChecks(spawn as never);
@@ -204,9 +210,10 @@ describe('doctor', () => {
     expect(sentrux?.hint).toContain('just install-tools');
   });
 
-  test('printReport lists optional adapters as [SKIP] and never counts them as failed', () => {
+  test('printReport lists optional adapters ([ OK ]/[SKIP]) and never counts them as failed', () => {
     const tools = toolChecks(spawnWith(DEFAULT_VERSIONS) as never);
-    const optional = optionalToolChecks(spawnWith({}) as never); // all optional missing
+    // Mix: ubs present (renders [ OK ]), the rest missing (render [SKIP]).
+    const optional = optionalToolChecks(spawnWith({ ubs: 'UBS Meta-Runner v5.3.4' }) as never);
     const lines: string[] = [];
     const { failed } = printReport(
       tools,
@@ -216,11 +223,12 @@ describe('doctor', () => {
       [],
       optional,
     );
-    // All required pass; the six missing optional adapters must NOT fail doctor.
+    // All required pass; missing optional adapters must NOT fail doctor.
     expect(failed).toBe(0);
-    expect(lines.some((l) => l.includes('[SKIP]') && l.includes('ubs'))).toBe(true);
+    expect(lines.some((l) => l.includes('[ OK ]') && l.includes('ubs'))).toBe(true);
+    expect(lines.some((l) => l.includes('[SKIP]') && l.includes('sentrux'))).toBe(true);
     expect(lines.some((l) => l.includes('optional adapters'))).toBe(true);
-    expect(lines.some((l) => l.includes('[FAIL]') && l.includes('ubs'))).toBe(false);
+    expect(lines.some((l) => l.includes('[FAIL]') && l.includes('sentrux'))).toBe(false);
   });
 
   test('printReport prints trailing provenance issues as continuation lines', () => {
