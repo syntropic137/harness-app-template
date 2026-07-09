@@ -404,7 +404,7 @@
     "dimensions|MD01|sentrux-coupling-score": "BASELINE-RELAX-OK: ADR-0029 deliberate REMOVAL. A global composite ratio that false-tripped on healthy multi-module growth; removed from the enforced MD01 set. sentrux still computes coupling_score in its envelope, it is simply no longer baseline-governed. max-fan-out remains the canonical coupling enforcer.",
     "dimensions|MD01|sentrux-max-depth": "BASELINE-RELAX-OK: sentrux adapter not installed locally; these floors are enforced in CI where the tool is present",
     "dimensions|ST01|sentrux-cycle-count": "BASELINE-RELAX-OK: sentrux adapter not installed locally; these floors are enforced in CI where the tool is present",
-    "dimensions|SC01|critical-finding-count": "BASELINE-RELAX-OK: sentrux adapter not installed locally; these floors are enforced in CI where the tool is present",
+    "dimensions|SC01|critical-finding-count": "BASELINE-RELAX-OK: ubs-security adapter (UBS) not installed locally; this floor is enforced in CI where the tool is present",
     "dimensions|PF01|suite-duration-iteration-count": "BASELINE-RELAX-OK: PF01 performance adapter not wired locally; floor enforced in CI",
     "dimensions|CV01|rust-line-coverage-pct": "BASELINE-RELAX-OK: CV01 coverage adapter not wired in sensors gate locally; coverage enforced via lefthook cov gates",
     "dimensions|CV01|rust-function-coverage-pct": "BASELINE-RELAX-OK: CV01 coverage adapter not wired in sensors gate locally; coverage enforced via lefthook cov gates",

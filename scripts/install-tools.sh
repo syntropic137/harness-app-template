@@ -60,10 +60,25 @@ os="$(uname -s)"
 arch="$(uname -m)"
 
 # --- runtime deps for the UBS scanner + perf bench ---
-# macOS ships bash 3.2; UBS needs >= 4. brew bash installs 5.x to
-# /opt/homebrew/bin (ensure it precedes /bin on PATH).
+# macOS ships bash 3.2; UBS needs >= 4. A plain presence check is not enough
+# (`command -v bash` finds the old /bin/bash), so check the VERSION of the bash
+# on PATH and install a modern one via brew when it is <4. brew bash installs
+# 5.x to /opt/homebrew/bin (ensure it precedes /bin on PATH).
 if [ "$os" = "Darwin" ]; then
-  ensure_dep bash bash
+  bash_major="$(bash -c 'echo "${BASH_VERSINFO[0]:-0}"' 2>/dev/null || echo 0)"
+  if [ "${bash_major:-0}" -ge 4 ]; then
+    skipped+=("bash (>=4 already present)")
+  elif have brew; then
+    printf 'install-tools: installing bash >=4 (brew install bash; system bash is %s)\n' \
+      "${bash_major:-unknown}" >&2
+    if brew install bash >&2; then
+      installed+=("bash")
+    else
+      failed+=("bash (\`brew install bash\` failed)")
+    fi
+  else
+    failed+=("bash (system bash is <4 and no brew found — install bash >=4 manually)")
+  fi
 fi
 ensure_dep ast-grep ast-grep
 ensure_dep rg ripgrep
