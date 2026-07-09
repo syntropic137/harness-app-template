@@ -378,6 +378,82 @@ test('guard: removing a metric WITHOUT a marker is still blocked', () => {
   assert.ok(guard.violations.some((v) => v.path === path));
 });
 
+test('guard: removing a metric from CODE while leaving baseline.json unchanged is blocked (Codex review)', () => {
+  // The subtle bypass: delete the metric from FITNESS_METRICS (so the generated
+  // baseline lacks it and it stops gating) but leave the working baseline.json
+  // entry UNCHANGED (== origin/main). The value-based checks never fire because
+  // working equals reference; the guard must still catch the code-side removal.
+  const path = 'dimensions|MD01|max-fan-out';
+  const reference = dimBaseline('max-fan-out', { direction: 'max', baseline: 20 });
+  const working = {
+    dimensions: { MD01: { metrics: { 'max-fan-out': { direction: 'max', baseline: 20 } } } },
+    _baseline_relaxation_approvals: {},
+  };
+  const generated = { dimensions: { MD01: { metrics: {} } } }; // removed from code
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(
+    guard.ok,
+    false,
+    'a code-side metric removal must be blocked even with an unchanged working floor',
+  );
+  assert.ok(
+    guard.violations.some(
+      (v) => v.path === path && v.reason === 'enforced-floor-removed-from-code',
+    ),
+    `expected enforced-floor-removed-from-code; got ${JSON.stringify(guard.violations)}`,
+  );
+});
+
+test('guard: code-side metric removal is allowed WITH a marker (unchanged working floor)', () => {
+  const path = 'dimensions|MD01|max-fan-out';
+  const reference = dimBaseline('max-fan-out', { direction: 'max', baseline: 20 });
+  const working = {
+    dimensions: { MD01: { metrics: { 'max-fan-out': { direction: 'max', baseline: 20 } } } },
+    _baseline_relaxation_approvals: { [path]: `${MARKER}: deliberate metric removal` },
+  };
+  const generated = { dimensions: { MD01: { metrics: {} } } };
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(
+    guard.ok,
+    true,
+    `an audited code-side removal must pass; violations: ${JSON.stringify(guard.violations)}`,
+  );
+});
+
+test('guard: a FOLDER floor removed from the generated report while working is unchanged is blocked (Codex review)', () => {
+  const path = 'folders|ws_apps/x/src|I';
+  const reference = { folders: { 'ws_apps/x/src': { I: 0.2, D: null } }, dimensions: {} };
+  const working = {
+    folders: { 'ws_apps/x/src': { I: 0.2, D: null } }, // unchanged vs reference
+    dimensions: {},
+    _baseline_relaxation_approvals: {},
+  };
+  const generated = { folders: {}, dimensions: {} }; // folder gone from the scan
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(
+    guard.ok,
+    false,
+    'a folder floor gone from the code-derived report must be blocked (unmarked)',
+  );
+  assert.ok(
+    guard.violations.some(
+      (v) => v.path === path && v.reason === 'enforced-floor-removed-from-code',
+    ),
+  );
+});
+
 test('guard: dropping a STILL-ENFORCED metric floor is blocked even WITH a marker', () => {
   // Adversarial (independent review): a marker must not disable a live gate by
   // deleting the metric's floor entry. The metric is gone from the working

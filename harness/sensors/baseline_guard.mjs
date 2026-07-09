@@ -88,25 +88,33 @@ function readTrustedRatchetFloor(generatedBaseline, path, direction) {
 }
 
 /**
- * True when the metric named by `path` is entirely ABSENT from the generated
- * (code-derived) baseline — i.e. it was deliberately removed from
- * FITNESS_METRICS, not merely reading null this run. Distinguishes an
- * ADR-0029 metric deletion (allowed with a marker) from an accidental
- * direction drop.
+ * True when the floor named by `path` is entirely ABSENT from the generated
+ * (code-derived) baseline — i.e. the enforced metric was deliberately removed
+ * from FITNESS_METRICS, or the folder no longer appears in the workspace scan —
+ * as opposed to merely reading null this run (the key is still present). Covers
+ * both dimension metrics and folder I/D floors. Distinguishes a deliberate
+ * removal (allowed with a marker) from an accidental direction drop, and — the
+ * key security property — lets the guard detect a floor that was removed from
+ * CODE while its editable baseline.json entry was left unchanged.
  */
 function metricRemovedFromGenerated(generated, path) {
   if (typeof path !== 'string') {
     return false;
   }
   const [kind, bucket, metric] = path.split(RELAXATION_SEGMENT_SEP);
-  if (kind !== 'dimensions') {
-    return false;
+  if (kind === 'dimensions') {
+    const metrics = generated?.dimensions?.[bucket]?.metrics;
+    if (!metrics || typeof metrics !== 'object') {
+      return false;
+    }
+    return !(metric in metrics);
   }
-  const metrics = generated?.dimensions?.[bucket]?.metrics;
-  if (!metrics || typeof metrics !== 'object') {
-    return false;
+  if (kind === 'folders') {
+    const folder = generated?.folders?.[bucket];
+    // Folder gone from the report entirely, or present without this I/D key.
+    return !folder || typeof folder !== 'object' || !(metric in folder);
   }
-  return !(metric in metrics);
+  return false;
 }
 
 function isDirectionValue(value) {
@@ -228,6 +236,31 @@ function applyDirectionDeviation(
 
 function evaluateCandidate({ kind, path, direction, reference, working, generated, violations }) {
   if (!isNumber(reference)) {
+    return;
+  }
+  // Fail-closed against CODE-side removal: a floor that exists in the reference
+  // (origin/main) but is ABSENT from the generated/code-derived baseline means
+  // the enforced metric was removed from FITNESS_METRICS (or the folder no
+  // longer appears in the scan). It then silently stops gating even if the
+  // editable working baseline.json entry is left UNCHANGED — so the value-based
+  // checks below never fire. Require an audited BASELINE-RELAX-OK marker,
+  // exactly as an edited floor does. (Codex PR review: the prior removal
+  // branches only triggered when the WORKING entry changed; an unchanged
+  // working entry against a code-removed metric/folder bypassed the guard.)
+  if (metricRemovedFromGenerated(generated, path)) {
+    const note = hasRelaxationMarker(this?.workingBaseline, path);
+    if (!note) {
+      violations.push({
+        kind,
+        path,
+        direction,
+        reference,
+        working: working ?? null,
+        reason: 'enforced-floor-removed-from-code',
+        severity: 'loosened',
+        message: `floor for ${path} exists in the reference baseline but was removed from the code-derived baseline (metric/folder no longer enforced) — requires a BASELINE-RELAX-OK marker`,
+      });
+    }
     return;
   }
   if (working === null || working === undefined) {
