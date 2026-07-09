@@ -428,6 +428,41 @@ test('guard: code-side metric removal is allowed WITH a marker (unchanged workin
   );
 });
 
+test('guard: a metric present in generated with a null value is NOT flagged as removed (sentrux-not-installed boundary)', () => {
+  // Boundary (Codex re-verify): a metric whose KEY is still in the generated
+  // baseline but reads null this run (e.g. sentrux not installed) must NOT be
+  // treated as a code-side removal — only a truly absent key is a removal.
+  const path = 'dimensions|MT01|sentrux-quality-signal';
+  const reference = {
+    dimensions: {
+      MT01: { metrics: { 'sentrux-quality-signal': { direction: 'min', baseline: 0.7 } } },
+    },
+  };
+  const working = {
+    dimensions: {
+      MT01: { metrics: { 'sentrux-quality-signal': { direction: 'min', baseline: 0.7 } } },
+    },
+    _baseline_relaxation_approvals: {},
+  };
+  // Key present, value null (adapter produced no reading) — NOT a removal.
+  const generated = {
+    dimensions: {
+      MT01: { metrics: { 'sentrux-quality-signal': { direction: 'min', baseline: null } } },
+    },
+  };
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(
+    guard.ok,
+    true,
+    `a null-reading (present-key) metric must not be flagged as removed; violations: ${JSON.stringify(guard.violations)}`,
+  );
+  assert.ok(!guard.violations.some((v) => v.reason === 'enforced-floor-removed-from-code'));
+});
+
 test('guard: a FOLDER floor removed from the generated report while working is unchanged is blocked (Codex review)', () => {
   const path = 'folders|ws_apps/x/src|I';
   const reference = { folders: { 'ws_apps/x/src': { I: 0.2, D: null } }, dimensions: {} };
