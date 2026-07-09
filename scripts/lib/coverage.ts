@@ -199,23 +199,19 @@ function sensorsCommands(): CoverageCommand[] {
   ];
 }
 
+const LANE_COMMANDS: Record<CoverageLane, (root: string) => CoverageCommand[]> = {
+  rust: (root) => [
+    ...rustLaneCommands(RUST_LANES['example-rust'], root),
+    ...rustLaneCommands(RUST_LANES['doc-validator'], root),
+    ...rustLaneCommands(RUST_LANES.versioning, root),
+  ],
+  'example-rust': (root) => rustLaneCommands(RUST_LANES['example-rust'], root),
+  'doc-validator': (root) => rustLaneCommands(RUST_LANES['doc-validator'], root),
+  versioning: (root) => rustLaneCommands(RUST_LANES.versioning, root),
+  py: () => pythonCommands(),
+  sensors: () => sensorsCommands(),
+};
+
 export function commandsForLane(lane: CoverageLane, root: string): CoverageCommand[] {
-  switch (lane) {
-    case 'rust':
-      return [
-        ...rustLaneCommands(RUST_LANES['example-rust'], root),
-        ...rustLaneCommands(RUST_LANES['doc-validator'], root),
-        ...rustLaneCommands(RUST_LANES.versioning, root),
-      ];
-    case 'example-rust':
-      return rustLaneCommands(RUST_LANES['example-rust'], root);
-    case 'doc-validator':
-      return rustLaneCommands(RUST_LANES['doc-validator'], root);
-    case 'versioning':
-      return rustLaneCommands(RUST_LANES.versioning, root);
-    case 'py':
-      return pythonCommands();
-    case 'sensors':
-      return sensorsCommands();
-  }
+  return LANE_COMMANDS[lane](root);
 }

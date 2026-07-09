@@ -332,9 +332,35 @@ export function mergeApssTopology(report, apss) {
       },
     };
   });
+  // APSS 1.1.0 references per-file modules in functions.json that are absent
+  // from the dependency-cruiser module set, so the left-join above drops their
+  // function data. Append them as apss-only modules (their module/coupling
+  // fields are null and are filtered from the MD01 module-level metrics) so the
+  // workspace-level function-peak metrics — max-halstead-volume and the
+  // cognitive/cyclomatic peaks — see every function, not just those in modules
+  // that happen to exist in both artifacts.
+  const cruiserSources = new Set(report.workspace.modules.map((m) => m.source));
+  const apssOnlyModules = [...byModule.values()]
+    .filter((r) => !cruiserSources.has(r.source))
+    .map((r) => {
+      const { source, functions, ...metrics } = r;
+      const functionList = Array.isArray(functions) ? functions : [];
+      return {
+        source,
+        apss: {
+          ...metrics,
+          functions: functionList,
+          function_count:
+            functionList.length > 0 ? functionList.length : (metrics.function_count ?? null),
+        },
+      };
+    });
+  const mergedModules = [...modules, ...apssOnlyModules];
   const folders = report.workspace.folders.map((f) => {
     const prefix = `${f.name}/`;
-    const inFolder = modules.filter((m) => m.source === f.name || m.source.startsWith(prefix));
+    const inFolder = mergedModules.filter(
+      (m) => m.source === f.name || m.source.startsWith(prefix),
+    );
     const withApss = inFolder.filter((m) => m.apss);
     const dValues = withApss
       .map((m) => m.apss?.distance_from_main_sequence)
@@ -364,7 +390,7 @@ export function mergeApssTopology(report, apss) {
     apssAvailable: true,
     workspace: {
       ...report.workspace,
-      modules,
+      modules: mergedModules,
       folders,
     },
   };

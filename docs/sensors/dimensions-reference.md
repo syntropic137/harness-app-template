@@ -148,40 +148,54 @@ function into several moderately-complex helpers, exporting symbols
 without a call site, growing files into god-files, introducing
 hotspots sentrux can detect cross-language.
 
-### MD01 Modularity and Coupling (5 metrics, enforced)
+### MD01 Modularity and Coupling (4 metrics, enforced)
 
-Per-module fan-out, Martin main-sequence distance, instability range,
-and sentrux's cross-module coupling and import-depth signals.
+Per-module fan-out, Martin main-sequence distance, off-sequence
+instability, and sentrux's import-depth signal. Every enforced metric
+here is **size-invariant** (ADR-0029): adding one well-designed module
+cannot, by itself, trip the gate. The former `sentrux-coupling-score`
+(a global composite ratio that false-tripped on healthy growth) was
+removed from the enforced set; sentrux still computes it, it just no
+longer blocks.
 
-| Metric ID                          | Direction | Floor               | fail_on_reg | Source                                                                              |
-|------------------------------------|-----------|---------------------|-------------|-------------------------------------------------------------------------------------|
-| `max-fan-out`                      | max       | 2                   | true        | APSS `coupling.json` OR aggregate workspace modules (dep-cruiser fallback)          |
-| `max-main-sequence-distance`       | max       | 1                   | true        | APSS `coupling.json` OR aggregate workspace modules                                  |
-| `instability-out-of-range-count`   | max       | 4                   | true        | aggregate workspace modules where I < 0.1 OR I > 0.9                                 |
-| `sentrux-coupling-score`           | max       | 0.19008264462809918 | true        | `.sentrux/baseline.json` `coupling_score`                                            |
-| `sentrux-max-depth`                | max       | 3                   | true        | `.sentrux/baseline.json` `max_depth` (import / call-graph nesting depth)             |
+| Metric ID                          | Direction | Floor | ratchet_floor | fail_on_reg | Source                                                                              |
+|------------------------------------|-----------|-------|---------------|-------------|-------------------------------------------------------------------------------------|
+| `max-fan-out`                      | max       | 20    | 20            | true        | APSS `coupling.json` OR aggregate workspace modules (dep-cruiser fallback)          |
+| `max-main-sequence-distance`       | max       | 1     | 0.7           | true        | APSS `coupling.json` OR aggregate workspace modules                                  |
+| `instability-out-of-range-count`   | max       | 6     | —             | true        | aggregate workspace modules with (I < 0.1 OR I > 0.9) AND distance-from-sequence > 0.1 |
+| `sentrux-max-depth`                | max       | null  | 10            | true        | `.sentrux/baseline.json` `max_depth` (import / call-graph nesting depth)             |
+
+The `ratchet_floor` column (ADR-0029 § 2) is the point past which the
+auto-ratchet stops tightening: the floor burns down toward the designed
+threshold and clamps there, so a tiny scaffold's incidental headroom
+(e.g. fan-out 2) is never frozen into policy that fails the first real
+feature module.
 
 **How an agent improves MD01:**
 
 - `max-fan-out`: find the workspace module that imports the most
   outward deps and refactor by introducing a facade module, moving
   helpers inward, or splitting the consumer into smaller modules with
-  narrower import surfaces.
+  narrower import surfaces. Below the `ratchet_floor` (20) the metric
+  is comfortable — a module at fan-out 3 is not a problem.
 - `max-main-sequence-distance`: the gate diff names the regressing
   folder and metric; reduce that folder's distance from the Martin
   main sequence by lowering instability if it is highly abstract, or
   by raising abstractness if it is concrete and unstable.
 - `instability-out-of-range-count`: every module the gate counts is
-  living in the `I < 0.1` or `I > 0.9` tail; either restructure or, if
-  the module is by-design (a pure-leaf utility, an entry-point), the
-  count is the price the floor pins.
-- `sentrux-coupling-score` / `sentrux-max-depth`: the gate reads these
-  from `.sentrux/baseline.json`; address the cross-module imports and
-  the deepest import/call paths sentrux flagged.
+  BOTH at an instability extreme (`I < 0.1` or `I > 0.9`) AND off the
+  main sequence (distance > 0.1) — i.e. in a genuine Martin danger
+  zone (stable-concrete "pain" or unstable-abstract "uselessness").
+  A leaf/entrypoint at `I≈1,A≈0` sits ON the sequence and is NOT
+  counted, so adding one never trips this metric.
+- `sentrux-max-depth`: the gate reads this from `.sentrux/baseline.json`;
+  address the deepest import/call paths sentrux flagged. A well-layered
+  feature that adds one legitimate level is inside the `ratchet_floor`.
 
-**What trips it:** adding cross-package imports, deepening call
-chains, introducing a new module that lives in the I < 0.1 or I > 0.9
-tail without rebalancing existing ones.
+**What trips it:** a module exceeding the designed fan-out policy (20),
+a module moving off the main sequence into a danger zone, or a
+genuinely deeper import/call graph — NOT the mere addition of a
+well-designed module.
 
 ### ST01 Structural Integrity (2 metrics, enforced)
 
@@ -512,6 +526,19 @@ followed. Use it for any new sensor.
    - Choose `fail_on_regression`: `true` for hard-enforce; `false`
      for observational (used for noisy wall-clock signals like
      `suite-duration-p95-seconds`).
+   - **Before setting `fail_on_regression: true`, apply the
+     size-invariance admission test (ADR-0029 § 1):** append one
+     well-designed module (fan-out below the threshold, on the main
+     sequence) to a report and check the metric does NOT worsen. Only
+     size-invariant shapes may hard-gate — per-module maxima
+     (`max-fan-out`), zero-tolerance defect counts
+     (`circular-dependency-edges`), and offender ledgers / densities
+     pass; global composite ratios and raw counts that scale with
+     module count FAIL and must stay advisory or be reshaped first
+     (the removed `sentrux-coupling-score` is the cautionary example).
+     If the metric represents incidental headroom below a designed
+     policy, add a `ratchet_floor` so the ratchet clamps there
+     (ADR-0029 § 2).
 4. **Add to the sensor-of-sensors meta-guard.** Edit
    [`harness/sensors/tests/determinism.test.mjs`](../../harness/sensors/tests/determinism.test.mjs)
    to run the new sensor twice and assert byte-identity. Without

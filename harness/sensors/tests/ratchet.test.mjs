@@ -150,16 +150,17 @@ test('ratchetBaseline: improving APSS dimension metric tightens floor (direction
       },
     },
   };
-  // Build a report whose APSS function values surface max_cognitive = 5.
+  // Build a report whose complexity.mjs module value surfaces max_cognitive = 5.
+  // (max-cognitive sources from complexity.mjs; APSS function cognitive is
+  // interim-excluded pending the apss 0.3.0 fix — see gate.mjs objective.)
   const better = {
     workspace: {
       folders: [],
       modules: [
         {
           source: 'ws_apps/x/src/a.ts',
-          apss: {
-            functions: [{ cognitive: 5, cyclomatic: 2 }],
-          },
+          max_cognitive: 5,
+          max_cyclomatic: 2,
         },
       ],
       circular_edges: 0,
@@ -286,6 +287,7 @@ test('main: improving run auto-tightens baseline.json (writes the tighter floor)
       '--baseline=harness/sensors/baseline.json',
       '--skip-baseline-relaxation-guard',
       '--policy=none',
+      '--profile=none',
       '--perf-baseline=harness/perf/baseline.json',
     ],
     io,
@@ -321,6 +323,7 @@ test('main: regression below floor fails AND does not move the baseline', async 
       '--baseline=harness/sensors/baseline.json',
       '--skip-baseline-relaxation-guard',
       '--policy=none',
+      '--profile=none',
       '--perf-baseline=harness/perf/baseline.json',
     ],
     io,
@@ -356,6 +359,7 @@ test('main: --no-ratchet preserves comparison behaviour but skips the rewrite', 
       '--baseline=harness/sensors/baseline.json',
       '--skip-baseline-relaxation-guard',
       '--policy=none',
+      '--profile=none',
       '--no-ratchet',
       '--perf-baseline=harness/perf/baseline.json',
     ],
@@ -388,6 +392,7 @@ test('main: --update-baseline is the escape hatch — relaxes the floor on a reg
       '--baseline=harness/sensors/baseline.json',
       '--skip-baseline-relaxation-guard',
       '--policy=none',
+      '--profile=none',
       '--update-baseline',
       '--perf-baseline=harness/perf/baseline.json',
     ],
@@ -419,6 +424,7 @@ test('main: no improvement, no regression → ratchet does not churn the baselin
       '--baseline=harness/sensors/baseline.json',
       '--skip-baseline-relaxation-guard',
       '--policy=none',
+      '--profile=none',
       '--perf-baseline=harness/perf/baseline.json',
     ],
     io,

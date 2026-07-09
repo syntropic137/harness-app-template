@@ -94,6 +94,34 @@ export function parseSkillFrontmatter(content: string): ParsedFrontmatter {
   return parsed;
 }
 
+// Resolves a single skill directory into either a validated entry or one or
+// more issue strings (never both). Keeps the per-directory branching out of
+// the discovery loop.
+function discoverSkill(
+  skillsDir: string,
+  dirName: string,
+  deps: Pick<AgentsSkillsDeps, 'listDirNames' | 'readText'>,
+): { skill?: SkillEntry; issues: string[] } {
+  const skillPath = join(skillsDir, dirName, 'SKILL.md');
+  let content: string;
+  try {
+    content = deps.readText(skillPath);
+  } catch {
+    return { issues: [`${dirName}: missing SKILL.md`] };
+  }
+  const entry = parseSkillFrontmatter(content);
+  if (entry.problems.length > 0) {
+    return { issues: entry.problems.map((problem) => `${dirName}: ${problem}`) };
+  }
+  if (entry.name === undefined || entry.description === undefined) {
+    return { issues: [`${dirName}: SKILL.md frontmatter must declare name and description`] };
+  }
+  if (entry.name !== dirName) {
+    return { issues: [`${dirName}: frontmatter name is ${entry.name}, expected ${dirName}`] };
+  }
+  return { skill: { name: entry.name, description: entry.description }, issues: [] };
+}
+
 export function discoverSkills(
   skillsDir: string,
   deps: Pick<AgentsSkillsDeps, 'listDirNames' | 'readText'>,
@@ -101,30 +129,11 @@ export function discoverSkills(
   const skills: SkillEntry[] = [];
   const issues: string[] = [];
   for (const dirName of [...deps.listDirNames(skillsDir)].sort()) {
-    const skillPath = join(skillsDir, dirName, 'SKILL.md');
-    let content: string;
-    try {
-      content = deps.readText(skillPath);
-    } catch {
-      issues.push(`${dirName}: missing SKILL.md`);
-      continue;
+    const result = discoverSkill(skillsDir, dirName, deps);
+    issues.push(...result.issues);
+    if (result.skill) {
+      skills.push(result.skill);
     }
-    const entry = parseSkillFrontmatter(content);
-    if (entry.problems.length > 0) {
-      for (const problem of entry.problems) {
-        issues.push(`${dirName}: ${problem}`);
-      }
-      continue;
-    }
-    if (entry.name === undefined || entry.description === undefined) {
-      issues.push(`${dirName}: SKILL.md frontmatter must declare name and description`);
-      continue;
-    }
-    if (entry.name !== dirName) {
-      issues.push(`${dirName}: frontmatter name is ${entry.name}, expected ${dirName}`);
-      continue;
-    }
-    skills.push({ name: entry.name, description: entry.description });
   }
   return { skills, issues };
 }
@@ -154,6 +163,30 @@ function requirePathValue(argv: string[], index: number, flag: string): string {
   return value;
 }
 
+// Flag -> mutation handler. Each handler applies its effect and returns the
+// number of extra argv slots it consumed (0 for boolean flags, 1 for
+// value-taking flags), so the loop advances uniformly.
+type AgentsArgHandler = (options: AgentsSkillsOptions, argv: string[], index: number) => number;
+
+const agentsArgHandlers: Record<string, AgentsArgHandler> = {
+  '--write': (options) => {
+    options.mode = 'write';
+    return 0;
+  },
+  '--check': (options) => {
+    options.mode = 'check';
+    return 0;
+  },
+  '--skills-dir': (options, argv, index) => {
+    options.skillsDir = requirePathValue(argv, index, '--skills-dir');
+    return 1;
+  },
+  '--agents-md': (options, argv, index) => {
+    options.agentsMd = requirePathValue(argv, index, '--agents-md');
+    return 1;
+  },
+};
+
 export function parseArgs(argv: string[]): AgentsSkillsOptions {
   const options: AgentsSkillsOptions = {
     mode: 'check',
@@ -161,20 +194,11 @@ export function parseArgs(argv: string[]): AgentsSkillsOptions {
     agentsMd: DEFAULT_AGENTS_MD,
   };
   for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === '--write') {
-      options.mode = 'write';
-    } else if (arg === '--check') {
-      options.mode = 'check';
-    } else if (arg === '--skills-dir') {
-      options.skillsDir = requirePathValue(argv, i, '--skills-dir');
-      i += 1;
-    } else if (arg === '--agents-md') {
-      options.agentsMd = requirePathValue(argv, i, '--agents-md');
-      i += 1;
-    } else {
-      throw new Error(`unknown argument: ${arg}`);
+    const handler = agentsArgHandlers[argv[i]];
+    if (!handler) {
+      throw new Error(`unknown argument: ${argv[i]}`);
     }
+    i += handler(options, argv, i);
   }
   return options;
 }

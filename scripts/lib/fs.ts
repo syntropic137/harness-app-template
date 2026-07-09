@@ -72,39 +72,42 @@ export function renameIfExists(from: string, to: string): void {
   renameSync(from, to);
 }
 
+function walkDirectory(path: string, files: string[]): void {
+  /* v8 ignore next 3 */
+  if (SKIP_DIRS.has(path.split('/').at(-1) ?? '')) {
+    return;
+  }
+  for (const entry of readdirSync(path)) {
+    visitTextPath(join(path, entry), files);
+  }
+}
+
+function visitTextPath(path: string, files: string[]): void {
+  const stat = lstatSync(path);
+  if (stat.isSymbolicLink()) {
+    return;
+  }
+  if (stat.isDirectory()) {
+    walkDirectory(path, files);
+    return;
+  }
+  /* v8 ignore next 3 */
+  if (!stat.isFile()) {
+    return;
+  }
+  const ext = path.includes('.') ? path.slice(path.lastIndexOf('.')) : '';
+  /* v8 ignore next 3 */
+  if (TEXT_EXTENSIONS.has(ext)) {
+    files.push(path);
+  }
+}
+
 export function walkTextFiles(root: string): string[] {
   const files: string[] = [];
   if (!existsSync(root)) {
     return files;
   }
-
-  const visit = (path: string): void => {
-    const stat = lstatSync(path);
-    if (stat.isSymbolicLink()) {
-      return;
-    }
-    if (stat.isDirectory()) {
-      /* v8 ignore next 3 */
-      if (SKIP_DIRS.has(path.split('/').at(-1) ?? '')) {
-        return;
-      }
-      for (const entry of readdirSync(path)) {
-        visit(join(path, entry));
-      }
-      return;
-    }
-    /* v8 ignore next 3 */
-    if (!stat.isFile()) {
-      return;
-    }
-    const ext = path.includes('.') ? path.slice(path.lastIndexOf('.')) : '';
-    /* v8 ignore next 3 */
-    if (TEXT_EXTENSIONS.has(ext)) {
-      files.push(path);
-    }
-  };
-
-  visit(root);
+  visitTextPath(root, files);
   return files;
 }
 

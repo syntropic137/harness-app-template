@@ -73,69 +73,72 @@ function parseJsonObject(
   }
 }
 
-export function provenanceIssues(
-  cwd = process.cwd(),
-  exists: (path: string) => boolean = existsSync,
-  readText: (path: string) => string = (path) => readFileSync(path, 'utf8'),
-): string[] {
+// Per-field format rules for a present (string) provenance value. Each
+// validator returns an issue message when the value is malformed, or
+// undefined when it is acceptable.
+const provenanceFieldRules: { field: string; validate: (value: string) => string | undefined }[] = [
+  {
+    field: 'schemaVersion',
+    validate: (v) => (v !== '1.0' ? `${provenanceFile} schemaVersion must be 1.0` : undefined),
+  },
+  {
+    field: 'mode',
+    validate: (v) =>
+      ['fresh', 'updated'].includes(v)
+        ? undefined
+        : `${provenanceFile} mode must be fresh or updated`,
+  },
+  {
+    field: 'canonical_commit',
+    validate: (v) =>
+      v !== 'unknown' && !/^[0-9a-f]{7,40}$/i.test(v)
+        ? `${provenanceFile} canonical_commit must be a git SHA or "unknown"`
+        : undefined,
+  },
+  {
+    field: 'forked_at',
+    validate: (v) =>
+      Number.isNaN(Date.parse(v))
+        ? `${provenanceFile} forked_at must be an ISO-8601 timestamp`
+        : undefined,
+  },
+];
+
+function provenanceFieldIssues(parsed: Record<string, unknown>): string[] {
   const issues: string[] = [];
-  const path = join(cwd, provenanceFile);
-  if (!exists(path)) {
-    return [`${provenanceFile} is missing; run just init or restore the scaffold provenance file`];
-  }
-
-  const parsed = parseJsonObject(path, readText);
-  if (typeof parsed === 'string') {
-    return [parsed];
-  }
-
   for (const field of requiredProvenanceFields) {
     if (!stringField(parsed, field)) {
       issues.push(`${provenanceFile} missing string field ${field}`);
     }
   }
-
-  const schemaVersion = stringField(parsed, 'schemaVersion');
-  if (schemaVersion && schemaVersion !== '1.0') {
-    issues.push(`${provenanceFile} schemaVersion must be 1.0`);
+  for (const { field, validate } of provenanceFieldRules) {
+    const value = stringField(parsed, field);
+    const message = value ? validate(value) : undefined;
+    if (message) issues.push(message);
   }
-
-  const mode = stringField(parsed, 'mode');
-  if (mode && !['fresh', 'updated'].includes(mode)) {
-    issues.push(`${provenanceFile} mode must be fresh or updated`);
-  }
-
-  const canonicalCommit = stringField(parsed, 'canonical_commit');
-  if (
-    canonicalCommit &&
-    canonicalCommit !== 'unknown' &&
-    !/^[0-9a-f]{7,40}$/i.test(canonicalCommit)
-  ) {
-    issues.push(`${provenanceFile} canonical_commit must be a git SHA or "unknown"`);
-  }
-
-  const forkedAt = stringField(parsed, 'forked_at');
-  if (forkedAt && Number.isNaN(Date.parse(forkedAt))) {
-    issues.push(`${provenanceFile} forked_at must be an ISO-8601 timestamp`);
-  }
-
   const pulls = parsed['upstream_pulls'];
   if (pulls !== undefined && !Array.isArray(pulls)) {
     issues.push(`${provenanceFile} upstream_pulls must be an array when present`);
   }
+  return issues;
+}
 
+function manifestCrossCheckIssues(
+  cwd: string,
+  parsed: Record<string, unknown>,
+  exists: (path: string) => boolean,
+  readText: (path: string) => string,
+): string[] {
   const manifestPath = join(cwd, 'harness.manifest.json');
   if (!exists(manifestPath)) {
-    issues.push('harness.manifest.json is missing; cannot cross-check provenance');
-    return issues;
+    return ['harness.manifest.json is missing; cannot cross-check provenance'];
   }
-
   const manifest = parseJsonObject(manifestPath, readText);
   if (typeof manifest === 'string') {
-    issues.push(manifest);
-    return issues;
+    return [manifest];
   }
 
+  const issues: string[] = [];
   const expected = [
     ['template', stringField(manifest, 'name')],
     ['templateVersion', stringField(manifest, 'version')],
@@ -149,8 +152,64 @@ export function provenanceIssues(
       );
     }
   }
-
   return issues;
+}
+
+export function provenanceIssues(
+  cwd = process.cwd(),
+  exists: (path: string) => boolean = existsSync,
+  readText: (path: string) => string = (path) => readFileSync(path, 'utf8'),
+): string[] {
+  const path = join(cwd, provenanceFile);
+  if (!exists(path)) {
+    return [`${provenanceFile} is missing; run just init or restore the scaffold provenance file`];
+  }
+
+  const parsed = parseJsonObject(path, readText);
+  if (typeof parsed === 'string') {
+    return [parsed];
+  }
+
+  const issues = provenanceFieldIssues(parsed);
+  issues.push(...manifestCrossCheckIssues(cwd, parsed, exists, readText));
+  return issues;
+}
+
+function profilingEntrypointIssues(
+  cwd: string,
+  slot: Record<string, unknown>,
+  exists: (path: string) => boolean,
+): string[] {
+  const slotInterface = slot['interface'];
+  const entrypoint = isRecord(slotInterface) ? stringField(slotInterface, 'entrypoint') : undefined;
+  if (!entrypoint) {
+    return ['profiling slot does not declare interface.entrypoint'];
+  }
+  if (!exists(join(cwd, entrypoint))) {
+    return [`profiling entrypoint ${entrypoint} is missing`];
+  }
+  return [];
+}
+
+function profilingBaselineIssues(
+  cwd: string,
+  exists: (path: string) => boolean,
+  readText: (path: string) => string,
+): string[] {
+  const baselinePath = join(cwd, 'harness/profiling/baseline.json');
+  if (!exists(baselinePath)) {
+    return [
+      'harness/profiling/baseline.json is missing; restore it or re-run a profile with --update-baseline',
+    ];
+  }
+  const baseline = parseJsonObject(baselinePath, readText);
+  if (typeof baseline === 'string') {
+    return [baseline];
+  }
+  if (!isRecord(baseline['signals'])) {
+    return ['harness/profiling/baseline.json must contain a signals object'];
+  }
+  return [];
 }
 
 // Profiling-slot probe (bead create-harness-app-z41): the slot is
@@ -179,28 +238,10 @@ export function profilingIssues(
   if (slot['plugin'] === 'none') {
     return [];
   }
-  const issues: string[] = [];
-  const slotInterface = slot['interface'];
-  const entrypoint = isRecord(slotInterface) ? stringField(slotInterface, 'entrypoint') : undefined;
-  if (!entrypoint) {
-    issues.push('profiling slot does not declare interface.entrypoint');
-  } else if (!exists(join(cwd, entrypoint))) {
-    issues.push(`profiling entrypoint ${entrypoint} is missing`);
-  }
-  const baselinePath = join(cwd, 'harness/profiling/baseline.json');
-  if (!exists(baselinePath)) {
-    issues.push(
-      'harness/profiling/baseline.json is missing; restore it or re-run a profile with --update-baseline',
-    );
-  } else {
-    const baseline = parseJsonObject(baselinePath, readText);
-    if (typeof baseline === 'string') {
-      issues.push(baseline);
-    } else if (!isRecord(baseline['signals'])) {
-      issues.push('harness/profiling/baseline.json must contain a signals object');
-    }
-  }
-  return issues;
+  return [
+    ...profilingEntrypointIssues(cwd, slot, exists),
+    ...profilingBaselineIssues(cwd, exists, readText),
+  ];
 }
 
 export interface RuntimeCheck {
@@ -242,6 +283,30 @@ export interface ToolCheck {
   ok: boolean;
   version?: string;
   hint?: string;
+}
+
+// Optional harness adapter tools. Missing ones do NOT fail `just doctor` (they
+// degrade the fitness gate to skip-loud and the hooks to soft-skip), but they
+// are surfaced so a fresh clone knows what `just install-tools` would add.
+const OPTIONAL_ADAPTERS: { name: string; enables: string }[] = [
+  { name: 'ubs', enables: 'SC01 security adapter + ubs-staged/ubs-diff hooks' },
+  { name: 'sentrux', enables: '2nd architectural lens (sentrux-* metrics)' },
+  { name: 'ast-grep', enables: 'UBS JS/TS AST scanning' },
+  { name: 'rg', enables: 'UBS fast search' },
+  { name: 'jq', enables: 'UBS JSON/SARIF merge' },
+  { name: 'hyperfine', enables: 'PF01 startup-time benchmark' },
+];
+
+export function optionalToolChecks(spawn: typeof spawnSync): ToolCheck[] {
+  return OPTIONAL_ADAPTERS.map(({ name, enables }) => {
+    const version = toolVersion(spawn, name);
+    return {
+      name,
+      ok: Boolean(version),
+      version,
+      hint: version ? undefined : `just install-tools  (${enables})`,
+    };
+  });
 }
 
 export function toolChecks(spawn: typeof spawnSync): ToolCheck[] {
@@ -295,6 +360,26 @@ function reportTools(sink: Sink, tools: ToolCheck[], width: number): number {
   return failed;
 }
 
+/**
+ * Render the optional harness adapters. These are advisory only — a missing
+ * one is `[SKIP]`, never `[FAIL]`, and never counts toward the doctor's failed
+ * total (they degrade the gate to skip-loud, not break it). Returns 0 always.
+ */
+function reportOptional(sink: Sink, optional: ToolCheck[], width: number): number {
+  if (optional.length === 0) return 0;
+  sink.log('');
+  sink.log('optional adapters (run `just install-tools` to add any [SKIP]):');
+  for (const t of optional) {
+    if (t.ok) {
+      emitRow(sink, '[ OK ]', t.name, t.version ?? 'present', width);
+    } else {
+      emitRow(sink, '[SKIP]', t.name, 'not installed — optional', width);
+      if (t.hint) emitHint(sink, width, t.hint);
+    }
+  }
+  return 0;
+}
+
 function reportRuntime(sink: Sink, runtime: RuntimeCheck[], width: number): number {
   let failed = 0;
   for (const r of runtime) {
@@ -334,11 +419,13 @@ export function printReport(
   provenance: string[],
   log: (line: string) => void,
   profiling: string[] = [],
+  optional: ToolCheck[] = [],
 ): { passed: number; failed: number; total: number } {
   const sink: Sink = { log };
   const width = Math.max(
     ...tools.map((t) => t.name.length),
     ...runtime.map((r) => r.name.length),
+    ...optional.map((t) => t.name.length),
     'provenance'.length,
   );
   sink.log('preflight checks:');
@@ -347,7 +434,8 @@ export function printReport(
     reportTools(sink, tools, width) +
     reportRuntime(sink, runtime, width) +
     reportIssues(sink, 'provenance', 'valid', provenance, width) +
-    reportIssues(sink, 'profiling', 'slot wired', profiling, width);
+    reportIssues(sink, 'profiling', 'slot wired', profiling, width) +
+    reportOptional(sink, optional, width);
   sink.log('');
   const total = tools.length + runtime.length + 2;
   return { passed: total - failed, failed, total };
@@ -360,12 +448,14 @@ export function main(deps: DoctorDeps): void {
   const runtime = runtimeChecks(deps.cwd, exists);
   const provenance = provenanceIssues(deps.cwd, exists, readText);
   const profiling = profilingIssues(deps.cwd, exists, readText);
+  const optional = optionalToolChecks(deps.spawn);
   const { passed, failed, total } = printReport(
     tools,
     runtime,
     provenance,
     (line) => deps.stdout.log(line),
     profiling,
+    optional,
   );
   if (failed > 0) {
     deps.stderr.error(

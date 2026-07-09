@@ -59,7 +59,7 @@ describe('thin script wrappers', () => {
       ['pnpm', ['turbo', 'run', 'lint', '--filter=...']],
       ['pnpm', ['turbo', 'run', 'test', '--concurrency=1', '--filter=...']],
       ['pnpm', ['exec', 'vitest', 'run', 'scripts/tests', '--coverage']],
-      ['harness/sensors/bin/sensors', ['gate']],
+      ['harness/sensors/bin/sensors', ['gate', '--profile=local']],
       ['sh', ['-eu', '-c', expect.stringContaining('gitleaks detect --redact --no-banner')]],
     ]);
   });

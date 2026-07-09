@@ -11,9 +11,13 @@ The slot currently runs:
 - `sentrux_scan.mjs`: sentrux 52-language tree-sitter overlay
   (`ADR-0017-sensors-v03-apss-canonical.md`). Activated as the SECOND
   architectural lens reconciled into the same upward ratchet — feeds
-  `quality_signal`, `coupling_score`, `cycle_count`, `god_file_count`,
-  `hotspot_count`, `complex_fn_count`, and `max_depth` into MT01 /
-  MD01 / ST01. Soft-skips when the `sentrux` binary is absent.
+  `quality_signal`, `cycle_count`, `god_file_count`, `hotspot_count`,
+  `complex_fn_count`, and `max_depth` into MT01 / MD01 / ST01.
+  `coupling_score` is still lifted into the envelope but is NOT gated:
+  it was removed from the enforced MD01 set per
+  `ADR-0029-fitness-metric-size-invariance.md` (a global composite
+  ratio that false-tripped on healthy growth). Soft-skips when the
+  `sentrux` binary is absent.
 - `deadcode_scan.mjs`: deterministic scoped-grep unused-export
   adapter (`ADR-0024-dead-code-ratchet.md`). Feeds the MT01
   `unused-export-count` ratchet by reading source files under
@@ -62,6 +66,30 @@ After installation, `just sensors gate` adds 7 sentrux metrics to the
 ratchet (~3.6 s extra wall-clock for a ~380-file workspace on the bare
 scaffold). Telemetry is force-disabled per-invocation by the adapter via
 `SENTRUX_ANALYTICS=off`.
+
+### Optional: install UBS (activates the SC01 security adapter + commit-time bug scanning)
+
+[UBS (Ultimate Bug Scanner)](https://github.com/Dicklesworthstone/ultimate_bug_scanner)
+powers the SC01 `ubs-security` adapter and the local `ubs-staged`
+(pre-commit) and `ubs-diff` (Claude file-write) hooks. It soft-skips when
+`ubs` is absent, so bugs are caught on commit locally with CI as the
+backstop. It is fully offline at scan time — no LLM/API calls, no keys.
+
+Use the pinned, checksum-verified installer (mirrors `install-sentrux.sh`):
+
+```sh
+bash .github/scripts/install-ubs.sh   # installs ubs@v5.3.4 to ~/.local/bin
+```
+
+Runtime dependencies (install once): `bash >= 4.0`, `jq`, `ripgrep` (`rg`),
+and `ast-grep` (`sg`). On macOS the system bash is 3.2 — `brew install bash
+ast-grep ripgrep jq`. UBS auto-downloads its per-language scanner modules on
+first run. Verified SHA-256 (`ubs@v5.3.4`):
+`2fe136285e26e717168352f9a64a38668a1c38855766874f24e12e65f11514fb`.
+
+After installation, `just sensors gate --profile=strict` includes the SC01
+critical-finding count as a hard gate; `just sensors gate` (default local
+profile) leaves it skip-loud.
 
 ## APSS Fitness Model
 

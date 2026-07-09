@@ -94,15 +94,20 @@ test('sentrux: quality_signal tightens (direction=min — larger is better)', ()
   assert.equal(t.direction, 'min');
 });
 
-test('sentrux: coupling_score regression fails the gate without moving the floor', () => {
+test('sentrux: a worsening coupling_score no longer fails the gate (removed per ADR-0029)', () => {
+  // sentrux-coupling-score was a global composite ratio that false-tripped on
+  // healthy multi-module growth; ADR-0029 removed it from the enforced MD01
+  // set. A large worsening of coupling_score must NOT fail the gate, and no
+  // regression may be attributed to the removed metric. sentrux still emits
+  // coupling_score in its envelope; it is simply no longer baseline-governed.
   const baseline = baselineWithSentrux({ coupling_score: 0.2 });
   const cmp = compareBaseline(baseline, emptyReport(), {
-    sentrux: envelope({ coupling_score: 0.45 }),
+    sentrux: envelope({ coupling_score: 0.95 }),
   });
-  assert.equal(cmp.ok, false);
+  assert.equal(cmp.ok, true, 'a worse coupling_score must not fail the gate anymore');
   assert.ok(
-    cmp.regressions.some((r) => r.dimension === 'MD01' && r.metric === 'sentrux-coupling-score'),
-    'expected MD01 sentrux-coupling-score regression to be flagged',
+    !cmp.regressions.some((r) => r.metric === 'sentrux-coupling-score'),
+    'no regression may reference the removed sentrux-coupling-score metric',
   );
 });
 
@@ -168,6 +173,7 @@ test('sentrux: main() with --sentrux flag — tightens baseline.json on improvem
       '--baseline=harness/sensors/baseline.json',
       '--skip-baseline-relaxation-guard',
       '--policy=none',
+      '--profile=none',
       '--perf-baseline=harness/perf/baseline.json',
       '--sentrux=/tmp/sentrux.json',
     ],
@@ -205,6 +211,7 @@ test('sentrux: main() with --sentrux flag — regression fails and leaves floor 
       '--baseline=harness/sensors/baseline.json',
       '--skip-baseline-relaxation-guard',
       '--policy=none',
+      '--profile=none',
       '--perf-baseline=harness/perf/baseline.json',
       '--sentrux=/tmp/sentrux.json',
     ],

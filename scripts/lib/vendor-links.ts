@@ -98,6 +98,71 @@ export function verifyAndRepairVendorLinks(cwd: string, fs: VendorFs): VendorRep
   return report;
 }
 
+function mirrorSymlink(
+  name: string,
+  target: string,
+  mirrorPath: string,
+  fs: VendorFs,
+  canonicalBody: string,
+  report: VendorReport,
+): void {
+  const actualTarget = fs.readlink(mirrorPath);
+  if (actualTarget === target) {
+    report.ok.push(name);
+    return;
+  }
+  fs.unlink(mirrorPath);
+  fs.writeFile(mirrorPath, canonicalBody);
+  report.repaired.push(`${name} <= ${target} (replaced symlink from ${actualTarget})`);
+}
+
+function mirrorFile(
+  name: string,
+  target: string,
+  mirrorPath: string,
+  fs: VendorFs,
+  canonicalBody: string,
+  report: VendorReport,
+): void {
+  const currentBody = fs.readFile(mirrorPath);
+  if (currentBody === canonicalBody) {
+    report.ok.push(name);
+    return;
+  }
+  fs.writeFile(mirrorPath, canonicalBody);
+  report.repaired.push(`${name} <= ${target} (refreshed copy)`);
+}
+
+function mirrorVendorEntry(
+  name: string,
+  target: string,
+  cwd: string,
+  fs: VendorFs,
+  canonicalBody: string,
+  report: VendorReport,
+): void {
+  const mirrorPath = join(cwd, name);
+  const stat = fs.lstat(mirrorPath);
+  if (stat === null) {
+    fs.writeFile(mirrorPath, canonicalBody);
+    report.repaired.push(`${name} <= ${target} (copied)`);
+    return;
+  }
+  if (stat.isDirectory()) {
+    report.errors.push(`${name} exists but is a directory; refusing to overwrite it`);
+    return;
+  }
+  if (stat.isSymbolicLink()) {
+    mirrorSymlink(name, target, mirrorPath, fs, canonicalBody, report);
+    return;
+  }
+  if (stat.isFile()) {
+    mirrorFile(name, target, mirrorPath, fs, canonicalBody, report);
+    return;
+  }
+  report.errors.push(`${name} has an unsupported file type; refusing to overwrite it`);
+}
+
 export function copySyncVendorMirrors(cwd: string, fs: VendorFs): VendorReport {
   const report = emptyReport('copy');
   const canonicalPath = assertCanonicalAgentFile(cwd, fs, report);
@@ -107,39 +172,7 @@ export function copySyncVendorMirrors(cwd: string, fs: VendorFs): VendorReport {
   const canonicalBody = fs.readFile(canonicalPath);
 
   for (const [name, target] of VENDOR_SYMLINKS) {
-    const mirrorPath = join(cwd, name);
-    const stat = fs.lstat(mirrorPath);
-    if (stat === null) {
-      fs.writeFile(mirrorPath, canonicalBody);
-      report.repaired.push(`${name} <= ${target} (copied)`);
-      continue;
-    }
-    if (stat.isDirectory()) {
-      report.errors.push(`${name} exists but is a directory; refusing to overwrite it`);
-      continue;
-    }
-    if (stat.isSymbolicLink()) {
-      const actualTarget = fs.readlink(mirrorPath);
-      if (actualTarget === target) {
-        report.ok.push(name);
-        continue;
-      }
-      fs.unlink(mirrorPath);
-      fs.writeFile(mirrorPath, canonicalBody);
-      report.repaired.push(`${name} <= ${target} (replaced symlink from ${actualTarget})`);
-      continue;
-    }
-    if (stat.isFile()) {
-      const currentBody = fs.readFile(mirrorPath);
-      if (currentBody === canonicalBody) {
-        report.ok.push(name);
-        continue;
-      }
-      fs.writeFile(mirrorPath, canonicalBody);
-      report.repaired.push(`${name} <= ${target} (refreshed copy)`);
-      continue;
-    }
-    report.errors.push(`${name} has an unsupported file type; refusing to overwrite it`);
+    mirrorVendorEntry(name, target, cwd, fs, canonicalBody, report);
   }
 
   return report;

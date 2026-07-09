@@ -3,8 +3,12 @@
 # silent-skip hole where harness/sensors/sentrux_scan.mjs reports
 # `available: false` whenever the sentrux binary is missing from PATH,
 # so sentrux-* metrics in baseline.json (sentrux-quality-signal,
-# sentrux-complex-fn-count, sentrux-coupling-score, etc.) get treated
-# as no-reading and the gate cannot enforce them).
+# sentrux-god-file-count, sentrux-complex-fn-count, etc.) get treated
+# as no-reading and the gate cannot enforce them). NOTE: the sentrux
+# coupling ratio is deliberately NOT gated — it was removed from the
+# enforced MD01 set per ADR-0029 (a global composite ratio that
+# false-tripped on healthy growth); sentrux still computes it, it just
+# no longer blocks.
 #
 # Without this install step the CI fitness gate green-lights PRs that
 # regress the sentrux 2nd architectural lens, then `just qa` and

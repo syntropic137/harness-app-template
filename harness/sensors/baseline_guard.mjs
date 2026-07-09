@@ -64,6 +64,51 @@ function readNumberFromGenerated(generated, path) {
   return null;
 }
 
+/**
+ * Read a metric's declared `ratchet_floor` (the ADR-0029 § 2 clamp target)
+ * from the GENERATED, code-derived baseline — NEVER from the working file.
+ * `ratchet_floor` is defined in `FITNESS_METRICS` (source code), so the
+ * regenerated baseline carries the authoritative value. Reading it from the
+ * editable working baseline would let anyone relax an arbitrary floor by
+ * simply adding a `ratchet_floor` field to `baseline.json`; the guard exists
+ * precisely to block silent loosening, so its trust anchor must be the code.
+ * A relax up to this value is sanctioned only for `direction: max` metrics
+ * (smaller-is-better, where sub-threshold headroom is incidental).
+ */
+function readTrustedRatchetFloor(generatedBaseline, path, direction) {
+  if (typeof path !== 'string' || direction !== 'max') {
+    return null;
+  }
+  const [kind, bucket, metric] = path.split(RELAXATION_SEGMENT_SEP);
+  if (kind !== 'dimensions') {
+    return null;
+  }
+  const value = generatedBaseline?.dimensions?.[bucket]?.metrics?.[metric]?.ratchet_floor;
+  return isNumber(value) ? value : null;
+}
+
+/**
+ * True when the metric named by `path` is entirely ABSENT from the generated
+ * (code-derived) baseline — i.e. it was deliberately removed from
+ * FITNESS_METRICS, not merely reading null this run. Distinguishes an
+ * ADR-0029 metric deletion (allowed with a marker) from an accidental
+ * direction drop.
+ */
+function metricRemovedFromGenerated(generated, path) {
+  if (typeof path !== 'string') {
+    return false;
+  }
+  const [kind, bucket, metric] = path.split(RELAXATION_SEGMENT_SEP);
+  if (kind !== 'dimensions') {
+    return false;
+  }
+  const metrics = generated?.dimensions?.[bucket]?.metrics;
+  if (!metrics || typeof metrics !== 'object') {
+    return false;
+  }
+  return !(metric in metrics);
+}
+
 function isDirectionValue(value) {
   return value === 'max' || value === 'min';
 }
@@ -117,6 +162,37 @@ function applyDirectionDeviation(
     return true;
   }
 
+  // A deliberate ADR-0029 metric REMOVAL: the metric is gone from the
+  // code's FITNESS_METRICS (absent from the generated baseline) and the
+  // approval carries a marker. There is no measurement to reconcile because
+  // the metric no longer exists, so the "regenerated baseline" match does
+  // not apply. Allow it.
+  if (issue === 'missing-direction' && metricRemovedFromGenerated(generatedBaseline, path)) {
+    return true;
+  }
+  // Fail-closed: the metric's floor entry was dropped from the WORKING
+  // baseline (no working value) but the metric is STILL enforced in code
+  // (present in the generated baseline). A marker must not silently disable
+  // a live gate this way — deleting the floor makes the comparator treat the
+  // metric as "missing baseline" (not a regression), so enforcement stops.
+  // Without this branch the `Math.abs(current - undefined)` fallthrough below
+  // is NaN, never exceeds EPSILON, and lets the deletion pass. (Caught by the
+  // independent ADR-0029 review; the ratchet_floor hardening protected a
+  // floor's VALUE but not the dropping of its ENTRY.)
+  if (!isNumber(workingValue)) {
+    violations.push({
+      kind: 'metric-direction',
+      path,
+      direction: workingDirection,
+      reference: referenceDirection,
+      working: workingValue ?? null,
+      reason: `${directionIssueGeneratedSuffix[issue]}-floor-dropped-while-enforced`,
+      severity: 'loosened',
+      message: `metric ${path} is still enforced in code but its floor was removed from the working baseline`,
+      note,
+    });
+    return true;
+  }
   const current = readNumberFromGenerated(generatedBaseline, path);
   if (current === null) {
     violations.push({
@@ -156,6 +232,33 @@ function evaluateCandidate({ kind, path, direction, reference, working, generate
   }
   if (working === null || working === undefined) {
     const note = hasRelaxationMarker(this?.workingBaseline, path);
+    // Fail-closed: if the metric/folder is still actively measured (present in
+    // the code-derived generated baseline with a numeric reading), dropping its
+    // floor is a loosening that silently disables enforcement — the comparator
+    // then treats it as "missing baseline" (not a regression). Block it even
+    // WITH a marker. A marker only sanctions dropping a floor whose metric no
+    // longer exists (a deliberate ADR-0029 removal, or a refactored-away
+    // folder), where the generated reading is null. This is the universal
+    // fallback: it covers folder I/D metrics and dimension metrics whose
+    // `baseline` key was dropped while `direction` was retained (paths that
+    // never reach applyDirectionDeviation). Found by the Gemini cross-model
+    // review; the applyDirectionDeviation guard still covers the distinct
+    // whole-block deletion (missing-direction) path, which short-circuits here.
+    const current = readNumberFromGenerated(generated, path);
+    if (isNumber(current)) {
+      violations.push({
+        kind,
+        path,
+        direction,
+        reference,
+        working: working ?? null,
+        reason: 'floor-dropped-while-enforced',
+        severity: 'loosened',
+        message: `floor for ${path} was dropped while the metric is still enforced`,
+        ...(note ? { note } : {}),
+      });
+      return;
+    }
     if (!note) {
       violations.push({
         kind,
@@ -188,6 +291,18 @@ function evaluateCandidate({ kind, path, direction, reference, working, generate
       severity: 'loosened',
       message: 'baseline relaxed without explicit BASELINE-RELAX-OK marker',
     });
+    return;
+  }
+  // A relax is valid when the working floor is regenerated to the current
+  // measurement OR clamped to the metric's designed ratchet_floor (ADR-0029
+  // § 2). The latter is how a metric's floor is deliberately relaxed UP to
+  // its designed threshold (e.g. max-fan-out 2 -> 20) so it stops pinning a
+  // tiny scaffold's incidental headroom — a value the current measurement
+  // alone would never reach. The ratchet_floor is read from the CODE-derived
+  // generated baseline (not the editable working file) so a spoofed
+  // `ratchet_floor` in baseline.json cannot authorize an arbitrary relax.
+  const ratchetFloor = readTrustedRatchetFloor(generated, path, direction);
+  if (isNumber(ratchetFloor) && Math.abs(ratchetFloor - working) <= EPSILON) {
     return;
   }
   const current = readNumberFromGenerated(generated, path);

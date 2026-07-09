@@ -60,31 +60,45 @@ pub fn extract_anchors(content: &str) -> BTreeSet<String> {
     let mut footnote_refs = BTreeSet::new();
     for line in content.lines() {
         let trimmed = line.trim_start();
-        for label in footnote_labels(trimmed) {
-            if trimmed.starts_with(&format!("[^{label}]:")) {
-                anchors.insert(format!("footnote-{label}"));
-            } else {
-                footnote_refs.insert(label);
-            }
+        collect_footnote_anchors(trimmed, &mut anchors, &mut footnote_refs);
+        if let Some(slug) = heading_slug(trimmed) {
+            anchors.insert(slug);
         }
-
-        let Some(title) = trimmed.strip_prefix('#') else {
-            continue;
-        };
-        if !trimmed.starts_with("# ") && !trimmed.starts_with("## ") && !trimmed.starts_with("### ")
-        {
-            continue;
-        }
-        let title = title.trim_start_matches('#').trim();
-        if title.is_empty() {
-            continue;
-        }
-        anchors.insert(slugify_heading(title));
     }
     for label in footnote_refs {
         anchors.insert(format!("footnote-ref-{label}-1"));
     }
     anchors
+}
+
+/// Record footnote-definition anchors on `trimmed`, collecting the labels of
+/// footnote references (which get their own anchors) into `footnote_refs`.
+fn collect_footnote_anchors(
+    trimmed: &str,
+    anchors: &mut BTreeSet<String>,
+    footnote_refs: &mut BTreeSet<String>,
+) {
+    for label in footnote_labels(trimmed) {
+        if trimmed.starts_with(&format!("[^{label}]:")) {
+            anchors.insert(format!("footnote-{label}"));
+        } else {
+            footnote_refs.insert(label);
+        }
+    }
+}
+
+/// Return the GitHub-style slug for an ATX heading line (levels 1-3), or
+/// `None` if the line is not such a heading or has an empty title.
+fn heading_slug(trimmed: &str) -> Option<String> {
+    let title = trimmed.strip_prefix('#')?;
+    if !trimmed.starts_with("# ") && !trimmed.starts_with("## ") && !trimmed.starts_with("### ") {
+        return None;
+    }
+    let title = title.trim_start_matches('#').trim();
+    if title.is_empty() {
+        return None;
+    }
+    Some(slugify_heading(title))
 }
 
 fn prose_spans(line: &str) -> Vec<(usize, usize)> {
@@ -117,18 +131,18 @@ fn prose_spans(line: &str) -> Vec<(usize, usize)> {
 fn classify(target: &str) -> LinkKind {
     if target.starts_with('#') {
         LinkKind::Anchor
-    } else if target.starts_with("http://")
-        || target.starts_with("https://")
-        || target.starts_with("mailto:")
-        || target.starts_with("ftp://")
-        || target.starts_with("data:")
-        || target.starts_with("file://")
-        || target.starts_with('/')
-    {
+    } else if is_external_target(target) {
         LinkKind::External
     } else {
         LinkKind::Relative
     }
+}
+
+fn is_external_target(target: &str) -> bool {
+    const SCHEMES: [&str; 6] = [
+        "http://", "https://", "mailto:", "ftp://", "data:", "file://",
+    ];
+    target.starts_with('/') || SCHEMES.iter().any(|scheme| target.starts_with(scheme))
 }
 
 pub fn slugify_heading(heading: &str) -> String {

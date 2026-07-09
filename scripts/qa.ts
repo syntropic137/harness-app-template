@@ -20,7 +20,17 @@ export function main(argv: string[] = []): void {
   typecheckMain(argv);
   lintMain(argv);
   testMain(argv);
-  runInherit('harness/sensors/bin/sensors', ['gate']);
+  // Profile (ADR-0028): `just qa` runs the LEAN `local` profile, matching the
+  // lefthook pre-push `sensors-gate` hook. A bare checkout / fresh fork /
+  // scaffolded project has none of the instrumented adapters installed
+  // (apss-topology data, ubs, sentrux, coverage), so the fail-closed `strict`
+  // profile would (correctly) reject it for "no reading". The canonical strict
+  // enforcer is the dedicated `fitness` CI job (`sensors gate --profile=strict`,
+  // where every adapter IS provisioned); qa stays lean so the dev inner loop
+  // and the fork/scaffolder E2Es gate on the always-available pure-node
+  // adapters (deadcode, cruiser-coupling, complexity) without requiring the
+  // heavy toolchain.
+  runInherit('harness/sensors/bin/sensors', ['gate', '--profile=local']);
   runInherit('sh', ['-eu', '-c', SECRET_SCAN_SCRIPT]);
 }
 

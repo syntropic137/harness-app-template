@@ -236,6 +236,19 @@ jobs:
       - name: Compose project APSS CLI
         if: steps.cache-apss-composed.outputs.cache-hit != 'true'
         run: apss install
+      - name: Produce APSS topology + assert (.topology/metrics/*.json)
+        # The gate's apss-topology adapter reads .topology/metrics/*.json.
+        # Run the producer explicitly and FAIL LOUD if it errors or emits no
+        # metrics — otherwise a producer failure collapses into an ambiguous
+        # "apss-topology produced no reading" under the strict profile with no
+        # actionable cause. (Codex fitness diagnosis rec #4.)
+        run: |
+          .apss/bin/apss run code-topology analyze .
+          if ! ls .topology/metrics/*.json >/dev/null 2>&1; then
+            echo "::error::apss produced no .topology/metrics/*.json — see the producer output above"
+            exit 1
+          fi
+          ls -la .topology/metrics/
       - name: Install sensors slot deps (ts-morph)
         working-directory: harness/sensors
         run: npm install --no-package-lock --no-audit --no-fund --ignore-scripts --silent
@@ -244,6 +257,18 @@ jobs:
         # soft-skips and sentrux-* baseline floors silently stop
         # gating — exactly the drift this branch was opened to fix.
         run: bash .github/scripts/install-sentrux.sh
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
+        with:
+          # UBS runtime deps: ripgrep + ast-grep power the SC01 security
+          # scanner (jq is preinstalled on the runner). Without them the
+          # ubs-security adapter produces no reading and the strict profile
+          # fails closed (ADR-0028).
+          tool: ripgrep,ast-grep
+      - name: Install UBS (activates the SC01 security adapter in gate)
+        # Without ubs on PATH the SC01 security adapter soft-skips and the
+        # strict profile reports ubs-security as MISSING REQUIRED. See
+        # .github/scripts/install-ubs.sh (pinned + checksum-verified).
+        run: bash .github/scripts/install-ubs.sh
       - name: Install root deps for vitest coverage
         run: pnpm install --frozen-lockfile
       - name: Prepare CV01 Python coverage envelope (pytest --cov-report=json)
@@ -285,7 +310,7 @@ jobs:
           SENSORS_COVERAGE_PYTHON_JSON: /tmp/cov/python.json
           SENSORS_COVERAGE_JS_JSON: /tmp/cov/js/coverage-summary.json
           CARGO_TARGET_DIR: ${{ github.workspace }}/target/coverage-isolated-ci
-        run: harness/sensors/bin/sensors gate
+        run: harness/sensors/bin/sensors gate --profile=strict
       - name: Run perf fitness gate
         run: harness/perf/bench.sh | node harness/perf/gate.mjs
 

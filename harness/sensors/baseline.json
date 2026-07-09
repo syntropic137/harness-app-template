@@ -154,46 +154,40 @@
       "metrics": {
         "max-fan-out": {
           "name": "Maximum Efferent Coupling",
-          "objective": "Max module efferent coupling from APSS coupling or the dependency-cruiser fallback.",
+          "objective": "Max module efferent coupling from APSS coupling or the dependency-cruiser fallback. Per-module maximum (size-invariant per ADR-0029); ratchet_floor clamps the auto-ratchet at the designed threshold so the floor never captures the incidental headroom of a tiny scaffold.",
           "source": ".topology/metrics/coupling.json or aggregate workspace modules",
           "direction": "max",
           "default_threshold": 20,
-          "baseline": 2,
+          "ratchet_floor": 20,
+          "baseline": 20,
           "fail_on_regression": true
         },
         "max-main-sequence-distance": {
           "name": "Maximum Distance from Main Sequence",
-          "objective": "Max module distance from the Martin main sequence.",
+          "objective": "Max module distance from the Martin main sequence. Per-module maximum (size-invariant per ADR-0029); ratchet_floor clamps the auto-ratchet at the designed threshold.",
           "source": ".topology/metrics/coupling.json or aggregate workspace modules",
           "direction": "max",
           "default_threshold": 0.7,
+          "ratchet_floor": 0.7,
           "baseline": 1,
           "fail_on_regression": true
         },
         "instability-out-of-range-count": {
           "name": "Instability Outside Healthy Range",
-          "objective": "Count modules with instability below 0.1 or above 0.9.",
+          "objective": "Count modules whose instability is below 0.1 or above 0.9 AND that sit off the Martin main sequence (distance > 0.1). An instability extreme ON the main sequence (a leaf/entrypoint at I~1,A~0) is healthy by design and not counted (ADR-0029 size-invariance); unknown distance degrades to not-an-offender.",
           "source": ".topology/metrics/coupling.json or aggregate workspace modules",
           "direction": "max",
           "default_threshold": 0,
           "baseline": 6,
           "fail_on_regression": true
         },
-        "sentrux-coupling-score": {
-          "name": "Sentrux Coupling Score",
-          "objective": "Sentrux composite coupling ratio derived from cross-module imports vs. total import edges. Smaller is better; the ratchet pins it so the modularity gain a refactor produces stays gained (no broken windows).",
-          "source": ".sentrux/baseline.json coupling_score (via harness/sensors/sentrux_scan.mjs)",
-          "direction": "max",
-          "default_threshold": 1,
-          "baseline": null,
-          "fail_on_regression": true
-        },
         "sentrux-max-depth": {
           "name": "Sentrux Maximum Import/Call Depth",
-          "objective": "Maximum nesting depth across the sentrux import/call graph. Smaller is better; complements MD01 by watching nesting (a known AI-coding regression pattern) rather than per-module fan-out.",
+          "objective": "Maximum nesting depth across the sentrux import/call graph. Smaller is better; complements MD01 by watching nesting (a known AI-coding regression pattern) rather than per-module fan-out. ratchet_floor clamps the auto-ratchet at the designed threshold (ADR-0029).",
           "source": ".sentrux/baseline.json max_depth (via harness/sensors/sentrux_scan.mjs)",
           "direction": "max",
           "default_threshold": 10,
+          "ratchet_floor": 10,
           "baseline": null,
           "fail_on_regression": true
         }
@@ -406,10 +400,11 @@
     "dimensions|MT01|sentrux-hotspot-count": "BASELINE-RELAX-OK: sentrux adapter not installed locally; these floors are enforced in CI where the tool is present",
     "dimensions|MT01|sentrux-complex-fn-count": "BASELINE-RELAX-OK: sentrux adapter not installed locally; these floors are enforced in CI where the tool is present",
     "dimensions|MD01|instability-out-of-range-count": "BASELINE-RELAX-OK: d_test-guard package added, instability increased from 4 to 6",
-    "dimensions|MD01|sentrux-coupling-score": "BASELINE-RELAX-OK: sentrux adapter not installed locally; these floors are enforced in CI where the tool is present",
+    "dimensions|MD01|max-fan-out": "BASELINE-RELAX-OK: ADR-0029 deliberate relax 2 -> 20 (the designed threshold). The floor of 2 was incidental headroom auto-ratcheted from the template's tiny example modules; it would hard-fail the first real feature module importing 3+ packages. ratchet_floor now clamps the auto-ratchet at 20 so this cannot recur.",
+    "dimensions|MD01|sentrux-coupling-score": "BASELINE-RELAX-OK: ADR-0029 deliberate REMOVAL. A global composite ratio that false-tripped on healthy multi-module growth; removed from the enforced MD01 set. sentrux still computes coupling_score in its envelope, it is simply no longer baseline-governed. max-fan-out remains the canonical coupling enforcer.",
     "dimensions|MD01|sentrux-max-depth": "BASELINE-RELAX-OK: sentrux adapter not installed locally; these floors are enforced in CI where the tool is present",
     "dimensions|ST01|sentrux-cycle-count": "BASELINE-RELAX-OK: sentrux adapter not installed locally; these floors are enforced in CI where the tool is present",
-    "dimensions|SC01|critical-finding-count": "BASELINE-RELAX-OK: sentrux adapter not installed locally; these floors are enforced in CI where the tool is present",
+    "dimensions|SC01|critical-finding-count": "BASELINE-RELAX-OK: ubs-security adapter (UBS) not installed locally; this floor is enforced in CI where the tool is present",
     "dimensions|PF01|suite-duration-iteration-count": "BASELINE-RELAX-OK: PF01 performance adapter not wired locally; floor enforced in CI",
     "dimensions|CV01|rust-line-coverage-pct": "BASELINE-RELAX-OK: CV01 coverage adapter not wired in sensors gate locally; coverage enforced via lefthook cov gates",
     "dimensions|CV01|rust-function-coverage-pct": "BASELINE-RELAX-OK: CV01 coverage adapter not wired in sensors gate locally; coverage enforced via lefthook cov gates",

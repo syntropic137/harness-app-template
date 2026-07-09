@@ -351,6 +351,7 @@ test('coverage: main() with --coverage flag tightens baseline.json on improvemen
       '--baseline=harness/sensors/baseline.json',
       '--baseline-reference=none',
       '--policy=none',
+      '--profile=none',
       '--perf-baseline=harness/perf/baseline.json',
       '--coverage=/tmp/coverage.json',
     ],
@@ -397,6 +398,7 @@ test('coverage: main() with --coverage flag flags regression and leaves floor un
     [
       '--baseline=harness/sensors/baseline.json',
       '--policy=none',
+      '--profile=none',
       '--perf-baseline=harness/perf/baseline.json',
       '--coverage=/tmp/coverage.json',
     ],
@@ -431,6 +433,7 @@ test('coverage: main() with absent --coverage flag stays PASS when CV01 floor is
       '--baseline=harness/sensors/baseline.json',
       '--baseline-reference=none',
       '--policy=none',
+      '--profile=none',
       '--perf-baseline=harness/perf/baseline.json',
     ],
     io,

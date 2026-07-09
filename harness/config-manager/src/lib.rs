@@ -57,35 +57,39 @@ pub fn run(command: Commands) -> Result<()> {
             let schema = schema::load("config.toml")?;
             exec::run(&schema, &cmd)
         }
-        Commands::Source => {
-            let schema = schema::load("config.toml")?;
-            // Fail closed: `eval $(harness config source)` must not silently
-            // export a partial environment when a required secret is missing.
-            let env = resolver::resolve_required(&schema)?;
-            // Single-quote every value so the evaluating shell performs NO
-            // expansion on it — a secret containing $(...) or backticks is
-            // emitted literally, not executed. See shell::single_quote.
-            for (k, v) in &env {
-                println!("export {k}={}", shell::single_quote(v));
-            }
-            Ok(())
-        }
-        Commands::Show => {
-            let schema = schema::load("config.toml")?;
-            let env = resolver::resolve_all(&schema)?;
-            for var in &schema.vars {
-                let val = env.get(&var.name);
-                if var.secret || var.op_ref.is_some() {
-                    println!("{} = {}", var.name, val.map(|_| "***").unwrap_or("<unset>"));
-                } else {
-                    println!(
-                        "{} = {}",
-                        var.name,
-                        val.map(String::as_str).unwrap_or("<unset>")
-                    );
-                }
-            }
-            Ok(())
+        Commands::Source => run_source(),
+        Commands::Show => run_show(),
+    }
+}
+
+fn run_source() -> Result<()> {
+    let schema = schema::load("config.toml")?;
+    // Fail closed: `eval $(harness config source)` must not silently
+    // export a partial environment when a required secret is missing.
+    let env = resolver::resolve_required(&schema)?;
+    // Single-quote every value so the evaluating shell performs NO
+    // expansion on it — a secret containing $(...) or backticks is
+    // emitted literally, not executed. See shell::single_quote.
+    for (k, v) in &env {
+        println!("export {k}={}", shell::single_quote(v));
+    }
+    Ok(())
+}
+
+fn run_show() -> Result<()> {
+    let schema = schema::load("config.toml")?;
+    let env = resolver::resolve_all(&schema)?;
+    for var in &schema.vars {
+        let val = env.get(&var.name);
+        if var.secret || var.op_ref.is_some() {
+            println!("{} = {}", var.name, val.map(|_| "***").unwrap_or("<unset>"));
+        } else {
+            println!(
+                "{} = {}",
+                var.name,
+                val.map(String::as_str).unwrap_or("<unset>")
+            );
         }
     }
+    Ok(())
 }

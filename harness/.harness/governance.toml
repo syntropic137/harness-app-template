@@ -34,3 +34,34 @@ max_distance_from_main_sequence = { value = 0.7, severity = "warn" }
 min_acyclicity_score = { value = 0.95, severity = "warn" }
 min_modularity_score = { value = 0.4, severity = "warn" }
 max_max_depth = { value = 8, severity = "warn" }
+
+# ── ADR-0028 PROFILES ───────────────────────────────────────────────────
+# Profiles control which adapters are REQUIRED by the gate.  An adapter
+# that is absent but not required degrades to "no-reading" (skipped) rather
+# than failing the gate.  Unknown profile names are a hard error (exit 2).
+#
+# strict  — requires every adapter in KNOWN_ADAPTERS EXCEPT the perf-gate-owned
+#           ones (PERF_GATE_OWNED_ADAPTERS in gate.mjs: hyperfine-perf), so an
+#           unconfigured / CI environment fails closed unless every non-perf
+#           adapter produced a reading. hyperfine-perf is excluded because its
+#           enforcement is owned by the dedicated harness/perf/gate.mjs (which
+#           owns the tolerance window); the PF01 startup-benchmark-mean reads
+#           null on a scaffold with no committed benchmarks, which is "nothing
+#           to measure yet", not an adapter failure. Any adapter added to
+#           KNOWN_ADAPTERS in gate.mjs must also be added to the
+#           [profiles.strict] table below (unless perf-gate-owned); the
+#           governance-profiles test (sensors-governance-profiles.test.ts)
+#           enforces parity against strictRequiredAdapters().
+# local   — only the always-available zero-dependency adapters are required:
+#             deadcode        (scoped grep, no external binary)
+#             cruiser-coupling (dependency-cruiser + aggregate, pure-node)
+#             complexity       (complexity.mjs, pure-node)
+#           Instrumented adapters that need external installs are NOT required
+#           here and are skipped-loud when absent: apss-topology (needs APSS
+#           binary + .topology/ data), sentrux, ubs-security, hyperfine-perf,
+#           suite-duration, coverage, license.
+[profiles.strict]
+required_adapters = ["sentrux", "apss-topology", "complexity", "cruiser-coupling", "ubs-security", "license", "deadcode", "suite-duration", "coverage"]
+
+[profiles.local]
+required_adapters = ["deadcode", "cruiser-coupling", "complexity"]

@@ -55,25 +55,32 @@ fn unescape(v: &str) -> String {
     let mut out = String::with_capacity(v.len());
     let mut chars = v.chars();
     while let Some(c) = chars.next() {
-        if c != '\\' {
+        if c == '\\' {
+            push_unescaped(&mut out, chars.next());
+        } else {
             out.push(c);
-            continue;
-        }
-        match chars.next() {
-            Some('n') => out.push('\n'),
-            Some('r') => out.push('\r'),
-            Some('t') => out.push('\t'),
-            Some('\\') => out.push('\\'),
-            Some('"') => out.push('"'),
-            Some('$') => out.push('$'),
-            Some(other) => {
-                out.push('\\');
-                out.push(other);
-            }
-            None => out.push('\\'),
         }
     }
     out
+}
+
+/// Append the character(s) a backslash escape decodes to. `next` is the char
+/// following the backslash (or `None` at end of input); an unknown escape or a
+/// dangling backslash keeps the literal backslash.
+fn push_unescaped(out: &mut String, next: Option<char>) {
+    match next {
+        Some('n') => out.push('\n'),
+        Some('r') => out.push('\r'),
+        Some('t') => out.push('\t'),
+        Some('\\') => out.push('\\'),
+        Some('"') => out.push('"'),
+        Some('$') => out.push('$'),
+        Some(other) => {
+            out.push('\\');
+            out.push(other);
+        }
+        None => out.push('\\'),
+    }
 }
 
 /// True when a value cannot be written bare on a `KEY=value` line: dotenv
@@ -100,18 +107,24 @@ pub(crate) fn quote(v: &str) -> String {
     let mut out = String::with_capacity(v.len() + 2);
     out.push('"');
     for c in v.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '$' => out.push_str("\\$"),
-            _ => out.push(c),
-        }
+        push_escaped(&mut out, c);
     }
     out.push('"');
     out
+}
+
+/// Append `c` to a double-quoted value, escaping the characters `unescape`
+/// reverses (`$` included so dotenv substitution cannot rewrite the value).
+fn push_escaped(out: &mut String, c: char) {
+    match c {
+        '\\' => out.push_str("\\\\"),
+        '"' => out.push_str("\\\""),
+        '\n' => out.push_str("\\n"),
+        '\r' => out.push_str("\\r"),
+        '\t' => out.push_str("\\t"),
+        '$' => out.push_str("\\$"),
+        _ => out.push(c),
+    }
 }
 
 pub fn sync(schema: &ConfigFile, example_path: &str, env_path: &str) -> Result<()> {
@@ -121,41 +134,46 @@ pub fn sync(schema: &ConfigFile, example_path: &str, env_path: &str) -> Result<(
 
     let mut output = String::new();
     for line in example.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('#') || trimmed.is_empty() {
-            output.push_str(line);
-            output.push('\n');
-            continue;
-        }
-        if let Some((k, _)) = line.split_once('=') {
-            let k = k.trim();
-            if let Some(val) = existing.get(k) {
-                output.push_str(&format!("{k}={}\n", quote(val)));
-            } else {
-                output.push_str(line);
-                output.push('\n');
-            }
-        } else {
-            output.push_str(line);
-            output.push('\n');
-        }
+        output.push_str(&sync_line(line, &existing));
     }
+    append_archived(&mut output, &existing, &known);
 
+    fs::write(env_path, output)?;
+    Ok(())
+}
+
+/// Render one `.env.example` line for the synced `.env`: comments, blanks, and
+/// non-`KEY=` lines pass through verbatim; a `KEY=` line whose key has an
+/// existing value is rewritten with that value re-quoted, otherwise kept as-is.
+fn sync_line(line: &str, existing: &HashMap<String, String>) -> String {
+    let trimmed = line.trim();
+    if trimmed.starts_with('#') || trimmed.is_empty() {
+        return format!("{line}\n");
+    }
+    let Some((k, _)) = line.split_once('=') else {
+        return format!("{line}\n");
+    };
+    match existing.get(k.trim()) {
+        Some(val) => format!("{}={}\n", k.trim(), quote(val)),
+        None => format!("{line}\n"),
+    }
+}
+
+/// Append an `# ARCHIVED VARIABLES` block for existing vars absent from the
+/// schema, sorted by key. No-op when nothing is archived.
+fn append_archived(output: &mut String, existing: &HashMap<String, String>, known: &HashSet<&str>) {
     let mut archived: Vec<_> = existing
         .iter()
         .filter(|(k, _)| !known.contains(k.as_str()))
         .collect();
-
-    if !archived.is_empty() {
-        archived.sort_by_key(|(k, _)| k.as_str());
-        output.push_str("\n# ARCHIVED VARIABLES\n");
-        for (k, v) in archived {
-            output.push_str(&format!("{k}={}\n", quote(v)));
-        }
+    if archived.is_empty() {
+        return;
     }
-
-    fs::write(env_path, output)?;
-    Ok(())
+    archived.sort_by_key(|(k, _)| k.as_str());
+    output.push_str("\n# ARCHIVED VARIABLES\n");
+    for (k, v) in archived {
+        output.push_str(&format!("{k}={}\n", quote(v)));
+    }
 }
 
 #[cfg(test)]

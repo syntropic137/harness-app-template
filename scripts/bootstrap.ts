@@ -54,6 +54,38 @@ export function detectMissingTools(spawn: typeof spawnSync): string[] {
   );
 }
 
+/**
+ * Inspect a single `.pnpm` directory entry, returning a mismatch when the
+ * entry is an `esbuild@VERSION` package whose installed binary reports a
+ * different version. Returns null for every non-mismatch case.
+ */
+function inspectEsbuildEntry(
+  pnpmDir: string,
+  entry: string,
+  spawn: typeof spawnSync,
+  exists: (path: string) => boolean,
+): EsbuildMismatch | null {
+  const match = entry.match(/^esbuild@(\d+\.\d+\.\d+)$/);
+  if (!match) {
+    return null;
+  }
+  const version = match[1] as string;
+  const binPath = join(pnpmDir, entry, 'node_modules', 'esbuild', 'bin', 'esbuild');
+  if (!exists(binPath)) {
+    return null;
+  }
+  const result = spawn(binPath, ['--version'], { encoding: 'utf8' });
+  if (result.status !== 0) {
+    return null;
+  }
+  const stdout = result.stdout;
+  const actual = (typeof stdout === 'string' ? stdout : '').trim();
+  if (actual && actual !== version) {
+    return { version, binPath, actual };
+  }
+  return null;
+}
+
 export function detectEsbuildMismatches(
   cwd: string,
   spawn: typeof spawnSync,
@@ -66,23 +98,9 @@ export function detectEsbuildMismatches(
   }
   const out: EsbuildMismatch[] = [];
   for (const entry of readdir(pnpmDir)) {
-    const match = entry.match(/^esbuild@(\d+\.\d+\.\d+)$/);
-    if (!match) {
-      continue;
-    }
-    const version = match[1] as string;
-    const binPath = join(pnpmDir, entry, 'node_modules', 'esbuild', 'bin', 'esbuild');
-    if (!exists(binPath)) {
-      continue;
-    }
-    const result = spawn(binPath, ['--version'], { encoding: 'utf8' });
-    if (result.status !== 0) {
-      continue;
-    }
-    const stdout = result.stdout;
-    const actual = (typeof stdout === 'string' ? stdout : '').trim();
-    if (actual && actual !== version) {
-      out.push({ version, binPath, actual });
+    const mismatch = inspectEsbuildEntry(pnpmDir, entry, spawn, exists);
+    if (mismatch) {
+      out.push(mismatch);
     }
   }
   return out;
@@ -176,31 +194,63 @@ function runInherit(spawn: typeof spawnSync, command: string, args: string[], cw
   return result.status ?? 1;
 }
 
-export function main(deps: BootstrapDeps): void {
-  const cwd = deps.cwd ?? process.cwd();
-  const platform = deps.platform ?? process.platform;
-  const arch = deps.arch ?? process.arch;
-  const exists = deps.exists ?? existsSync;
-  const readdir = deps.readdir ?? readdirSync;
-  const copyFile = deps.copyFile ?? copyFileSync;
-  const chmod = deps.chmod ?? chmodSync;
-  const mkdir = deps.mkdir ?? mkdirSync;
-  const symlink = deps.symlink ?? symlinkSync;
-  const vendorFs = deps.vendorFs ?? defaultVendorFs();
+/**
+ * Return `value` unless it is null/undefined, in which case the fallback is
+ * produced lazily — preserving the short-circuit semantics of `value ??
+ * fallback()` so side-effecting defaults (process.cwd(), defaultVendorFs())
+ * only run when the dependency is absent.
+ */
+function orElse<T>(value: T | undefined, fallback: () => T): T {
+  return value ?? fallback();
+}
 
-  const missing = detectMissingTools(deps.spawn);
-  if (missing.length > 0) {
-    deps.stderr.error(`bootstrap: missing required tools: ${missing.join(', ')}`);
-    for (const tool of missing) {
-      const hint = INSTALL_HINTS[tool];
-      if (hint) {
-        deps.stderr.error(`bootstrap:   ${tool}: ${hint}`);
-      }
+/** Resolved filesystem/platform context shared by the esbuild-repair steps. */
+interface BootstrapContext {
+  cwd: string;
+  platform: NodeJS.Platform;
+  arch: NodeJS.Architecture;
+  spawn: typeof spawnSync;
+  stdout: Pick<typeof console, 'log'>;
+  stderr: Pick<typeof console, 'error'>;
+  exists: (path: string) => boolean;
+  readdir: (path: string) => string[];
+  copyFile: (src: string, dst: string) => void;
+  chmod: ChmodFn;
+  mkdir: MkdirFn;
+  symlink: SymlinkFn;
+}
+
+/** Apply real-fs/process defaults to the injected dependencies. */
+function resolveContext(deps: BootstrapDeps): BootstrapContext {
+  return {
+    cwd: orElse(deps.cwd, () => process.cwd()),
+    platform: orElse(deps.platform, () => process.platform),
+    arch: orElse(deps.arch, () => process.arch),
+    spawn: deps.spawn,
+    stdout: deps.stdout,
+    stderr: deps.stderr,
+    exists: orElse(deps.exists, () => existsSync),
+    readdir: orElse(deps.readdir, () => readdirSync),
+    copyFile: orElse(deps.copyFile, () => copyFileSync),
+    chmod: orElse(deps.chmod, () => chmodSync),
+    mkdir: orElse(deps.mkdir, () => mkdirSync),
+    symlink: orElse(deps.symlink, () => symlinkSync),
+  };
+}
+
+/** Emit the "missing required tools" report, including install hints. */
+function reportMissingTools(deps: BootstrapDeps, missing: string[]): void {
+  deps.stderr.error(`bootstrap: missing required tools: ${missing.join(', ')}`);
+  for (const tool of missing) {
+    const hint = INSTALL_HINTS[tool];
+    if (hint) {
+      deps.stderr.error(`bootstrap:   ${tool}: ${hint}`);
     }
-    deps.exit(1);
-    return;
   }
+}
 
+/** Verify/repair vendor symlinks, log the outcome, return true on any error. */
+function reportVendorLinks(deps: BootstrapDeps, cwd: string, vendorFs: VendorFs): boolean {
   const vendorReport = verifyAndRepairVendorLinks(cwd, vendorFs);
   for (const name of vendorReport.ok) {
     deps.stdout.log(`bootstrap: vendor symlink ${name} ok`);
@@ -211,73 +261,142 @@ export function main(deps: BootstrapDeps): void {
   for (const error of vendorReport.errors) {
     deps.stderr.error(`bootstrap: ${error}`);
   }
-  if (vendorReport.errors.length > 0) {
-    deps.exit(1);
-    return;
-  }
+  return vendorReport.errors.length > 0;
+}
 
-  const repairDetectedEsbuildMismatches = (): { detected: number; repaired: number } => {
-    const mismatches = detectEsbuildMismatches(cwd, deps.spawn, exists, readdir);
-    if (mismatches.length === 0) {
-      return { detected: 0, repaired: 0 };
-    }
-
-    const slug = platformArchSlug(platform, arch);
-    deps.stdout.log(
-      `bootstrap: detected ${mismatches.length} esbuild binary mismatch(es); repairing for ${slug}`,
+/** Repair one esbuild mismatch, logging success/failure; return true on repair. */
+function repairOneEsbuildMismatch(
+  ctx: BootstrapContext,
+  mismatch: EsbuildMismatch,
+  slug: string,
+): boolean {
+  const repaired = repairEsbuildMismatch(
+    ctx.cwd,
+    mismatch,
+    slug,
+    ctx.exists,
+    ctx.copyFile,
+    ctx.chmod,
+    ctx.mkdir,
+    ctx.symlink,
+  );
+  if (repaired) {
+    ctx.stdout.log(
+      `bootstrap: repaired esbuild@${mismatch.version} binary (was ${mismatch.actual})`,
     );
-    let repaired = 0;
-    for (const mismatch of mismatches) {
-      if (repairEsbuildMismatch(cwd, mismatch, slug, exists, copyFile, chmod, mkdir, symlink)) {
-        deps.stdout.log(
-          `bootstrap: repaired esbuild@${mismatch.version} binary (was ${mismatch.actual})`,
-        );
-        repaired += 1;
-      } else {
-        deps.stderr.error(
-          `bootstrap: no platform binary available for esbuild@${mismatch.version} at ${slug}`,
-        );
-      }
-    }
-    return { detected: mismatches.length, repaired };
-  };
+    return true;
+  }
+  ctx.stderr.error(
+    `bootstrap: no platform binary available for esbuild@${mismatch.version} at ${slug}`,
+  );
+  return false;
+}
 
-  const installStatus = runInherit(deps.spawn, 'pnpm', ['install'], cwd);
-  if (installStatus !== 0) {
-    const repair = repairDetectedEsbuildMismatches();
-    if (repair.detected === 0) {
-      deps.stderr.error('bootstrap: pnpm install failed and no known auto-repair applies');
-      deps.exit(installStatus);
-      return;
-    }
-    if (repair.repaired === 0) {
-      deps.exit(installStatus);
-      return;
-    }
-    const rebuildStatus = runInherit(deps.spawn, 'pnpm', ['rebuild', 'esbuild'], cwd);
-    if (rebuildStatus !== 0) {
-      deps.stderr.error('bootstrap: pnpm rebuild esbuild failed after binary repair');
-      deps.exit(rebuildStatus);
-      return;
-    }
-  } else {
-    const repair = repairDetectedEsbuildMismatches();
-    if (repair.detected > 0 && repair.repaired === 0) {
-      deps.exit(1);
-      return;
+/** Detect and repair every esbuild binary mismatch, returning the tallies. */
+function repairDetectedEsbuildMismatches(ctx: BootstrapContext): {
+  detected: number;
+  repaired: number;
+} {
+  const mismatches = detectEsbuildMismatches(ctx.cwd, ctx.spawn, ctx.exists, ctx.readdir);
+  if (mismatches.length === 0) {
+    return { detected: 0, repaired: 0 };
+  }
+  const slug = platformArchSlug(ctx.platform, ctx.arch);
+  ctx.stdout.log(
+    `bootstrap: detected ${mismatches.length} esbuild binary mismatch(es); repairing for ${slug}`,
+  );
+  let repaired = 0;
+  for (const mismatch of mismatches) {
+    if (repairOneEsbuildMismatch(ctx, mismatch, slug)) {
+      repaired += 1;
     }
   }
+  return { detected: mismatches.length, repaired };
+}
 
+/** Clean-install path: an ignored, unrepairable mismatch is fatal. Returns true if it exited. */
+function verifyEsbuildAfterCleanInstall(ctx: BootstrapContext, deps: BootstrapDeps): boolean {
+  const repair = repairDetectedEsbuildMismatches(ctx);
+  if (repair.detected > 0 && repair.repaired === 0) {
+    deps.exit(1);
+    return true;
+  }
+  return false;
+}
+
+/** Failed-install path: attempt esbuild auto-repair + rebuild. Returns true if it exited. */
+function recoverFailedInstall(
+  ctx: BootstrapContext,
+  deps: BootstrapDeps,
+  installStatus: number,
+): boolean {
+  const repair = repairDetectedEsbuildMismatches(ctx);
+  if (repair.detected === 0) {
+    deps.stderr.error('bootstrap: pnpm install failed and no known auto-repair applies');
+    deps.exit(installStatus);
+    return true;
+  }
+  if (repair.repaired === 0) {
+    deps.exit(installStatus);
+    return true;
+  }
+  const rebuildStatus = runInherit(deps.spawn, 'pnpm', ['rebuild', 'esbuild'], ctx.cwd);
+  if (rebuildStatus !== 0) {
+    deps.stderr.error('bootstrap: pnpm rebuild esbuild failed after binary repair');
+    deps.exit(rebuildStatus);
+    return true;
+  }
+  return false;
+}
+
+/** Run `pnpm install` and reconcile esbuild binaries. Returns true if it exited. */
+function ensurePnpmInstall(ctx: BootstrapContext, deps: BootstrapDeps): boolean {
+  const installStatus = runInherit(deps.spawn, 'pnpm', ['install'], ctx.cwd);
+  if (installStatus === 0) {
+    return verifyEsbuildAfterCleanInstall(ctx, deps);
+  }
+  return recoverFailedInstall(ctx, deps, installStatus);
+}
+
+/** Run `cargo check` then `uv sync`. Returns true if either failed and it exited. */
+function runFinalChecks(deps: BootstrapDeps, cwd: string): boolean {
   if (runInherit(deps.spawn, 'cargo', ['check'], cwd) !== 0) {
     deps.stderr.error('bootstrap: cargo check failed');
     deps.exit(1);
-    return;
+    return true;
   }
   if (runInherit(deps.spawn, 'uv', ['sync'], cwd) !== 0) {
     deps.stderr.error('bootstrap: uv sync failed');
     deps.exit(1);
+    return true;
+  }
+  return false;
+}
+
+export function main(deps: BootstrapDeps): void {
+  const ctx = resolveContext(deps);
+  const vendorFs = orElse(deps.vendorFs, () => defaultVendorFs());
+
+  const missing = detectMissingTools(deps.spawn);
+  if (missing.length > 0) {
+    reportMissingTools(deps, missing);
+    deps.exit(1);
     return;
   }
+
+  if (reportVendorLinks(deps, ctx.cwd, vendorFs)) {
+    deps.exit(1);
+    return;
+  }
+
+  if (ensurePnpmInstall(ctx, deps)) {
+    return;
+  }
+
+  if (runFinalChecks(deps, ctx.cwd)) {
+    return;
+  }
+
   deps.stdout.log('bootstrap: complete');
 }
 

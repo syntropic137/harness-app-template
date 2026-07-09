@@ -388,11 +388,19 @@ export function analyzeFromTopology(root = '.', opts = {}) {
   }
   const functionsByModule =
     functionsDoc && !functionsDoc._error ? parseFunctionsJson(functionsDoc) : new Map();
-  if (modules.length === 0 && functionsByModule.size > 0) {
-    modules = [...functionsByModule.keys()].map((source) => ({
-      source,
-      ...extractMetrics({}, APSS_MODULE_METRICS),
-    }));
+  // APSS 1.1.0 emits modules.json at DIRECTORY granularity but functions.json
+  // references per-FILE modules, so joinModulesAndFunctions attaches 0
+  // functions to the directory modules. Add a reading for every
+  // function-owning source not already present, so the function-level PEAK
+  // metrics (max-halstead-volume, and the cognitive/cyclomatic peaks) have
+  // their functions to read. These synthetic readings carry only function
+  // data — their module/coupling fields are null and are filtered out of the
+  // MD01 module-level metrics, so they do not perturb coupling readings.
+  const knownSources = new Set(modules.map((m) => m.source));
+  for (const source of functionsByModule.keys()) {
+    if (!knownSources.has(source)) {
+      modules.push({ source, ...extractMetrics({}, APSS_MODULE_METRICS) });
+    }
   }
   const readings = joinModulesAndFunctions(modules, functionsByModule);
   const out = { tool: 'apss-topology', available: true, readings };
@@ -420,6 +428,22 @@ export function analyzeFromTopology(root = '.', opts = {}) {
  * Env:
  *   APSS_SENSORS_PRODUCE=1   same as passing --produce.
  */
+/**
+ * If the producer ran and FAILED and we ended up with no topology to read,
+ * surface WHY. Otherwise the failure collapses into an ambiguous
+ * `available: false` that is indistinguishable from "APSS not installed" — a
+ * broken producer would look identical to a clean skip, so the fail-closed
+ * strict gate (ADR-0028) could only report "missing required adapter" without
+ * the actionable cause. (Diagnosis gap flagged by the Codex fitness review.)
+ * A successful produce, or a skipped one (null), passes the result through.
+ */
+export function attachProduceDiagnosis(result, produceResult) {
+  if (result?.available === false && produceResult && produceResult.ran === false) {
+    return { ...result, produce_error: produceResult.reason };
+  }
+  return result;
+}
+
 export async function main(
   argv = process.argv.slice(2),
   io = { write: (s) => process.stdout.write(s) },
@@ -439,12 +463,13 @@ export async function main(
       produce = false;
     }
   }
+  let produceResult = null;
   if (produce) {
-    produceTopology({ cwd: root });
+    produceResult = produceTopology({ cwd: root });
   }
   const opts = topologyDir ? { topologyDir } : {};
   const result = analyzeFromTopology(root, opts);
-  io.write(`${JSON.stringify(result, null, 2)}\n`);
+  io.write(`${JSON.stringify(attachProduceDiagnosis(result, produceResult), null, 2)}\n`);
   return 0;
 }
 

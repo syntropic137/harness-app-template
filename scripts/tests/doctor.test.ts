@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import {
   main,
   missingTools,
+  optionalToolChecks,
   printReport,
   profilingIssues,
   provenanceIssues,
@@ -193,6 +194,43 @@ describe('doctor', () => {
     expect(lines.some((l) => l.includes('synthetic') && l.includes('present'))).toBe(true);
   });
 
+  test('printReport renders an ok optional adapter with no version as "present"', () => {
+    const lines: string[] = [];
+    printReport([], [], [], (line) => lines.push(line), [], [{ name: 'synthetic-opt', ok: true }]);
+    expect(lines.some((l) => l.includes('synthetic-opt') && l.includes('present'))).toBe(true);
+  });
+
+  test('optionalToolChecks flags a missing adapter with the install-tools hint', () => {
+    const spawn = spawnWith({ ubs: 'UBS Meta-Runner v5.3.4' }); // only ubs present
+    const optional = optionalToolChecks(spawn as never);
+    const ubs = optional.find((o) => o.name === 'ubs');
+    const sentrux = optional.find((o) => o.name === 'sentrux');
+    expect(ubs?.ok).toBe(true);
+    expect(sentrux?.ok).toBe(false);
+    expect(sentrux?.hint).toContain('just install-tools');
+  });
+
+  test('printReport lists optional adapters ([ OK ]/[SKIP]) and never counts them as failed', () => {
+    const tools = toolChecks(spawnWith(DEFAULT_VERSIONS) as never);
+    // Mix: ubs present (renders [ OK ]), the rest missing (render [SKIP]).
+    const optional = optionalToolChecks(spawnWith({ ubs: 'UBS Meta-Runner v5.3.4' }) as never);
+    const lines: string[] = [];
+    const { failed } = printReport(
+      tools,
+      runtimeChecks('/repo', () => true),
+      [],
+      (line) => lines.push(line),
+      [],
+      optional,
+    );
+    // All required pass; missing optional adapters must NOT fail doctor.
+    expect(failed).toBe(0);
+    expect(lines.some((l) => l.includes('[ OK ]') && l.includes('ubs'))).toBe(true);
+    expect(lines.some((l) => l.includes('[SKIP]') && l.includes('sentrux'))).toBe(true);
+    expect(lines.some((l) => l.includes('optional adapters'))).toBe(true);
+    expect(lines.some((l) => l.includes('[FAIL]') && l.includes('sentrux'))).toBe(false);
+  });
+
   test('printReport prints trailing provenance issues as continuation lines', () => {
     const tools = toolChecks(spawnWith(DEFAULT_VERSIONS) as never);
     const runtime = runtimeChecks('/repo', () => true);
@@ -278,7 +316,7 @@ describe('doctor', () => {
         },
         cwd: process.cwd(),
       });
-    } catch (e) {
+    } catch {
       // Failure is fine; we just want the real fs default-fallbacks to run.
     }
     // Either the provenance line shows OK or the report flagged something
@@ -420,6 +458,29 @@ describe('doctor', () => {
       '.harness-provenance.json schemaVersion must be 1.0',
       '.harness-provenance.json upstream_pulls must be an array when present',
     ]);
+  });
+
+  test('provenanceFieldIssues skips format validation when a rule field is absent', () => {
+    // schemaVersion is a provenanceFieldRules field; making it a non-string
+    // means stringField() returns undefined, so the `value ? validate(value) :
+    // undefined` ternary takes its alternate (falsy) branch — no format issue
+    // is raised for it, only the "missing string field" issue from the first
+    // loop. A sibling rule field (mode) with an invalid value still produces a
+    // message, exercising the truthy branch in the same pass.
+    const cwd = '/repo';
+    const partial = fakeFs({
+      [`${cwd}/.harness-provenance.json`]: JSON.stringify({
+        ...validProvenance,
+        schemaVersion: 123,
+        mode: 'bad',
+      }),
+      [`${cwd}/harness.manifest.json`]: `${JSON.stringify(validManifest)}\n`,
+    });
+    const issues = provenanceIssues(cwd, partial.exists, partial.readText);
+    expect(issues).toContain('.harness-provenance.json missing string field schemaVersion');
+    expect(issues).toContain('.harness-provenance.json mode must be fresh or updated');
+    // No schemaVersion *format* issue — the format rule was skipped for it.
+    expect(issues).not.toContain('.harness-provenance.json schemaVersion must be 1.0');
   });
 
   test('profiling probe passes on the valid fixture and uses real defaults safely', () => {

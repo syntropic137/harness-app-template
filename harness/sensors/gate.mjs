@@ -61,6 +61,12 @@ import {
 } from './baseline_guard.mjs';
 
 const EPSILON = 1e-6;
+// A module whose Martin distance-from-main-sequence is at or below this band
+// is treated as sitting ON the main sequence: its instability extreme is a
+// healthy design point (a leaf/entrypoint at I≈1,A≈0 or a stable-abstract
+// module at I≈0,A≈1), not a defect. Used to keep instability-out-of-range
+// size-invariant per ADR-0029 § 3.
+const ON_MAIN_SEQUENCE_MAX = 0.1;
 const FITNESS_SCHEMA_VERSION = '1.0.0';
 const DEFAULT_POLICY_PATH = 'harness/.harness/governance.toml';
 const DEPCRUISER_SENSOR = 'dep-cruiser@17.4.0';
@@ -141,38 +147,40 @@ const DIMENSIONS = {
   },
 };
 
-const FITNESS_METRICS = {
+export const FITNESS_METRICS = {
   MT01: [
     {
       id: 'max-cognitive',
       name: 'Maximum Cognitive Complexity',
       objective:
-        'Max function cognitive complexity from APSS functions or the local complexity adapter.',
-      source: '.topology/metrics/functions.json or harness/sensors/complexity.mjs',
+        'Max function cognitive complexity from the ts-morph complexity.mjs adapter (SonarSource algorithm). APSS function cognitive is INTERIM-EXCLUDED: apss-v1-0001-code-topology 0.2.0 over-counts cognitive via an off-by-one nesting bug (the measured function counts its own definition as a nesting level) plus per-case switch charging — fixed upstream in AgentParadise PR #90 (bumps to 0.3.0). Re-add APSS as a source once 0.3.0 is pinned and the baseline is re-derived. See ADR-0017/ADR-0018.',
+      source: 'harness/sensors/complexity.mjs (APSS cognitive interim-excluded pending 0.3.0)',
+      adapter: 'complexity',
       direction: 'max',
       default_threshold: 15,
       fail_on_regression: true,
       value: (report) =>
         maxNumber([
-          ...apssFunctionValues(report, 'cognitive'),
+          // APSS function cognitive intentionally omitted until 0.3.0 — see objective.
           ...moduleValues(report, (m) => m.max_cognitive),
-          ...folderValues(report, (f) => f.max_cognitive ?? f.apss_max_cognitive),
+          ...folderValues(report, (f) => f.max_cognitive),
         ]),
     },
     {
       id: 'max-cyclomatic',
       name: 'Maximum Cyclomatic Complexity',
       objective:
-        'Max function cyclomatic complexity from APSS functions or the local complexity adapter.',
-      source: '.topology/metrics/functions.json or harness/sensors/complexity.mjs',
+        'Max function cyclomatic complexity from the ts-morph complexity.mjs adapter. APSS function values are INTERIM-EXCLUDED alongside max-cognitive (the same 0.2.0 defect ships per-case switch/match charging that inflates cyclomatic too); fixed upstream in AgentParadise PR #90. Re-add once 0.3.0 is pinned.',
+      source: 'harness/sensors/complexity.mjs (APSS cyclomatic interim-excluded pending 0.3.0)',
+      adapter: 'complexity',
       direction: 'max',
       default_threshold: 10,
       fail_on_regression: true,
       value: (report) =>
         maxNumber([
-          ...apssFunctionValues(report, 'cyclomatic'),
+          // APSS function cyclomatic intentionally omitted until 0.3.0 — see objective.
           ...moduleValues(report, (m) => m.max_cyclomatic),
-          ...folderValues(report, (f) => f.max_cyclomatic ?? f.apss_max_cyclomatic),
+          ...folderValues(report, (f) => f.max_cyclomatic),
         ]),
     },
     {
@@ -180,6 +188,7 @@ const FITNESS_METRICS = {
       name: 'Maximum Halstead Volume',
       objective: 'Max APSS Halstead volume per function when APSS emits Halstead metrics.',
       source: '.topology/metrics/functions.json metrics.halstead.volume',
+      adapter: 'apss-topology',
       direction: 'max',
       default_threshold: 1000,
       fail_on_regression: true,
@@ -192,6 +201,7 @@ const FITNESS_METRICS = {
         'Count of workspace functions whose cognitive complexity is at or above the HIGH_COGNITIVE_THRESHOLD line (5; the Sonar moderate-watch band). max-cognitive watches the PEAK; this watches the SPREAD — catches the death-by-a-thousand-cuts pattern where a refactor splits one ugly function but seeds several moderately-complex ones, an AI-coding regression mode that the peak metric reads as an improvement. Direction max (smaller-is-better); ratchet auto-tightens toward 0 as the workspace simplifies.',
       source:
         'aggregate workspace.high_cognitive_count (sum across modules from harness/sensors/complexity.mjs)',
+      adapter: 'complexity',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -206,6 +216,7 @@ const FITNESS_METRICS = {
       objective:
         'Geometric mean of sentrux 5 root-cause sub-scores (modularity, acyclicity, depth, equality, redundancy). Direction is min (larger-is-better). Sentrux is the 2nd architectural lens alongside APSS topology per ADR-0017; the metric ratchets up as the project improves so the floor only ever tightens.',
       source: '.sentrux/baseline.json quality_signal (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'min',
       default_threshold: 0,
       fail_on_regression: true,
@@ -217,6 +228,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of files sentrux flags as god-files (excessive responsibility / fan-in). Smaller is better; the ratchet pins the floor so a refactor that lowers the count cannot silently regress.',
       source: '.sentrux/baseline.json god_file_count (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -228,6 +240,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of code hotspots sentrux flags via its 52-language tree-sitter overlay. Smaller is better.',
       source: '.sentrux/baseline.json hotspot_count (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -239,6 +252,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of functions sentrux flags as overly complex across 52 supported languages. Complements the APSS-derived max-cognitive metric: max-cognitive watches the peak, this watches the spread.',
       source: '.sentrux/baseline.json complex_fn_count (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -250,6 +264,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of named exports declared under ws_apps/<app>/src/ and ws_packages/<pkg>/src/ that have zero whole-word references elsewhere in the workspace. Detector is a deterministic scoped grep (no node_modules / npx / network dependency), so the same input produces the same count locally and on every CI lane. The "no broken windows" rot ratchet: orphaned exports AI coding agents create when they refactor without cleanup. Direction max (smaller-is-better); ratchet tightens toward 0. Soft-skip when no workspace package exists yields a null reading so a broken scanner cannot silently pass. See ADR-0024-dead-code-ratchet.md.',
       source: 'harness/sensors/deadcode_scan.mjs (pure-source scoped grep)',
+      adapter: 'deadcode',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -261,10 +276,12 @@ const FITNESS_METRICS = {
       id: 'max-fan-out',
       name: 'Maximum Efferent Coupling',
       objective:
-        'Max module efferent coupling from APSS coupling or the dependency-cruiser fallback.',
+        'Max module efferent coupling from APSS coupling or the dependency-cruiser fallback. Per-module maximum, so a new module below the threshold cannot move it (size-invariant per ADR-0029). ratchet_floor clamps the auto-ratchet at the designed threshold so the floor never captures the incidental headroom of a tiny scaffold (which would fail the first real feature module).',
       source: '.topology/metrics/coupling.json or aggregate workspace modules',
+      adapter: 'cruiser-coupling',
       direction: 'max',
       default_threshold: 20,
+      ratchet_floor: 20,
       fail_on_regression: true,
       value: (report) =>
         maxNumber([
@@ -275,10 +292,13 @@ const FITNESS_METRICS = {
     {
       id: 'max-main-sequence-distance',
       name: 'Maximum Distance from Main Sequence',
-      objective: 'Max module distance from the Martin main sequence.',
+      objective:
+        'Max module distance from the Martin main sequence. Per-module maximum (size-invariant per ADR-0029); ratchet_floor clamps the auto-ratchet at the designed threshold so incidental headroom is not frozen into policy.',
       source: '.topology/metrics/coupling.json or aggregate workspace modules',
+      adapter: 'cruiser-coupling',
       direction: 'max',
       default_threshold: 0.7,
+      ratchet_floor: 0.7,
       fail_on_regression: true,
       value: (report) =>
         maxNumber([
@@ -289,35 +309,46 @@ const FITNESS_METRICS = {
     {
       id: 'instability-out-of-range-count',
       name: 'Instability Outside Healthy Range',
-      objective: 'Count modules with instability below 0.1 or above 0.9.',
+      objective:
+        'Count modules whose instability is below 0.1 or above 0.9 AND that sit off the Martin main sequence (distance > 0.1). A module at an instability extreme that is ON the main sequence — a leaf/entrypoint at I≈1,A≈0 or a stable-abstract module at I≈0,A≈1 — is a healthy design point, not a defect; counting it is the size-variance category error ADR-0029 § 3 removes (otherwise every new entrypoint increments the count). Coverage relies on the abstractness (ts-morph) adapter being present so D is known; a module whose D is unreadable is deliberately NOT counted (counting it would re-introduce the false trip on every leaf when abstractness is absent). This is a fail-open on that one path — full coverage assumes the abstractness adapter is provisioned in the active profile.',
       source: '.topology/metrics/coupling.json or aggregate workspace modules',
+      adapter: 'cruiser-coupling',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
       value: (report) =>
-        moduleValues(report, (m) => m.apss?.instability ?? m.I).filter(
-          (v) => typeof v === 'number' && (v < 0.1 || v > 0.9),
-        ).length,
+        (report?.workspace?.modules ?? []).filter((m) => {
+          const instability = m.apss?.instability ?? m.I;
+          if (typeof instability !== 'number' || (instability >= 0.1 && instability <= 0.9)) {
+            return false;
+          }
+          // Count only when the module is PROVABLY off the main sequence.
+          // Unknown distance (no abstractness reading) degrades to "not an
+          // offender" rather than a false trip.
+          const distance = m.apss?.distance_from_main_sequence ?? m.D;
+          return typeof distance === 'number' && distance > ON_MAIN_SEQUENCE_MAX;
+        }).length,
     },
-    {
-      id: 'sentrux-coupling-score',
-      name: 'Sentrux Coupling Score',
-      objective:
-        'Sentrux composite coupling ratio derived from cross-module imports vs. total import edges. Smaller is better; the ratchet pins it so the modularity gain a refactor produces stays gained (no broken windows).',
-      source: '.sentrux/baseline.json coupling_score (via harness/sensors/sentrux_scan.mjs)',
-      direction: 'max',
-      default_threshold: 1,
-      fail_on_regression: true,
-      value: (_report, options) => sentruxMetricValue(options, 'coupling_score'),
-    },
+    // NOTE: `sentrux-coupling-score` was removed from the enforced MD01 set
+    // per ADR-0029. It is a global composite ratio (cross-module edges /
+    // total import edges) that fails the "new well-designed module" test:
+    // a clean multi-module feature legitimately adds cross-module edges and
+    // nudges the ratio on a rounding scale, so every firing was a false
+    // positive and the gate kept getting disabled. `sentrux_scan.mjs` still
+    // computes `coupling_score` in its envelope for anyone who wants to read
+    // the trend; it is simply no longer a baseline-governed hard gate. The
+    // canonical size-invariant `max-fan-out` remains the coupling authority
+    // (ADR-0017 one-canonical-signal-per-axis).
     {
       id: 'sentrux-max-depth',
       name: 'Sentrux Maximum Import/Call Depth',
       objective:
-        'Maximum nesting depth across the sentrux import/call graph. Smaller is better; complements MD01 by watching nesting (a known AI-coding regression pattern) rather than per-module fan-out.',
+        'Maximum nesting depth across the sentrux import/call graph. Smaller is better; complements MD01 by watching nesting (a known AI-coding regression pattern) rather than per-module fan-out. ratchet_floor clamps the auto-ratchet at the designed threshold (ADR-0029) so a well-layered feature that adds one legitimate level is not punished.',
       source: '.sentrux/baseline.json max_depth (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'max',
       default_threshold: 10,
+      ratchet_floor: 10,
       fail_on_regression: true,
       value: (_report, options) => sentruxMetricValue(options, 'max_depth'),
     },
@@ -329,6 +360,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of dependency edges flagged as circular by dependency-cruiser, scoped to workspace sources (ws_apps + ws_packages). Each cycle of length N contributes N edges. Source: workspace.circular_edges in the aggregate report (bead create-harness-app-2zz.1).',
       source: 'aggregate workspace.circular_edges (dependency-cruiser circular flag)',
+      adapter: 'cruiser-coupling',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -343,6 +375,7 @@ const FITNESS_METRICS = {
       objective:
         'Cross-language strongly-connected-component count from sentrux. Overlaps with the dependency-cruiser circular_edges metric but lights up across all 52 sentrux tree-sitter language plugins, not just JS/TS. The two metrics jointly enforce ST01.',
       source: '.sentrux/baseline.json cycle_count (via harness/sensors/sentrux_scan.mjs)',
+      adapter: 'sentrux',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -356,6 +389,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of critical-severity findings emitted by the Ultimate Bug Scanner (UBS) over template-owned source paths. The bin/sensors wrapper runs ubs --report-json scoped to a stable file list and writes the JSON to a tempfile; the gate reads totals.critical via --security=<path>. Soft-skip yields a null reading; an active scan with zero findings yields baseline 0 and the gate fails on any new critical pattern (bead create-harness-app-2zz.2).',
       source: 'ubs --report-json totals.critical (template-owned source paths)',
+      adapter: 'ubs-security',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -369,6 +403,7 @@ const FITNESS_METRICS = {
       objective:
         'Count of installed packages whose declared license is missing or outside the OSI-permissive allowlist (MIT, ISC, Apache-2.0, BSD-2/3-Clause, MPL-2.0, CC0-1.0, etc.). Source: harness/sensors/license_scan.mjs walks every node_modules root that exists on disk. The bin/sensors wrapper invokes the scanner and passes --licenses=<path> (bead create-harness-app-2zz.3).',
       source: 'harness/sensors/license_scan.mjs denied_count',
+      adapter: 'license',
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -382,6 +417,7 @@ const FITNESS_METRICS = {
       objective:
         "Advisory-by-design: a static template repository ships no rendered frontend to scan with axe-core or pa11y. AC01 stays advisory + opt-in; a consumer fork that ships an actual web frontend writes its own adapter (axe-core / pa11y over the rendered output, scoped to the fork's ws_apps/<frontend> path). Bead create-harness-app-2zz.4 closed with reason advisory-by-design.",
       source: 'advisory-by-design (no rendered frontend in a static template)',
+      adapter: 'apss-topology', // advisory-by-design: value always null; adapter tag is provenance only (Declared-N/A, never gated)
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -395,6 +431,7 @@ const FITNESS_METRICS = {
       objective:
         'Maximum hyperfine benchmark mean wall-clock from harness/perf/baseline.json. PF01 enforces; a current mean above baseline (beyond EPSILON) trips the gate. In environments without hyperfine the metric reports as no-reading and the dedicated harness/perf gate is the primary enforcer (it owns the tolerance window).',
       source: 'harness/perf/baseline.json benchmarks.[*].mean',
+      adapter: 'hyperfine-perf',
       direction: 'max',
       default_threshold: 5,
       fail_on_regression: true,
@@ -406,6 +443,7 @@ const FITNESS_METRICS = {
       objective:
         'Number of benchmarks committed in harness/perf/baseline.json. Floor is the snapshotted count; the gate fails if the count drops (a removed bench is a coverage regression). Floor of zero is acceptable until hyperfine has produced a real measurement.',
       source: 'harness/perf/baseline.json benchmarks',
+      adapter: 'hyperfine-perf', // value() returns .length (count, min 0), never reads null; adapter tag is provenance
       direction: 'min',
       default_threshold: 0,
       fail_on_regression: true,
@@ -417,6 +455,7 @@ const FITNESS_METRICS = {
       objective:
         'p95 wall-clock of the test suite over N iterations from the harness/sensors/suite_duration.mjs adapter envelope. Observational at the gate (fail_on_regression=false) because wall-clock varies machine-to-machine and gate.mjs uses EPSILON=1e-6 which would convert normal CI/dev jitter into false failures. The adapter is the AUTHORITATIVE enforcer per ADR-0025: it owns the hybrid ceiling (`absolute_seconds_ceiling` + `relative_delta_percent` against `duration_p95_seconds` in `harness/sensors/suite-duration-baseline.json`, default 3.0s / 25%) plus the HARD coverage-coupling rule. null/no-reading means the adapter exited non-zero (coverage failure or suite failure); the gate reader simply sees no envelope and the cycle fails at the adapter step before this metric is ever evaluated. See ADR-0025-suite-duration-sensor-pf01.md.',
       source: 'harness/sensors/suite_duration.mjs envelope duration_p95_seconds',
+      adapter: 'suite-duration',
       direction: 'max',
       default_threshold: 5,
       fail_on_regression: false,
@@ -428,6 +467,7 @@ const FITNESS_METRICS = {
       objective:
         "Number of iterations the suite-duration adapter ran. Floor is the snapshotted count; the gate fails if the count drops (a silently lowered iteration_count is a fake speedup, mirroring startup-benchmark-count's rationale verbatim). Direction min (larger-is-better). See ADR-0025-suite-duration-sensor-pf01.md.",
       source: 'harness/sensors/suite_duration.mjs envelope iteration_count',
+      adapter: 'suite-duration',
       direction: 'min',
       default_threshold: 0,
       fail_on_regression: true,
@@ -441,6 +481,7 @@ const FITNESS_METRICS = {
       objective:
         'Advisory-by-design: a static template repository ships no running service to measure availability against. AV01 stays advisory + opt-in; a consumer fork that ships an actual service writes its own adapter (chaos-engineering hook, SLO breach counter, paired with the observability slot). Bead create-harness-app-2zz.5 closed with reason advisory-by-design.',
       source: 'advisory-by-design (no running service in a static template)',
+      adapter: 'apss-topology', // advisory-by-design: value always null; adapter tag is provenance only (Declared-N/A, never gated)
       direction: 'max',
       default_threshold: 0,
       fail_on_regression: true,
@@ -454,6 +495,7 @@ const FITNESS_METRICS = {
       objective:
         'Minimum cargo-llvm-cov line-coverage percentage across every Rust workspace the project covers (ws_apps/example-rust, harness/doc-validator, harness/versioning). Direction min (larger-is-better); ratchet only ever tightens UPWARD toward 100 percent. The operator invariant is 100 percent or nothing. If a line is genuinely uncoverable, exclude it via cfg(coverage)/llvm-cov ignore regions rather than lowering the floor. See ADR-0025-coverage-ratchet.md.',
       source: 'harness/sensors/coverage_scan.mjs (cargo llvm-cov --json --summary-only)',
+      adapter: 'coverage',
       direction: 'min',
       default_threshold: 100,
       fail_on_regression: true,
@@ -465,6 +507,7 @@ const FITNESS_METRICS = {
       objective:
         'Minimum cargo-llvm-cov function-coverage percentage across every Rust workspace. Function coverage catches the case where a helper compiled but never invoked stays uncovered while line coverage masks it via inlining. Direction min; floor pinned at 100 by ADR-0025.',
       source: 'harness/sensors/coverage_scan.mjs (cargo llvm-cov --json --summary-only)',
+      adapter: 'coverage',
       direction: 'min',
       default_threshold: 100,
       fail_on_regression: true,
@@ -476,6 +519,7 @@ const FITNESS_METRICS = {
       objective:
         'Minimum cargo-llvm-cov region-coverage percentage across every Rust workspace. Regions are finer than lines (every branch arm contributes its own region); a sub-100 region percentage signals a branch never exercised even when line coverage is 100. Direction min; floor pinned at 100 by ADR-0025.',
       source: 'harness/sensors/coverage_scan.mjs (cargo llvm-cov --json --summary-only)',
+      adapter: 'coverage',
       direction: 'min',
       default_threshold: 100,
       fail_on_regression: true,
@@ -487,6 +531,7 @@ const FITNESS_METRICS = {
       objective:
         'pytest-cov totals.percent_covered for every uv-managed Python project the workspace ships (ws_apps/example-python). Direction min; floor pinned at 100 by ADR-0025 and by the existing cov-py recipe (`pytest --cov-fail-under=100`). Excludes integration tests that spawn subprocesses (the same exclusion the cov-py recipe enforces).',
       source: 'harness/sensors/coverage_scan.mjs (pytest --cov-report=json totals.percent_covered)',
+      adapter: 'coverage',
       direction: 'min',
       default_threshold: 100,
       fail_on_regression: true,
@@ -498,6 +543,7 @@ const FITNESS_METRICS = {
       objective:
         'Minimum vitest v8 line-coverage percentage across every TypeScript workspace the project covers (scripts/, ws_apps/example-typescript, harness/stack, harness/inspector). Direction min; floor pinned at 100 by ADR-0025 and by the existing vitest thresholds:{lines:100,branches:100,functions:100,statements:100} in every vitest.config.ts.',
       source: 'harness/sensors/coverage_scan.mjs (vitest coverage-summary.json total.lines.pct)',
+      adapter: 'coverage',
       direction: 'min',
       default_threshold: 100,
       fail_on_regression: true,
@@ -510,6 +556,7 @@ const FITNESS_METRICS = {
         'Project-wide MIN line-coverage percentage across every measured lane (rust + python + javascript). Floor pinned at 100. This is the single overall-fitness number an agent should watch; a regression in any lane drops it. Direction min.',
       source:
         'harness/sensors/coverage_scan.mjs min(rust_line_pct, python_line_pct, javascript_line_pct)',
+      adapter: 'coverage',
       direction: 'min',
       default_threshold: 100,
       fail_on_regression: true,
@@ -517,6 +564,40 @@ const FITNESS_METRICS = {
     },
   ],
 };
+
+export const KNOWN_ADAPTERS = new Set([
+  'sentrux',
+  'apss-topology',
+  'complexity',
+  'cruiser-coupling',
+  'ubs-security',
+  'license',
+  'deadcode',
+  'hyperfine-perf',
+  'suite-duration',
+  'coverage',
+]);
+
+// Adapters whose enforcement is OWNED by a dedicated gate, not the sensors
+// gate — so `strict` does NOT require them even though their metrics are
+// known (and validly tag them). `hyperfine-perf`'s own metric objective says
+// the dedicated `harness/perf/gate.mjs` is the primary enforcer (it owns the
+// tolerance window); the PF01 startup-benchmark-mean legitimately reads null
+// on a scaffold with no committed benchmarks, which is "nothing to measure
+// yet", not an adapter failure. Requiring it in `strict` would hard-fail the
+// bare scaffold and inject machine-variable wall-clock into an EPSILON gate.
+// See ADR-0028 (strict-requires-everything, with this documented carve-out).
+export const PERF_GATE_OWNED_ADAPTERS = new Set(['hyperfine-perf']);
+
+/** The adapters `strict` requires: every known adapter except perf-gate-owned. */
+export function strictRequiredAdapters() {
+  return new Set([...KNOWN_ADAPTERS].filter((a) => !PERF_GATE_OWNED_ADAPTERS.has(a)));
+}
+
+export function metricAdapter(dimensionCode, metricId) {
+  const metric = (FITNESS_METRICS[dimensionCode] ?? []).find((m) => m.id === metricId);
+  return metric?.adapter ?? null;
+}
 
 function moduleValues(report, read) {
   return (report?.workspace?.modules ?? []).map(read).filter((v) => typeof v === 'number');
@@ -1026,6 +1107,51 @@ export function parsePolicy(raw) {
   };
 }
 
+export function parseProfiles(raw) {
+  if (!raw?.trim()) {
+    return {};
+  }
+  let doc;
+  try {
+    doc = toml.parse(raw);
+  } catch {
+    // IMPORTANT 2: fail closed on malformed TOML — throw so the CLI exits 2
+    throw new Error('profile config: malformed TOML in governance file');
+  }
+  const profiles = doc?.profiles ?? {};
+  const out = {};
+  for (const [name, table] of Object.entries(profiles)) {
+    if (!Array.isArray(table?.required_adapters)) {
+      // Missing or non-array required_adapters in a profile table is a config error
+      throw new Error(`profile '${name}' is missing a valid required_adapters array`);
+    }
+    // IMPORTANT 2: reject unknown adapter names to fail closed on typos
+    for (const adapter of table.required_adapters) {
+      if (!KNOWN_ADAPTERS.has(adapter)) {
+        throw new Error(`profile '${name}' lists unknown adapter '${adapter}'`);
+      }
+    }
+    out[name] = { required_adapters: table.required_adapters };
+  }
+  return out;
+}
+
+export function resolveProfile({ profiles, profileName }) {
+  // 'none' is the explicit profile opt-out — leave profile undefined (legacy behavior)
+  if (profileName === 'none') {
+    return null;
+  }
+  // profiles is always the plain-object output of parseProfiles (never null); the ?. is defensive only
+  const table = profiles?.[profileName];
+  if (!table) {
+    if (profileName === 'strict') {
+      return { name: 'strict', requiredAdapters: strictRequiredAdapters() };
+    }
+    throw new Error(`unknown profile '${profileName}'`);
+  }
+  return { name: profileName, requiredAdapters: new Set(table.required_adapters) };
+}
+
 function metricNameForConstraint(key) {
   const stripped = key.replace(/^(max|min)_/, '');
   if (stripped === 'cycles') {
@@ -1231,6 +1357,9 @@ export function extractApssFitnessBaseline(report, options = {}) {
         source: metric.source,
         direction: metric.direction,
         default_threshold: metric.default_threshold,
+        ...(typeof metric.ratchet_floor === 'number'
+          ? { ratchet_floor: metric.ratchet_floor }
+          : {}),
         baseline,
         fail_on_regression: metric.fail_on_regression,
       };
@@ -1321,6 +1450,10 @@ function assessMetricComparisonState({ code, metricId, currentMetric, baselineMe
       hardFailCoverage: true,
       failureReason: coverageFailureSummary(options, metricId),
       regression: true,
+      adapterMissing: false,
+      requiredMissing: false,
+      skippedAdapter: false,
+      adapter: null,
       compared: 1,
       evaluated: 1,
       failed: 1,
@@ -1339,6 +1472,10 @@ function assessMetricComparisonState({ code, metricId, currentMetric, baselineMe
       regression:
         currentMetric.fail_on_regression &&
         worsened(currentMetric.direction, currentValue, baselineValue),
+      adapterMissing: false,
+      requiredMissing: false,
+      skippedAdapter: false,
+      adapter: null,
       compared: 1,
       evaluated: 1,
       failed: 0,
@@ -1348,17 +1485,44 @@ function assessMetricComparisonState({ code, metricId, currentMetric, baselineMe
     };
   }
 
+  const currentIsNumber = typeof currentValue === 'number';
+  const adapterMissing = !currentIsNumber;
+  const enforced = code !== 'AC01' && code !== 'AV01'; // advisory dims = Declared-N/A
+  const adapter = metricAdapter(code, metricId);
+  // ADR-0028: the four-state classification (requiredMissing / skippedAdapter) only
+  // engages when a profile is active. Profile-less calls (internal tests, direct
+  // compareFitnessBaseline invocations without options.profile) fall back to the legacy
+  // "missing-baseline" path so that pre-ADR-0028 node:test suites see byte-identical
+  // behavior. The production CLI always passes a profile (default strict), so the
+  // profile-required enforcement is unchanged for all real gate invocations.
+  const hasProfile = Boolean(options?.profile);
+  const required = hasProfile && (options?.profile?.requiredAdapters?.has(adapter) ?? false);
+  // ADR-0028: a required adapter that produced no reading is a hard fail regardless of
+  // whether a baseline exists. A fresh clone has no baselines, but required tools must
+  // still run — absent them the gate must not silently pass.
+  const requiredMissing = adapterMissing && enforced && hasProfile && required;
+  const skippedAdapter = adapterMissing && enforced && hasProfile && !required;
+
   return {
     baselineValue,
     currentValue,
     hardFailCoverage: false,
-    failureReason: null,
-    regression: false,
+    failureReason: requiredMissing
+      ? `adapter '${adapter}' required by profile '${options?.profile?.name}' produced no reading`
+      : null,
+    regression: requiredMissing, // required-missing fails like a regression
+    adapterMissing,
+    requiredMissing,
+    skippedAdapter,
+    adapter,
     compared: 0,
     evaluated: 0,
-    failed: 0,
+    failed: requiredMissing ? 1 : 0,
     warned: 0,
-    missing: 1,
+    // When a profile is active and adapter produced no reading it is classified as
+    // requiredMissing/skippedAdapter/Declared-N/A — never a missing-baseline.
+    // Without a profile (legacy path) a null current reading is a missing-baseline (missing=1).
+    missing: adapterMissing && hasProfile ? 0 : 1,
     hasBothValues,
   };
 }
@@ -1399,6 +1563,8 @@ export function compareFitnessBaseline(baseline, currentReport, options = {}) {
   const regressions = [];
   const advisoryRegressions = [];
   const missingBaselines = [];
+  const skipped = [];
+  const failedMissing = [];
   const dimensionSummaries = {};
   let comparedMetrics = 0;
 
@@ -1434,10 +1600,27 @@ export function compareFitnessBaseline(baseline, currentReport, options = {}) {
         });
       }
 
+      if (state.requiredMissing) {
+        failedMissing.push({
+          dimension: code,
+          metric: metricId,
+          adapter: state.adapter,
+          profile: options?.profile?.name ?? 'strict',
+        });
+      } else if (state.skippedAdapter) {
+        skipped.push({
+          dimension: code,
+          metric: metricId,
+          adapter: state.adapter,
+          reason: 'adapter not required by active profile',
+          profile: options?.profile?.name ?? 'strict',
+        });
+      }
+
       const summary = buildMetricSummary(currentMetric, state);
       metricSummaries[metricId] = summary;
 
-      if (state.regression) {
+      if (state.regression && !state.requiredMissing) {
         const record = buildMetricRegressionRecord({
           dimensionCode: code,
           metricId,
@@ -1474,10 +1657,12 @@ export function compareFitnessBaseline(baseline, currentReport, options = {}) {
   }
 
   return {
-    ok: regressions.length === 0,
+    ok: regressions.length === 0 && failedMissing.length === 0,
     regressions,
     advisoryRegressions,
     missingBaselines,
+    skipped,
+    failedMissing,
     comparedMetrics,
     dimensions: dimensionSummaries,
   };
@@ -1532,6 +1717,28 @@ function improved(direction, current, baseline) {
 
 function isNullToReal(baseline, current) {
   return (baseline === null || baseline === undefined) && typeof current === 'number';
+}
+
+/**
+ * Clamp a would-be ratchet floor at the metric's designed threshold
+ * (ADR-0029 § 2). The clamp is OPT-IN: only a metric that declares a
+ * numeric `ratchet_floor` is affected, and only in the `max`
+ * (smaller-is-better) direction, where headroom below the designed
+ * threshold is incidental (a tiny scaffold happening to have fan-out 2)
+ * rather than a real, defensible gain. Metrics without a `ratchet_floor`
+ * — including every `min` metric and the complexity peaks that
+ * intentionally tighten below their threshold — are returned unchanged
+ * so the ratchet still captures their genuine improvements.
+ */
+function clampRatchetFloor(metricDef, value) {
+  const floor = metricDef?.ratchet_floor;
+  if (typeof floor !== 'number' || typeof value !== 'number') {
+    return value;
+  }
+  if (metricDef.direction === 'max') {
+    return Math.max(value, floor);
+  }
+  return value;
 }
 
 function hasCoverageFailure(options, metricId) {
@@ -1618,7 +1825,13 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
       if (!curDim) {
         continue;
       }
-      const baseDim = next.dimensions[code] ?? curDim;
+      // When the dimension is absent from the baseline (a fresh scaffold
+      // generating its first floor), seed a fresh metrics container so every
+      // metric flows through the `!existing` clamp-aware seed path below.
+      // Aliasing curDim directly would pin each floor at the raw measured
+      // value and bypass the ratchet_floor clamp — re-introducing the
+      // fan-out-floor-of-2 time bomb on every fresh baseline (ADR-0029 § 2).
+      const baseDim = next.dimensions[code] ?? { ...curDim, metrics: {} };
       next.dimensions[code] = baseDim;
       baseDim.metrics = baseDim.metrics ?? {};
       for (const [metricId, curMetric] of Object.entries(curDim.metrics ?? {})) {
@@ -1632,9 +1845,13 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
         // definition is still seeded into baseline.json so reviewers
         // see the same shape for every metric.
         const observational = curMetric.fail_on_regression === false;
+        // Clamp the measured value at the metric's designed threshold before
+        // it can become a floor (ADR-0029 § 2). No-op for metrics without a
+        // ratchet_floor, so all other metrics ratchet exactly as before.
+        const clamped = clampRatchetFloor(curMetric, cur);
         if (!existing) {
-          baseDim.metrics[metricId] = { ...curMetric };
-          if (typeof cur === 'number' && !observational) {
+          baseDim.metrics[metricId] = { ...curMetric, baseline: clamped };
+          if (typeof clamped === 'number' && !observational) {
             tightenings.push({
               kind: 'dimension',
               dimension: code,
@@ -1642,7 +1859,7 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
               metricName: curMetric.name,
               direction: curMetric.direction,
               previous: null,
-              next: cur,
+              next: clamped,
               reason: 'new-metric',
             });
           }
@@ -1652,8 +1869,12 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
           continue;
         }
         const prev = existing.baseline;
-        if (improved(curMetric.direction, cur, prev) || isNullToReal(prev, cur)) {
-          existing.baseline = cur;
+        // Only a clamped value that is still a genuine improvement over the
+        // existing floor moves it. When the clamp pins the floor at the
+        // threshold (e.g. measured 2 against a floor already at 20), this is
+        // a no-op — no write, no churn.
+        if (improved(curMetric.direction, clamped, prev) || isNullToReal(prev, clamped)) {
+          existing.baseline = clamped;
           tightenings.push({
             kind: 'dimension',
             dimension: code,
@@ -1661,8 +1882,8 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
             metricName: curMetric.name,
             direction: curMetric.direction,
             previous: prev ?? null,
-            next: cur,
-            reason: isNullToReal(prev, cur) ? 'null-to-real' : 'tightened',
+            next: clamped,
+            reason: isNullToReal(prev, clamped) ? 'null-to-real' : 'tightened',
           });
         }
       }
@@ -1736,6 +1957,23 @@ export function renderReport(comparison) {
     lines.push('VERDICT: PASS sensors gate');
   } else {
     lines.push('VERDICT: FAIL sensors gate');
+  }
+  const failedMissing = comparison.failedMissing ?? comparison.fitness?.failedMissing ?? [];
+  const skipped = comparison.skipped ?? comparison.fitness?.skipped ?? [];
+  if (failedMissing.length > 0) {
+    const uniqueAdapters = [...new Set(failedMissing.map((f) => f.adapter))];
+    lines.push(
+      `MISSING REQUIRED: ${uniqueAdapters.length} adapter(s) required by profile ` +
+        `'${failedMissing[0].profile}' produced no reading: ${uniqueAdapters.join(', ')}. ` +
+        `Install the tool(s) or select a leaner profile with --profile=local.`,
+    );
+  }
+  if (skipped.length > 0) {
+    const uniqueAdapters = [...new Set(skipped.map((s) => s.adapter))];
+    lines.push(
+      `DEGRADED: ${uniqueAdapters.length} adapter(s) skipped — not required by profile ` +
+        `'${skipped[0].profile}': ${uniqueAdapters.join(', ')}. These dimensions did NOT run.`,
+    );
   }
   const { comparedFolders, newFolders, removedFolders } = comparison.summary;
   lines.push(
@@ -1897,8 +2135,15 @@ function loadReadingsFrom(path, io) {
 
 function jsonPayload(base, policy) {
   const exitCode = base.exit_code;
+  // IMPORTANT 1: ADR-0028 §4 specifies top-level skipped[] and failed_missing[].
+  // Pull them from base.baseline.* (the nested location) and promote to top-level.
+  // Keep the nested copies as compatibility aliases for existing consumers.
+  const skipped = base.baseline?.skipped ?? [];
+  const failedMissing = base.baseline?.failed_missing ?? [];
   return {
     ...base,
+    skipped,
+    failed_missing: failedMissing,
     readings: policy.readings,
     violations: policy.violations,
     policy: {
@@ -1997,9 +2242,15 @@ export async function main(
   let firstRunMode = 'snapshot';
   let ratchetEnabled = (io.env?.RATCHET ?? '').toLowerCase() !== 'off';
   let skipRelaxationGuard = false;
+  let profileName = io.env?.SENSORS_PROFILE ?? 'strict';
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a.startsWith('--baseline=')) {
+    if (a.startsWith('--profile=')) {
+      profileName = a.slice('--profile='.length);
+    } else if (a === '--profile') {
+      profileName = argv[i + 1] ?? profileName;
+      i += 1;
+    } else if (a.startsWith('--baseline=')) {
       baselinePath = a.slice('--baseline='.length);
     } else if (a === '--baseline') {
       baselinePath = argv[i + 1] ?? baselinePath;
@@ -2075,6 +2326,33 @@ export async function main(
     return 2;
   }
 
+  let policy;
+  try {
+    policy = policyState(policyPath, explicitPolicy, io);
+  } catch (err) {
+    io.writeErr(`gate: failed to load policy (${err.message})\n`);
+    return 2;
+  }
+
+  let profile;
+  try {
+    // Profile resolution is INDEPENDENT of policy (governance constraints).
+    // --policy=none only disables governance constraint evaluation; it does NOT
+    // disable profile enforcement. Pass --profile=none to opt out of profiles
+    // (which preserves pre-ADR-0028 legacy behavior for callers that predate profiles).
+    //
+    // When policyPath is 'none', there is no governance.toml to read profiles from,
+    // so we parse from an empty string. For 'strict' this falls back to the
+    // fail-safe KNOWN_ADAPTERS set. For 'local' (or other named profiles) this
+    // will throw an unknown-profile error — correct, since no profile table is loaded.
+    const policyRaw =
+      policyPath !== 'none' && io.fileExists(policyPath) ? io.readFile(policyPath) : '';
+    profile = resolveProfile({ profiles: parseProfiles(policyRaw), profileName });
+  } catch (e) {
+    io.writeErr(`gate: ${e.message}\n`);
+    return 2;
+  }
+
   const fitnessOptions = {
     perfPath,
     securityPath,
@@ -2083,15 +2361,9 @@ export async function main(
     deadcodePath,
     coveragePath,
     suiteDurationPath,
+    profile,
     io,
   };
-  let policy;
-  try {
-    policy = policyState(policyPath, explicitPolicy, io);
-  } catch (err) {
-    io.writeErr(`gate: failed to load policy (${err.message})\n`);
-    return 2;
-  }
 
   let raw;
   try {
@@ -2173,7 +2445,31 @@ export async function main(
     });
   };
 
+  // IMPORTANT 3: Helper to check for required-but-missing adapters before writing a
+  // baseline. Snapshotting null metrics as baselines would silently weaken
+  // "default strict => fail-safe" on subsequent runs.
+  const checkPreWriteAdapterGuard = () => {
+    if (!profile) {
+      return null; // no profile enforcement; write is allowed
+    }
+    const preWriteCheck = compareFitnessBaseline(currentBaseline, report, fitnessOptions);
+    if (preWriteCheck.failedMissing.length === 0) {
+      return null; // all required adapters present; write is allowed
+    }
+    return [...new Set(preWriteCheck.failedMissing.map((f) => f.adapter))];
+  };
+
   if (updateBaseline) {
+    // IMPORTANT 3: Refuse to write when required adapters are missing under the active profile.
+    const missingAdapters = checkPreWriteAdapterGuard();
+    if (missingAdapters) {
+      io.writeErr(
+        `gate: refusing to write baseline — ${missingAdapters.length} required adapter(s) ` +
+          `produced no reading under profile '${profile.name}': ${missingAdapters.join(', ')}. ` +
+          `Run the missing tool(s) first, or use --profile=local / --profile=none to opt out.\n`,
+      );
+      return 1;
+    }
     // Carry forward approval markers from the existing baseline so the
     // relaxation guard can recognise deliberate BASELINE-RELAX-OK notes
     // even when the freshly-generated baseline doesn't have them yet.
@@ -2249,6 +2545,16 @@ export async function main(
       );
       return 2;
     }
+    // IMPORTANT 3: Refuse to create baseline when required adapters are missing under the active profile.
+    const missingAdaptersFirstRun = checkPreWriteAdapterGuard();
+    if (missingAdaptersFirstRun) {
+      io.writeErr(
+        `gate: refusing to create baseline — ${missingAdaptersFirstRun.length} required adapter(s) ` +
+          `produced no reading under profile '${profile.name}': ${missingAdaptersFirstRun.join(', ')}. ` +
+          `Run the missing tool(s) first, or use --profile=local / --profile=none to opt out.\n`,
+      );
+      return 1;
+    }
     io.writeFile(baselinePath, `${JSON.stringify(currentBaseline, null, 2)}\n`);
     const exitCode = policyOk ? 0 : 1;
     if (format === 'json') {
@@ -2317,6 +2623,8 @@ export async function main(
               regressions: comparison.regressions,
               summary: comparison.summary,
               baseline_relaxation: relaxation,
+              skipped: comparison.skipped ?? comparison.fitness?.skipped ?? [],
+              failed_missing: comparison.failedMissing ?? comparison.fitness?.failedMissing ?? [],
             },
             ratchet: {
               enabled: ratchetEnabled,
@@ -2368,3 +2676,17 @@ if (isScriptEntry()) {
 // override `io.readFile` with absolute paths); imported for symmetry with
 // `dirname` to satisfy the linter.
 void resolve;
+
+/**
+ * Named entry for test and programmatic use.  Accepts either the two-arg
+ * (argv, io) positional form or a single `{ argv, io }` options object so
+ * both call patterns work:
+ *   gate(['--profile=local'], ioStub)
+ *   gate({ argv: ['--profile=local'], io: ioStub })
+ */
+export async function gate(argvOrOpts, ioArg) {
+  if (argvOrOpts && !Array.isArray(argvOrOpts) && typeof argvOrOpts === 'object') {
+    return main(argvOrOpts.argv ?? [], argvOrOpts.io);
+  }
+  return main(argvOrOpts, ioArg);
+}

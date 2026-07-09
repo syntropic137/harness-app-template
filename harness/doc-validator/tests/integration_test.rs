@@ -11,7 +11,11 @@ fn binary_exits_one_on_bad_manifest_cross_reference() {
     )
     .unwrap();
     std::fs::write(adr_dir.join("CLAUDE.md"), "Context for ADR documentation.").unwrap();
-    std::fs::write(adr_dir.join("AGENTS.md"), "Guidance for agent documentation.").unwrap();
+    std::fs::write(
+        adr_dir.join("AGENTS.md"),
+        "Guidance for agent documentation.",
+    )
+    .unwrap();
     std::fs::write(
         adr_dir.join("ADR-0001-demo.md"),
         "---\nname: Demo\ndescription: Demo\nstatus: accepted\n---\n\n# ADR-0001: Demo\n\n**Date:** 2026-05-30\n**Category:** Test\n\n## Context\n\n## Decision\n\n## Consequences\n",

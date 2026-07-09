@@ -219,18 +219,24 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     ).toBe(true);
   });
 
-  test('MD01: more modules in the unhealthy instability range (<0.1 or >0.9) trips ok=false', () => {
+  test('MD01: more modules at an instability extreme AND off the main sequence trips ok=false', () => {
+    // ADR-0029 reshape: a module is only counted when it is BOTH at an
+    // instability extreme (I<0.1 or I>0.9) AND off the main sequence
+    // (D>0.1). Both baseline modules sit on the sequence (D=0), so the
+    // regression comes from the two new off-sequence extremes.
     const baselineReport = reportFrom({
       modules: [
-        { source: 'ws_apps/a/x.ts', I: 0.5 },
-        { source: 'ws_apps/a/y.ts', I: 0.5 },
+        { source: 'ws_apps/a/x.ts', I: 0.5, D: 0 },
+        { source: 'ws_apps/a/y.ts', I: 0.5, D: 0 },
       ],
     });
     const baseline = extractApssFitnessBaseline(baselineReport);
     const worse = reportFrom({
       modules: [
-        { source: 'ws_apps/a/x.ts', I: 0.05 },
-        { source: 'ws_apps/a/y.ts', I: 0.95 },
+        // Stable-concrete "zone of pain": I≈0 with high D.
+        { source: 'ws_apps/a/x.ts', I: 0.05, D: 0.6 },
+        // Unstable-abstract "zone of uselessness": I≈1 with high D.
+        { source: 'ws_apps/a/y.ts', I: 0.95, D: 0.6 },
       ],
     });
     const result = compareFitnessBaseline(baseline, worse);
@@ -240,6 +246,23 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
         (r) => r.dimension === 'MD01' && r.metric === 'instability-out-of-range-count',
       ),
     ).toBe(true);
+  });
+
+  test('MD01: an instability extreme ON the main sequence is NOT counted (ADR-0029 size-invariance)', () => {
+    // A leaf/entrypoint at I≈1 sitting on the main sequence (D≈0) is a
+    // healthy design point; adding one must not trip the gate.
+    const baselineReport = reportFrom({
+      modules: [{ source: 'ws_apps/a/x.ts', I: 0.5, D: 0 }],
+    });
+    const baseline = extractApssFitnessBaseline(baselineReport);
+    const grown = reportFrom({
+      modules: [
+        { source: 'ws_apps/a/x.ts', I: 0.5, D: 0 },
+        { source: 'ws_apps/a/leaf.ts', I: 1.0, D: 0 },
+      ],
+    });
+    const result = compareFitnessBaseline(baseline, grown);
+    expect(result.ok).toBe(true);
   });
 
   test('ST01: a new circular dependency edge (workspace.circular_edges) trips ok=false', () => {
@@ -279,14 +302,16 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
   test('ST01: a missing circular_edges value is treated as no reading (no regression)', () => {
     const baselineReport = reportFrom({ circular_edges: 0 });
     const baseline = extractApssFitnessBaseline(baselineReport);
-    // current report omits circular_edges; ST01's value() returns null;
-    // missingBaselines counter increments but ok stays true.
+    // current report omits circular_edges; ST01's value() returns null for
+    // circular-dependency-edges (adapter='cruiser-coupling'). Pass an explicit
+    // profile with an empty required-adapters set so missing adapters are
+    // loud-skipped rather than falling through to the legacy missing-baseline
+    // path. ok must stay true; skipped must contain an ST01 entry.
     const current = reportFrom({});
-    const result = compareFitnessBaseline(baseline, current);
+    const profile = { name: 'test-no-required', requiredAdapters: new Set<string>() };
+    const result = compareFitnessBaseline(baseline, current, { profile });
     expect(result.ok).toBe(true);
-    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'ST01')).toBe(
-      true,
-    );
+    expect(result.skipped.some((s: { dimension: string }) => s.dimension === 'ST01')).toBe(true);
   });
 
   test('SC01: a critical UBS finding in the current run trips ok=false', () => {
@@ -355,13 +380,13 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
   test('SC01: no security payload yields a no-reading (advisory-style skip), gate stays ok=true', () => {
     const baselineReport = reportFrom({});
     const baseline = extractApssFitnessBaseline(baselineReport);
-    const result = compareFitnessBaseline(baseline, baselineReport);
+    // Pass an explicit profile with an empty required-adapters set so the absent
+    // ubs-security adapter is loud-skipped rather than legacy missing-baseline.
+    // ok must stay true; skipped must contain an SC01 entry.
+    const profile = { name: 'test-no-required', requiredAdapters: new Set<string>() };
+    const result = compareFitnessBaseline(baseline, baselineReport, { profile });
     expect(result.ok).toBe(true);
-    // missingBaselines counter records SC01 since both baseline and current
-    // resolved to null and the rule can't be evaluated.
-    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'SC01')).toBe(
-      true,
-    );
+    expect(result.skipped.some((s: { dimension: string }) => s.dimension === 'SC01')).toBe(true);
   });
 
   test('LG01: a denied license in the current scan trips ok=false', () => {
@@ -428,13 +453,16 @@ describe('APSS fitness gate (bead 2zz) — enforced dimensions FAIL on regressio
     const baseline = extractApssFitnessBaseline(baselineReport, {
       licenses: { available: false, denied_count: 0, scanned: 0, denied: [] },
     });
+    // Pass an explicit profile with an empty required-adapters set so the
+    // unavailable license adapter is loud-skipped rather than legacy missing-baseline.
+    // ok must stay true; skipped must contain an LG01 entry.
+    const profile = { name: 'test-no-required', requiredAdapters: new Set<string>() };
     const result = compareFitnessBaseline(baseline, baselineReport, {
       licenses: { available: false, denied_count: 0, scanned: 0, denied: [] },
+      profile,
     });
     expect(result.ok).toBe(true);
-    expect(result.missingBaselines.some((m: { dimension: string }) => m.dimension === 'LG01')).toBe(
-      true,
-    );
+    expect(result.skipped.some((s: { dimension: string }) => s.dimension === 'LG01')).toBe(true);
   });
 
   test('compareBaseline aggregates legacy folder-level I/D regressions AND MT01/MD01 fitness regressions', () => {
