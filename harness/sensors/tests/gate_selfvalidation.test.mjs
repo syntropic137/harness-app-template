@@ -602,11 +602,14 @@ test('lens=baseline-relaxation-guard: fails on untagged regression and passes on
     generatedBaseline: cloneJson(deletedFolder),
   });
   assert.equal(deletedFolderResult.ok, false);
+  // A folder gone from the generated (code-derived) report is a code-side
+  // removal — flagged as enforced-floor-removed-from-code (requires a marker),
+  // caught before the value-based floor-replaced-with-null path.
   assert.equal(
     hasViolation(
       deletedFolderResult,
       folderRelaxationPath('ws_apps/fixture/src', 'I'),
-      'floor-replaced-with-null',
+      'enforced-floor-removed-from-code',
     ),
     true,
   );
@@ -614,7 +617,7 @@ test('lens=baseline-relaxation-guard: fails on untagged regression and passes on
     hasViolation(
       deletedFolderResult,
       folderRelaxationPath('ws_apps/fixture/src', 'D'),
-      'floor-replaced-with-null',
+      'enforced-floor-removed-from-code',
     ),
     true,
   );
