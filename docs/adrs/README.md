@@ -39,6 +39,8 @@ Forks inherit these records as a baseline. Keep them, then add new numbered ADRs
 | [Dead-code ratchet](ADR-0024-dead-code-ratchet.md) | Deterministic scoped-grep unused-export ratchet under MT01 (zero node_modules / network dependency, identical count locally and on every CI lane); floor auto-tightens on improvement, fails on regression; the "no broken windows" rot gate |
 | [Config Manager](ADR-0027-config-manager.md) | Centralized env-var schema in config.toml with .env.example codegen, fast-fail validation, and opt-in 1Password secret resolution |
 | [Fail-closed fitness profiles](ADR-0028-fail-closed-fitness-profiles.md) | Four-state reading model (measured / required-missing→FAIL / skipped→loud-warn / declared-N/A) evaluated against an environment profile in `governance.toml`; default `strict` fails safe; generalizes the CV01 hard-contract so the gate can never pass hollow with an adapter that never ran |
+| [Fitness-metric size-invariance](ADR-0029-fitness-metric-size-invariance.md) | A hard gate may only enforce a metric that healthy growth cannot move; per-module maxima stay enforcing (ratchet-clamped at the designed threshold), global composite ratios and module-scaling counts are demoted; the "new well-designed module" admission test |
+| [APSS 0.3.0 cognitive re-enable](ADR-0030-apss-030-cognitive-re-enable.md) | Upgrade code-topology 0.2.x→0.3.0 (SonarSource-faithful cognitive complexity, AgentParadise #90+#112) and restore APSS function values as an MT01 max-cognitive/max-cyclomatic source; surgically re-derive the two floors (8→15, 6→9) for the Rust functions newly back in scope; recovers Rust cognitive gating lost during the PR #55 interim |
 
 ## Adding Records
 

@@ -3,7 +3,7 @@
 schema = "apss.lock/v1"
 
 [core]
-version = "1.1.0"
+version = "1.4.0"
 checksum = ""
 
 [[package]]
@@ -19,8 +19,8 @@ substandards = []
 id = "APS-V1-0001"
 slug = "code-topology"
 crate_name = "apss-v1-0001-code-topology"
-version = "0.2.0"
-checksum = "sha256:98f3dd73506fb909f87e6a8d2cc1579cc1c5190ad485e9d6dc23a6b955735dfc"
+version = "0.3.0"
+checksum = "sha256:09abe2ee41935b985d82b6ed5289567d22cb5411f1030c85165bef5bc7022dd5"
 source = "registry+https://crates.io"
 substandards = []
 

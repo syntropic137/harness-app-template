@@ -149,38 +149,62 @@ const DIMENSIONS = {
 
 export const FITNESS_METRICS = {
   MT01: [
+    // ===================================================================
+    // STAGED FOR PHASE B (GitHub issue #58) — DRAFT, NOT YET LIVE.
+    //
+    // The two metrics below (max-cognitive, max-cyclomatic) are restored to
+    // source from BOTH the APSS code-topology function values AND the ts-morph
+    // complexity.mjs module/folder values, re-enabling Rust cognitive/cyclomatic
+    // gating. This restoration is only correct once apss-v1-0001-code-topology
+    // 0.3.0 (the SonarSource cognitive-complexity fix from AgentParadise PR #90,
+    // shipping with aps-cli 1.4.0) is installable and pinned.
+    //
+    // These source-only edits DO NOT pass on their own yet: the MT01 baseline in
+    // harness/sensors/baseline.json is still derived against 0.2.0's over-counted
+    // numbers (or against complexity.mjs-only readings). Once 0.3.0 is published,
+    // run the verification sequence, IN ORDER:
+    //   1. just apss-install        (or: env -u CARGO_TARGET_DIR apss install)
+    //   2. .apss/bin/apss run code-topology analyze .
+    //        -> confirm cognitive numbers now match SonarSource reference values
+    //   3. just sensors gate --update-baseline   (reviewed; re-derives MT01)
+    //   4. just sensors gate --profile=strict     (must be green)
+    //   5. just fitness                           (must be green)
+    //   6. just fork-check                        (must be green)
+    // Until step 3 runs, expect the MT01 ratchet to trip. DO NOT force-update
+    // the baseline before 0.3.0 is actually installed.
+    // ===================================================================
     {
       id: 'max-cognitive',
       name: 'Maximum Cognitive Complexity',
       objective:
-        'Max function cognitive complexity from the ts-morph complexity.mjs adapter (SonarSource algorithm). APSS function cognitive is INTERIM-EXCLUDED: apss-v1-0001-code-topology 0.2.0 over-counts cognitive via an off-by-one nesting bug (the measured function counts its own definition as a nesting level) plus per-case switch charging — fixed upstream in AgentParadise PR #90 (bumps to 0.3.0). Re-add APSS as a source once 0.3.0 is pinned and the baseline is re-derived. See ADR-0017/ADR-0018.',
-      source: 'harness/sensors/complexity.mjs (APSS cognitive interim-excluded pending 0.3.0)',
+        'Max function cognitive complexity from APSS code-topology functions (0.3.0+, SonarSource-correct) OR the ts-morph complexity.mjs module/folder values, taken as max() over both sources. APSS 0.3.0 (AgentParadise PR #90) fixes the 0.2.0 over-count (off-by-one nesting + per-case switch/match charging) that forced the interim complexity.mjs-only source; re-enabling APSS restores Rust cognitive gating, which complexity.mjs (TS-only) does not cover. Re-derive the MT01 baseline once 0.3.0 is pinned. See ADR-0017/ADR-0018 and issue #58.',
+      source: '.topology/metrics/functions.json (APSS 0.3.0+) or harness/sensors/complexity.mjs',
       adapter: 'complexity',
       direction: 'max',
       default_threshold: 15,
       fail_on_regression: true,
       value: (report) =>
         maxNumber([
-          // APSS function cognitive intentionally omitted until 0.3.0 — see objective.
+          ...apssFunctionValues(report, 'cognitive'),
           ...moduleValues(report, (m) => m.max_cognitive),
-          ...folderValues(report, (f) => f.max_cognitive),
+          ...folderValues(report, (f) => f.max_cognitive ?? f.apss_max_cognitive),
         ]),
     },
     {
       id: 'max-cyclomatic',
       name: 'Maximum Cyclomatic Complexity',
       objective:
-        'Max function cyclomatic complexity from the ts-morph complexity.mjs adapter. APSS function values are INTERIM-EXCLUDED alongside max-cognitive (the same 0.2.0 defect ships per-case switch/match charging that inflates cyclomatic too); fixed upstream in AgentParadise PR #90. Re-add once 0.3.0 is pinned.',
-      source: 'harness/sensors/complexity.mjs (APSS cyclomatic interim-excluded pending 0.3.0)',
+        'Max function cyclomatic complexity from APSS code-topology functions (0.3.0+) OR the ts-morph complexity.mjs module/folder values, taken as max() over both sources. APSS 0.3.0 (AgentParadise PR #90) fixes the 0.2.0 per-case switch/match over-charge that inflated cyclomatic and forced the interim complexity.mjs-only source; re-enabling APSS restores Rust cyclomatic gating. Re-derive the baseline once 0.3.0 is pinned. See issue #58.',
+      source: '.topology/metrics/functions.json (APSS 0.3.0+) or harness/sensors/complexity.mjs',
       adapter: 'complexity',
       direction: 'max',
       default_threshold: 10,
       fail_on_regression: true,
       value: (report) =>
         maxNumber([
-          // APSS function cyclomatic intentionally omitted until 0.3.0 — see objective.
+          ...apssFunctionValues(report, 'cyclomatic'),
           ...moduleValues(report, (m) => m.max_cyclomatic),
-          ...folderValues(report, (f) => f.max_cyclomatic),
+          ...folderValues(report, (f) => f.max_cyclomatic ?? f.apss_max_cyclomatic),
         ]),
     },
     {

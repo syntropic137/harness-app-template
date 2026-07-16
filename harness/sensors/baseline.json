@@ -65,20 +65,20 @@
       "metrics": {
         "max-cognitive": {
           "name": "Maximum Cognitive Complexity",
-          "objective": "Max function cognitive complexity from APSS functions or the local complexity adapter.",
-          "source": ".topology/metrics/functions.json or harness/sensors/complexity.mjs",
+          "objective": "Max function cognitive complexity, taken as max() over the APSS code-topology functions (0.3.0+, SonarSource-correct) and the ts-morph complexity.mjs module/folder values. APSS 0.3.0 (AgentParadise PR #90 + #112) fixes the 0.2.0 over-count (off-by-one nesting, per-case switch/match, logical-run and parens deviations) that forced the interim complexity.mjs-only source; re-enabling APSS restores Rust cognitive gating, which complexity.mjs (TS-only) does not cover. Floor re-derived from 8 to 15 for the Rust functions newly in scope. See issue #58.",
+          "source": ".topology/metrics/functions.json (APSS 0.3.0+) or harness/sensors/complexity.mjs",
           "direction": "max",
           "default_threshold": 15,
-          "baseline": 8,
+          "baseline": 15,
           "fail_on_regression": true
         },
         "max-cyclomatic": {
           "name": "Maximum Cyclomatic Complexity",
-          "objective": "Max function cyclomatic complexity from APSS functions or the local complexity adapter.",
-          "source": ".topology/metrics/functions.json or harness/sensors/complexity.mjs",
+          "objective": "Max function cyclomatic complexity (McCabe), taken as max() over the APSS code-topology functions (0.3.0+) and the ts-morph complexity.mjs module/folder values. APSS 0.3.0 preserves McCabe per-case/arm counting while fixing the cognitive over-count that forced the interim complexity.mjs-only source; re-enabling APSS restores Rust cyclomatic gating. Floor re-derived from 6 to 9 for the Rust functions newly in scope. See issue #58.",
+          "source": ".topology/metrics/functions.json (APSS 0.3.0+) or harness/sensors/complexity.mjs",
           "direction": "max",
           "default_threshold": 10,
-          "baseline": 6,
+          "baseline": 9,
           "fail_on_regression": true
         },
         "max-halstead-volume": {
@@ -395,6 +395,8 @@
     }
   },
   "_baseline_relaxation_approvals": {
+    "dimensions|MT01|max-cognitive": "BASELINE-RELAX-OK: scope expansion, not a code regression (issue #58 Phase B). APSS cognitive re-enabled at code-topology 0.3.0 (SonarSource-aligned per PR #90 + #112), bringing 23 Rust harness files into the max-cognitive source alongside the TS complexity.mjs adapter. The interim floor of 8 was TS-only. New peak is extract_links in harness/doc-validator/src/scanner.rs at cognitive 15 (hand-verified genuine SonarSource-15, not an over-count; at the cap and the first ratchet-down candidate). One-directional ratchet resumes from 15.",
+    "dimensions|MT01|max-cyclomatic": "BASELINE-RELAX-OK: scope expansion, not a code regression (issue #58 Phase B). APSS cyclomatic re-enabled at code-topology 0.3.0, bringing Rust harness functions into the max-cyclomatic source alongside the TS complexity.mjs adapter. The interim floor of 6 was TS-only. New peak is resolve_all_with in harness/config-manager/src/resolver/mod.rs at McCabe cyclomatic 9 (under the cap of 10). One-directional ratchet resumes from 9.",
     "dimensions|MT01|sentrux-quality-signal": "BASELINE-RELAX-OK: sentrux adapter not installed locally; these floors are enforced in CI where the tool is present",
     "dimensions|MT01|sentrux-god-file-count": "BASELINE-RELAX-OK: sentrux adapter not installed locally; these floors are enforced in CI where the tool is present",
     "dimensions|MT01|sentrux-hotspot-count": "BASELINE-RELAX-OK: sentrux adapter not installed locally; these floors are enforced in CI where the tool is present",
