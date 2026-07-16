@@ -175,6 +175,77 @@ test('ratchetBaseline: improving APSS dimension metric tightens floor (direction
   assert.equal(dimT.next, 5);
 });
 
+// STAGED FOR PHASE B (issue #58): with apss-v1-0001-code-topology 0.3.0 pinned,
+// max-cognitive / max-cyclomatic source from BOTH complexity.mjs module values
+// AND APSS per-function values (restoring Rust cognitive/cyclomatic gating).
+// This test exercises the APSS-function-value path directly: the report carries
+// NO complexity.mjs module max_cognitive/max_cyclomatic, so the only source of a
+// reading is the APSS functions array. (The interim complexity.mjs module-value
+// coverage above is retained; both sources are now active.)
+test('ratchetBaseline: improving APSS FUNCTION cognitive/cyclomatic tightens floor (0.3.0 source)', () => {
+  const baseline = {
+    schema_version: '1.0.0',
+    folders: {},
+    dimensions: {
+      MT01: {
+        metrics: {
+          'max-cognitive': {
+            name: 'Maximum Cognitive Complexity',
+            direction: 'max',
+            baseline: 12,
+            fail_on_regression: true,
+          },
+          'max-cyclomatic': {
+            name: 'Maximum Cyclomatic Complexity',
+            direction: 'max',
+            baseline: 9,
+            fail_on_regression: true,
+          },
+        },
+      },
+    },
+  };
+  // Report surfaces the peaks ONLY through the APSS per-function array
+  // (apss.functions[*].cognitive / .cyclomatic) — no module max_* fields.
+  const better = {
+    workspace: {
+      folders: [],
+      modules: [
+        {
+          source: 'ws_apps/x/src/lib.rs',
+          apss: {
+            functions: [
+              { cognitive: 5, cyclomatic: 2 },
+              { cognitive: 4, cyclomatic: 3 },
+            ],
+          },
+        },
+      ],
+      circular_edges: 0,
+    },
+  };
+  const { next, tightenings, changed } = ratchetBaseline(baseline, better);
+  assert.equal(changed, true);
+  assert.equal(
+    next.dimensions.MT01.metrics['max-cognitive'].baseline,
+    5,
+    'max-cognitive must tighten to the APSS function peak (5)',
+  );
+  assert.equal(
+    next.dimensions.MT01.metrics['max-cyclomatic'].baseline,
+    3,
+    'max-cyclomatic must tighten to the APSS function peak (3)',
+  );
+  assert.ok(
+    tightenings.some((t) => t.kind === 'dimension' && t.metric === 'max-cognitive'),
+    'expected dimension tightening for max-cognitive via the APSS function path',
+  );
+  assert.ok(
+    tightenings.some((t) => t.kind === 'dimension' && t.metric === 'max-cyclomatic'),
+    'expected dimension tightening for max-cyclomatic via the APSS function path',
+  );
+});
+
 test('ratchetBaseline: improving high-cognitive-fn-count tightens the spread floor', () => {
   // Spread metric complements max-cognitive (the PEAK): catches the
   // death-by-a-thousand-cuts pattern where the worst function gets split

@@ -150,6 +150,44 @@ test('ratchetBaseline: below-threshold metrics without ratchet_floor still tight
   );
 });
 
+// STAGED FOR PHASE B (issue #58): same no-ratchet_floor invariant, but the peak
+// is surfaced through the APSS-function-value path (apss.functions[*].cognitive)
+// restored for code-topology 0.3.0. Complements the complexity.mjs module-value
+// coverage above; both sources are active once 0.3.0 is pinned.
+test('ratchetBaseline: below-threshold max-cognitive still tightens via the APSS function path (0.3.0 source)', () => {
+  const baseline = {
+    schema_version: '1.0.0',
+    folders: {},
+    dimensions: {
+      MT01: {
+        metrics: {
+          'max-cognitive': {
+            name: 'Maximum Cognitive Complexity',
+            direction: 'max',
+            default_threshold: 15,
+            baseline: 12,
+            fail_on_regression: true,
+          },
+        },
+      },
+    },
+  };
+  // Peak surfaced ONLY through the APSS per-function array — no module max_*.
+  const better = {
+    workspace: {
+      folders: [],
+      modules: [{ source: 'ws_apps/x/src/lib.rs', apss: { functions: [{ cognitive: 5 }] } }],
+      circular_edges: 0,
+    },
+  };
+  const { next } = ratchetBaseline(baseline, better);
+  assert.equal(
+    next.dimensions.MT01.metrics['max-cognitive'].baseline,
+    5,
+    'max-cognitive must still tighten to the APSS function peak (5) with no ratchet_floor',
+  );
+});
+
 test('the new-well-designed-module test: adding a clean module keeps the gate green', () => {
   // ADR-0029 § 3.6. Seed a baseline at the designed thresholds, then add a
   // well-designed module (fan-out = threshold - 1, on the main sequence).
@@ -376,6 +414,116 @@ test('guard: removing a metric WITHOUT a marker is still blocked', () => {
   });
   assert.equal(guard.ok, false, 'an unmarked metric removal must be blocked');
   assert.ok(guard.violations.some((v) => v.path === path));
+});
+
+test('guard: removing a metric from CODE while leaving baseline.json unchanged is blocked (Codex review)', () => {
+  // The subtle bypass: delete the metric from FITNESS_METRICS (so the generated
+  // baseline lacks it and it stops gating) but leave the working baseline.json
+  // entry UNCHANGED (== origin/main). The value-based checks never fire because
+  // working equals reference; the guard must still catch the code-side removal.
+  const path = 'dimensions|MD01|max-fan-out';
+  const reference = dimBaseline('max-fan-out', { direction: 'max', baseline: 20 });
+  const working = {
+    dimensions: { MD01: { metrics: { 'max-fan-out': { direction: 'max', baseline: 20 } } } },
+    _baseline_relaxation_approvals: {},
+  };
+  const generated = { dimensions: { MD01: { metrics: {} } } }; // removed from code
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(
+    guard.ok,
+    false,
+    'a code-side metric removal must be blocked even with an unchanged working floor',
+  );
+  assert.ok(
+    guard.violations.some(
+      (v) => v.path === path && v.reason === 'enforced-floor-removed-from-code',
+    ),
+    `expected enforced-floor-removed-from-code; got ${JSON.stringify(guard.violations)}`,
+  );
+});
+
+test('guard: code-side metric removal is allowed WITH a marker (unchanged working floor)', () => {
+  const path = 'dimensions|MD01|max-fan-out';
+  const reference = dimBaseline('max-fan-out', { direction: 'max', baseline: 20 });
+  const working = {
+    dimensions: { MD01: { metrics: { 'max-fan-out': { direction: 'max', baseline: 20 } } } },
+    _baseline_relaxation_approvals: { [path]: `${MARKER}: deliberate metric removal` },
+  };
+  const generated = { dimensions: { MD01: { metrics: {} } } };
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(
+    guard.ok,
+    true,
+    `an audited code-side removal must pass; violations: ${JSON.stringify(guard.violations)}`,
+  );
+});
+
+test('guard: a metric present in generated with a null value is NOT flagged as removed (sentrux-not-installed boundary)', () => {
+  // Boundary (Codex re-verify): a metric whose KEY is still in the generated
+  // baseline but reads null this run (e.g. sentrux not installed) must NOT be
+  // treated as a code-side removal — only a truly absent key is a removal.
+  const reference = {
+    dimensions: {
+      MT01: { metrics: { 'sentrux-quality-signal': { direction: 'min', baseline: 0.7 } } },
+    },
+  };
+  const working = {
+    dimensions: {
+      MT01: { metrics: { 'sentrux-quality-signal': { direction: 'min', baseline: 0.7 } } },
+    },
+    _baseline_relaxation_approvals: {},
+  };
+  // Key present, value null (adapter produced no reading) — NOT a removal.
+  const generated = {
+    dimensions: {
+      MT01: { metrics: { 'sentrux-quality-signal': { direction: 'min', baseline: null } } },
+    },
+  };
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(
+    guard.ok,
+    true,
+    `a null-reading (present-key) metric must not be flagged as removed; violations: ${JSON.stringify(guard.violations)}`,
+  );
+  assert.ok(!guard.violations.some((v) => v.reason === 'enforced-floor-removed-from-code'));
+});
+
+test('guard: a FOLDER floor removed from the generated report while working is unchanged is blocked (Codex review)', () => {
+  const path = 'folders|ws_apps/x/src|I';
+  const reference = { folders: { 'ws_apps/x/src': { I: 0.2, D: null } }, dimensions: {} };
+  const working = {
+    folders: { 'ws_apps/x/src': { I: 0.2, D: null } }, // unchanged vs reference
+    dimensions: {},
+    _baseline_relaxation_approvals: {},
+  };
+  const generated = { folders: {}, dimensions: {} }; // folder gone from the scan
+  const guard = evaluateBaselineRelaxationGuard({
+    workingBaseline: working,
+    referenceBaseline: reference,
+    generatedBaseline: generated,
+  });
+  assert.equal(
+    guard.ok,
+    false,
+    'a folder floor gone from the code-derived report must be blocked (unmarked)',
+  );
+  assert.ok(
+    guard.violations.some(
+      (v) => v.path === path && v.reason === 'enforced-floor-removed-from-code',
+    ),
+  );
 });
 
 test('guard: dropping a STILL-ENFORCED metric floor is blocked even WITH a marker', () => {

@@ -165,10 +165,10 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/apss
-          key: apss-1.1.0-${{ runner.os }}
+          key: apss-1.4.0-${{ runner.os }}
       - name: Install APSS
         if: steps.cache-apss.outputs.cache-hit != 'true'
-        run: cargo install apss --version 1.1.0
+        run: cargo install apss --version 1.4.0
       - name: Cache composed APSS CLI
         id: cache-apss-composed
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -223,10 +223,10 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/apss
-          key: apss-1.1.0-${{ runner.os }}
+          key: apss-1.4.0-${{ runner.os }}
       - name: Install APSS
         if: steps.cache-apss.outputs.cache-hit != 'true'
-        run: cargo install apss --version 1.1.0
+        run: cargo install apss --version 1.4.0
       - name: Cache composed APSS CLI
         id: cache-apss-composed
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -423,10 +423,10 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/apss
-          key: apss-1.1.0-${{ runner.os }}
+          key: apss-1.4.0-${{ runner.os }}
       - name: Install APSS
         if: steps.cache-apss.outputs.cache-hit != 'true'
-        run: cargo install apss --version 1.1.0
+        run: cargo install apss --version 1.4.0
       - name: Install sensors slot deps for source-tree sensors invocations
         working-directory: harness/sensors
         run: npm install --no-package-lock --no-audit --no-fund --ignore-scripts --silent
@@ -501,10 +501,10 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cargo/bin/apss
-          key: apss-1.1.0-${{ runner.os }}
+          key: apss-1.4.0-${{ runner.os }}
       - name: Install APSS
         if: steps.cache-apss.outputs.cache-hit != 'true'
-        run: cargo install apss --version 1.1.0
+        run: cargo install apss --version 1.4.0
       - name: Install sensors slot deps for source-tree sensors invocations
         working-directory: harness/sensors
         run: npm install --no-package-lock --no-audit --no-fund --ignore-scripts --silent
