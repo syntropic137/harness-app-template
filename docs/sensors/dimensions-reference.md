@@ -116,8 +116,8 @@ locally; the rest run in the full CI gate.
 
 | Metric ID                  | Direction | Floor                  | fail_on_reg | Source                                                                                  |
 |----------------------------|-----------|------------------------|-------------|-----------------------------------------------------------------------------------------|
-| `max-cognitive`            | max       | 8                      | true        | APSS `functions.json` OR `harness/sensors/complexity.mjs`                                |
-| `max-cyclomatic`           | max       | 6                      | true        | APSS `functions.json` OR `harness/sensors/complexity.mjs`                                |
+| `max-cognitive`            | max       | 15                     | true        | APSS `functions.json` (0.3.0+, SonarSource-correct) OR `harness/sensors/complexity.mjs`  |
+| `max-cyclomatic`           | max       | 9                      | true        | APSS `functions.json` (0.3.0+) OR `harness/sensors/complexity.mjs`                       |
 | `max-halstead-volume`      | max       | null (no reading yet)  | true        | APSS `functions.json` `metrics.halstead.volume`                                          |
 | `high-cognitive-fn-count`  | max       | 1                      | true        | aggregate `workspace.high_cognitive_count` (sum of fns >= cognitive 5)                   |
 | `sentrux-quality-signal`   | min       | 0.6800640271325795     | true        | `.sentrux/baseline.json` `quality_signal` (geometric mean of 5 sub-scores)               |

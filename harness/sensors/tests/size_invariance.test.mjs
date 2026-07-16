@@ -150,6 +150,44 @@ test('ratchetBaseline: below-threshold metrics without ratchet_floor still tight
   );
 });
 
+// STAGED FOR PHASE B (issue #58): same no-ratchet_floor invariant, but the peak
+// is surfaced through the APSS-function-value path (apss.functions[*].cognitive)
+// restored for code-topology 0.3.0. Complements the complexity.mjs module-value
+// coverage above; both sources are active once 0.3.0 is pinned.
+test('ratchetBaseline: below-threshold max-cognitive still tightens via the APSS function path (0.3.0 source)', () => {
+  const baseline = {
+    schema_version: '1.0.0',
+    folders: {},
+    dimensions: {
+      MT01: {
+        metrics: {
+          'max-cognitive': {
+            name: 'Maximum Cognitive Complexity',
+            direction: 'max',
+            default_threshold: 15,
+            baseline: 12,
+            fail_on_regression: true,
+          },
+        },
+      },
+    },
+  };
+  // Peak surfaced ONLY through the APSS per-function array — no module max_*.
+  const better = {
+    workspace: {
+      folders: [],
+      modules: [{ source: 'ws_apps/x/src/lib.rs', apss: { functions: [{ cognitive: 5 }] } }],
+      circular_edges: 0,
+    },
+  };
+  const { next } = ratchetBaseline(baseline, better);
+  assert.equal(
+    next.dimensions.MT01.metrics['max-cognitive'].baseline,
+    5,
+    'max-cognitive must still tighten to the APSS function peak (5) with no ratchet_floor',
+  );
+});
+
 test('the new-well-designed-module test: adding a clean module keeps the gate green', () => {
   // ADR-0029 § 3.6. Seed a baseline at the designed thresholds, then add a
   // well-designed module (fan-out = threshold - 1, on the main sequence).
@@ -432,7 +470,6 @@ test('guard: a metric present in generated with a null value is NOT flagged as r
   // Boundary (Codex re-verify): a metric whose KEY is still in the generated
   // baseline but reads null this run (e.g. sentrux not installed) must NOT be
   // treated as a code-side removal — only a truly absent key is a removal.
-  const path = 'dimensions|MT01|sentrux-quality-signal';
   const reference = {
     dimensions: {
       MT01: { metrics: { 'sentrux-quality-signal': { direction: 'min', baseline: 0.7 } } },
