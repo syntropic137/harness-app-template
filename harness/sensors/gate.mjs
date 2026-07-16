@@ -150,28 +150,12 @@ const DIMENSIONS = {
 export const FITNESS_METRICS = {
   MT01: [
     // ===================================================================
-    // STAGED FOR PHASE B (GitHub issue #58) — DRAFT, NOT YET LIVE.
-    //
-    // The two metrics below (max-cognitive, max-cyclomatic) are restored to
-    // source from BOTH the APSS code-topology function values AND the ts-morph
-    // complexity.mjs module/folder values, re-enabling Rust cognitive/cyclomatic
-    // gating. This restoration is only correct once apss-v1-0001-code-topology
-    // 0.3.0 (the SonarSource cognitive-complexity fix from AgentParadise PR #90,
-    // shipping with aps-cli 1.4.0) is installable and pinned.
-    //
-    // These source-only edits DO NOT pass on their own yet: the MT01 baseline in
-    // harness/sensors/baseline.json is still derived against 0.2.0's over-counted
-    // numbers (or against complexity.mjs-only readings). Once 0.3.0 is published,
-    // run the verification sequence, IN ORDER:
-    //   1. just apss-install        (or: env -u CARGO_TARGET_DIR apss install)
-    //   2. .apss/bin/apss run code-topology analyze .
-    //        -> confirm cognitive numbers now match SonarSource reference values
-    //   3. just sensors gate --update-baseline   (reviewed; re-derives MT01)
-    //   4. just sensors gate --profile=strict     (must be green)
-    //   5. just fitness                           (must be green)
-    //   6. just fork-check                        (must be green)
-    // Until step 3 runs, expect the MT01 ratchet to trip. DO NOT force-update
-    // the baseline before 0.3.0 is actually installed.
+    // max-cognitive / max-cyclomatic source from BOTH the APSS code-topology
+    // function values AND the ts-morph complexity.mjs module/folder values,
+    // enabling Rust cognitive/cyclomatic gating. Live since
+    // apss-v1-0001-code-topology 0.3.0 (SonarSource cognitive-complexity fix,
+    // AgentParadise PR #90 + #112; aps-cli 1.4.0). The MT01 baseline was
+    // re-derived against the corrected numbers. See ADR-0030 and issue #58.
     // ===================================================================
     {
       id: 'max-cognitive',
