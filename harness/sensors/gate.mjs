@@ -294,6 +294,18 @@ export const FITNESS_METRICS = {
       fail_on_regression: true,
       value: (_report, options) => deadcodeMetricValue(options, 'total_unused'),
     },
+    {
+      id: 'max-file-loc',
+      name: 'Maximum File LOC',
+      objective:
+        "Largest source file line count; ratchets down toward a ~500-LOC soft target. The metric VALUE is the MAX physical line count across every active workspace Cargo source file (harness/sensors/loc_scan.mjs, walking each root-manifest workspace member's src/ tree). Direction max (smaller-is-better): the ratchet seeds the floor at the current worst file and fails only when a file grows the maximum PAST the recorded baseline (a regression). Each legitimate shrink of the worst file re-seeds the floor DOWNWARD via --update-baseline, walking the whole tree toward the soft target without ever hard-failing at an arbitrary number.",
+      source: 'harness/sensors/loc_scan.mjs max_file_loc (pure-source physical line count)',
+      adapter: 'loc',
+      direction: 'max',
+      default_threshold: 2000,
+      fail_on_regression: true,
+      value: (_report, options) => locMetricValue(options, 'max_file_loc'),
+    },
   ],
   MD01: [
     {
@@ -597,6 +609,7 @@ export const KNOWN_ADAPTERS = new Set([
   'ubs-security',
   'license',
   'deadcode',
+  'loc',
   'hyperfine-perf',
   'suite-duration',
   'coverage',
@@ -759,6 +772,36 @@ function deadcodeMetricValue(options, field) {
     if (options.io.fileExists?.(options.deadcodePath)) {
       try {
         envelope = JSON.parse(options.io.readFile(options.deadcodePath));
+      } catch {
+        envelope = null;
+      }
+    }
+  }
+  if (!envelope || envelope.available === false) {
+    return null;
+  }
+  const value = envelope?.metrics?.[field];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
+}
+
+/**
+ * Read the per-file LOC envelope the MT01 max-file-loc ratchet watches.
+ * Accepts a pre-parsed envelope on options.loc or a filesystem reader pair on
+ * options.io pointing at options.locPath. Returns the named numeric metric (or
+ * null when the envelope is absent, the adapter reported unavailable, or the
+ * metric is missing) so a missing scan degrades to "no reading" rather than a
+ * false zero, same shape as the sentrux / deadcode readers above. Produced by
+ * harness/sensors/loc_scan.mjs.
+ */
+function locMetricValue(options, field) {
+  let envelope = options?.loc;
+  if (!envelope && options?.io && options?.locPath) {
+    if (options.io.fileExists?.(options.locPath)) {
+      try {
+        envelope = JSON.parse(options.io.readFile(options.locPath));
       } catch {
         envelope = null;
       }
@@ -2216,6 +2259,11 @@ function jsonPayload(base, policy) {
  *                          metric reads total_unused from this file.
  *                          Soft-skip yields no-reading rather than a
  *                          false zero. See ADR-0024-dead-code-ratchet.md.
+ *   --loc=<path>           Optional per-file LOC adapter envelope
+ *                          (produced by harness/sensors/loc_scan.mjs).
+ *                          When present, the MT01 max-file-loc ratchet
+ *                          reads max_file_loc from this file. Soft-skip
+ *                          yields no-reading rather than a false zero.
  *   --coverage=<path>      Optional deterministic test-coverage adapter
  *                          envelope (produced by
  *                          harness/sensors/coverage_scan.mjs). When
@@ -2256,6 +2304,7 @@ export async function main(
   let licensesPath = null;
   let sentruxPath = null;
   let deadcodePath = null;
+  let locPath = null;
   let coveragePath = null;
   let suiteDurationPath = null;
   let policyPath = DEFAULT_POLICY_PATH;
@@ -2299,6 +2348,11 @@ export async function main(
       deadcodePath = a.slice('--deadcode='.length);
     } else if (a === '--deadcode') {
       deadcodePath = argv[i + 1] ?? deadcodePath;
+      i += 1;
+    } else if (a.startsWith('--loc=')) {
+      locPath = a.slice('--loc='.length);
+    } else if (a === '--loc') {
+      locPath = argv[i + 1] ?? locPath;
       i += 1;
     } else if (a.startsWith('--coverage=')) {
       coveragePath = a.slice('--coverage='.length);
@@ -2383,6 +2437,7 @@ export async function main(
     licensesPath,
     sentruxPath,
     deadcodePath,
+    locPath,
     coveragePath,
     suiteDurationPath,
     profile,

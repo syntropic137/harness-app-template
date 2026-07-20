@@ -37,8 +37,9 @@ import {
 
 // MT01 metrics: max-cognitive, max-cyclomatic, max-halstead-volume,
 // high-cognitive-fn-count, sentrux-quality-signal, sentrux-god-file-count,
-// sentrux-hotspot-count, sentrux-complex-fn-count, unused-export-count.
-const MT01_METRIC_COUNT = 9;
+// sentrux-hotspot-count, sentrux-complex-fn-count, unused-export-count,
+// max-file-loc.
+const MT01_METRIC_COUNT = 10;
 
 function baselineWithMt01Cognitive(value) {
   // Minimal baseline shape - only what the comparator needs. The real
