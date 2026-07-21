@@ -95,10 +95,12 @@ test('loc_scan.mjs runs main() when invoked through a symlinked repo path', () =
     );
     const parsed = parseEnvelope(stdout, 'loc_scan.mjs');
     assert.equal(parsed.tool, 'loc-scan', 'envelope must identify the tool');
+    assert.equal(parsed.available, true, 'the symlinked real workspace must produce a live scan');
     assert.ok(
-      Object.hasOwn(parsed, 'available'),
-      'envelope must include an availability flag (soft-skip or live)',
+      parsed.metrics.max_file_loc > 0,
+      'the live scan must measure the workspace sources, not merely emit an envelope',
     );
+    assert.ok(parsed.metrics.file_count > 0, 'the live scan must enumerate at least one Rust file');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

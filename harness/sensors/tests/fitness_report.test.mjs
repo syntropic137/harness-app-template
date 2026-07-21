@@ -30,6 +30,7 @@ import {
   buildReport,
   classifyMetric,
   headroom,
+  main,
   renderJson,
   renderSummary,
   renderText,
@@ -225,7 +226,7 @@ test('renderText: contains every dimension code and is non-empty for the floors-
   assert.ok(text.includes('skip'));
 });
 
-test('renderJson: stable schema_version and shape for agent consumers', () => {
+test('renderJson: stable schema shape and CLI --loc wiring for agent consumers', async () => {
   const baseline = baselineWithMt01Cognitive(8);
   const json = renderJson(buildReport({ baseline, currentReport: reportWithCognitive(4) }));
   const parsed = JSON.parse(json);
@@ -233,4 +234,26 @@ test('renderJson: stable schema_version and shape for agent consumers', () => {
   assert.equal(parsed.overall_status, 'PASS');
   assert.ok(Array.isArray(parsed.dimensions));
   assert.ok(parsed.summary && typeof parsed.summary.pass === 'number');
+
+  baseline.dimensions.MT01.metrics['max-file-loc'] = { baseline: 227, direction: 'max' };
+  const files = {
+    '/baseline.json': JSON.stringify(baseline),
+    '/loc.json': JSON.stringify({ available: true, metrics: { max_file_loc: 228 } }),
+  };
+  const output = [];
+  const code = await main(['--baseline=/baseline.json', '--loc=/loc.json', '--format=json'], {
+    read: async () => JSON.stringify(reportWithCognitive(4)),
+    write: (s) => output.push(s),
+    writeErr: () => {},
+    readFile: (path) => files[path],
+    fileExists: (path) => Object.hasOwn(files, path),
+    env: {},
+  });
+  assert.equal(code, 1, 'a LOC regression must propagate through fitness_report main()');
+  const cliReport = JSON.parse(output.join(''));
+  const loc = cliReport.dimensions
+    .find((dimension) => dimension.code === 'MT01')
+    .metrics.find((metric) => metric.id === 'max-file-loc');
+  assert.equal(loc.current, 228);
+  assert.equal(loc.status, 'FAIL');
 });

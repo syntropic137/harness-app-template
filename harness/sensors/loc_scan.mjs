@@ -242,7 +242,12 @@ export function filesOverFloor(perSource, floor) {
 
 export function main(argv = process.argv.slice(2), io = { write: (s) => process.stdout.write(s) }) {
   const args = parseArgs(argv);
-  const envelope = runLocScan({ workspaceRoot: args.workspaceRoot, offenderLimit: Infinity });
+  const envelope = runLocScan({
+    workspaceRoot: args.workspaceRoot,
+    listFiles: io.listFiles ?? listActiveSourceFiles,
+    offenderLimit: Number.isFinite(args.floor) ? Infinity : DEFAULT_OFFENDER_LIMIT,
+    io,
+  });
   if (Number.isFinite(args.floor)) {
     const over = filesOverFloor(envelope.details.offenders, args.floor);
     io.write(

@@ -272,12 +272,28 @@ test('loc_scan main() with --floor reports every offender above it, not just the
   assert.equal(originalScan.metrics.max_file_loc, 900);
 
   const out = [];
-  const code = locMain(['--workspace-root=/r', '--floor=765'], { write: (s) => out.push(s) });
-  // main() defaults to the real listActiveSourceFiles lister, which will
-  // soft-skip on a non-workspace root; assert the CLI still returns 0 and
-  // prints the human "N file(s) over the floor" report shape rather than JSON.
+  const code = locMain(['--workspace-root=/r', '--floor=765'], {
+    write: (s) => out.push(s),
+    listFiles,
+  });
   assert.equal(code, 0);
-  assert.match(out.join(''), /file\(s\) over the 765-line floor/);
+  assert.equal(
+    out.join(''),
+    '2 file(s) over the 765-line floor (current max 900):\n  900  a.rs\n  800  b.rs\n',
+  );
+});
+
+test('loc_scan main() keeps the normal JSON offender list capped at DEFAULT_OFFENDER_LIMIT', () => {
+  const listFiles = () =>
+    Array.from({ length: DEFAULT_OFFENDER_LIMIT + 5 }, (_, index) => ({
+      file: `file-${index}.rs`,
+      lines: 1000 - index,
+    }));
+  const out = [];
+  const code = locMain(['--workspace-root=/r'], { write: (s) => out.push(s), listFiles });
+  assert.equal(code, 0);
+  const env = JSON.parse(out.join(''));
+  assert.equal(env.details.offenders.length, DEFAULT_OFFENDER_LIMIT);
 });
 
 test('loc_scan main() writes a JSON envelope and returns 0 (soft-skip on a non-workspace root)', () => {
