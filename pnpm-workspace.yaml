@@ -5,6 +5,28 @@ packages:
 
 overrides:
   esbuild: 0.27.7
+  # Security patches (dep-audit, GHSA advisories below). Pinned to specific
+  # already-established versions, not open ranges: pnpm's supply-chain policy
+  # rejects any resolved version published within the last 24h, and an
+  # unbounded ">=" range can float onto a just-published release that trips
+  # that guard in CI even though it satisfies the advisory's own floor.
+  brace-expansion: 2.1.2 # GHSA-3jxr-9vmj-r5cp; minimatch@9 pins ^2.0.2, so
+    # this stays in-range rather than the advisory's literal >=5.0.7, which
+    # broke minimatch's CJS require (brace-expansion changed export shape
+    # across majors).
+  js-yaml@>=4.0.0 <4.3.0: ">=4.3.0" # GHSA-52cp-r559-cp3m
+  "@opentelemetry/propagator-jaeger": 2.9.0 # GHSA-45rx-2jwx-cxfr; some
+    # consumers pin this to an exact version (no range) rather than a caret
+    # range, so a range-selector override key doesn't match -- the bare
+    # package-name key does. Pinned exact (not >=2.9.0) so a future
+    # `pnpm install` can't float onto a same-day 2.x release and trip the
+    # minimumReleaseAge policy again.
+  "@opentelemetry/core": 2.9.0 # peer of propagator-jaeger above; without
+    # pinning it too, it naturally resolves to the newest release and trips
+    # the same minimumReleaseAge policy on its own.
+  sharp: 0.35.3 # GHSA-f88m-g3jw-g9cj; same reasoning as propagator-jaeger
+    # above (bare key, exact pin) -- pinned rather than an open ">=" range
+    # to avoid floating onto a too-recent release.
 
 allowBuilds:
   esbuild: true
