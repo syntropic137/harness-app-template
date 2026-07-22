@@ -61,7 +61,7 @@ max_max_depth = { value = 8, severity = "warn" }
 #           binary + .topology/ data), sentrux, ubs-security, hyperfine-perf,
 #           suite-duration, coverage, license.
 [profiles.strict]
-required_adapters = ["sentrux", "apss-topology", "complexity", "cruiser-coupling", "ubs-security", "license", "deadcode", "suite-duration", "coverage"]
+required_adapters = ["sentrux", "apss-topology", "complexity", "cruiser-coupling", "ubs-security", "license", "deadcode", "suite-duration", "coverage", "loc"]
 
 [profiles.local]
 required_adapters = ["deadcode", "cruiser-coupling", "complexity"]

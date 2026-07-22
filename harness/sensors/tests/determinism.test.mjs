@@ -18,6 +18,7 @@
 //
 // Coverage:
 //   - deadcode_scan.runDeadcodeScan           (MT01 unused-export-count)
+//   - loc_scan.runLocScan                     (MT01 max-file-loc)
 //   - license_scan.scanLicenses               (LG01 denied-license-count)
 //   - coverage_scan.buildEnvelopeFromOptions  (CV01 *_line_pct + min_line_pct)
 //   - abstractness.analyzeFiles               (MD01 main-sequence distance)
@@ -48,6 +49,7 @@ import { analyzeFiles as analyzeComplexity } from '../complexity.mjs';
 import { buildEnvelopeFromOptions } from '../coverage_scan.mjs';
 import { runDeadcodeScan } from '../deadcode_scan.mjs';
 import { DEFAULT_ROOTS as LICENSE_DEFAULT_ROOTS, scanLicenses } from '../license_scan.mjs';
+import { runLocScan } from '../loc_scan.mjs';
 import { runSentrux } from '../sentrux_scan.mjs';
 import { evaluate as evaluateSuiteDuration } from '../suite_duration.mjs';
 
@@ -105,8 +107,9 @@ function assertDeterministic(sensorName, produce) {
 // Pure-fs adapters (deterministic given the same source tree)
 // ---------------------------------------------------------------------------
 
-test('determinism: deadcode_scan runs twice with byte-identical output', () => {
+test('determinism: pure-source MT01 scanners emit byte-identical output', () => {
   assertDeterministic('deadcode-grep', () => runDeadcodeScan({ workspaceRoot: REPO_ROOT }));
+  assertDeterministic('loc-scan', () => runLocScan({ workspaceRoot: REPO_ROOT }));
 });
 
 test('determinism: license_scan runs twice with byte-identical output', () => {

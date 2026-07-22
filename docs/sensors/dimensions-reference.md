@@ -106,11 +106,11 @@ observational at the gate (no fail); a `null` floor means the metric
 has no reading yet on this template clone and the gate skips it until
 a reading lands.
 
-### MT01 Maintainability (9 metrics, enforced)
+### MT01 Maintainability (10 metrics, enforced)
 
 Catches function-level rot (peak complexity, spread of moderately
 complex functions, Halstead volume, sentrux structural signals,
-orphan exports). The pre-commit `cx-gate` shortcut covers
+orphan exports, and per-file Rust LOC). The pre-commit `cx-gate` shortcut covers
 `max-cognitive`, `max-cyclomatic`, and `high-cognitive-fn-count`
 locally; the rest run in the full CI gate.
 
@@ -125,6 +125,7 @@ locally; the rest run in the full CI gate.
 | `sentrux-hotspot-count`    | max       | 0                      | true        | `.sentrux/baseline.json` `hotspot_count`                                                 |
 | `sentrux-complex-fn-count` | max       | 9                      | true        | `.sentrux/baseline.json` `complex_fn_count` (52-language tree-sitter overlay)            |
 | `unused-export-count`      | max       | 14                     | true        | `harness/sensors/deadcode_scan.mjs` (pure-source scoped grep; see ADR-0024)              |
+| `max-file-loc`             | max       | 227                    | true        | `harness/sensors/loc_scan.mjs` maximum physical LOC across Cargo workspace-member sources |
 
 **How an agent improves MT01:**
 
@@ -139,6 +140,9 @@ locally; the rest run in the full CI gate.
 - `unused-export-count`: remove the orphan export, or wire a real call
   site. The detector is a deterministic scoped grep with no
   `node_modules` / `npx` / network dependency.
+- `max-file-loc`: split or simplify the largest Rust source file. Use
+  `node harness/sensors/loc_scan.mjs --floor=<baseline>` to list every
+  file above a proposed floor in one pass.
 - `sentrux-*`: the sentrux composite signals tighten as the project's
   god-file / hotspot / complexity signals fall; address the underlying
   files sentrux flagged in `.sentrux/baseline.json`.
@@ -470,6 +474,7 @@ between two consecutive runs fails the test with a message that names
 the sensor and shows both values. Coverage:
 
 - `deadcode_scan.runDeadcodeScan` (MT01 `unused-export-count`)
+- `loc_scan.runLocScan` (MT01 `max-file-loc`)
 - `license_scan.scanLicenses` (LG01 `denied-license-count`)
 - `coverage_scan.buildEnvelopeFromOptions` (CV01 `*_line_pct` + `min_line_pct`)
 - `abstractness.analyzeFiles` (MD01 main-sequence distance)
