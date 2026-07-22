@@ -10,10 +10,14 @@ overrides:
   # rejects any resolved version published within the last 24h, and an
   # unbounded ">=" range can float onto a just-published release that trips
   # that guard in CI even though it satisfies the advisory's own floor.
-  brace-expansion: 2.1.2 # GHSA-3jxr-9vmj-r5cp; minimatch@9 pins ^2.0.2, so
-    # this stays in-range rather than the advisory's literal >=5.0.7, which
-    # broke minimatch's CJS require (brace-expansion changed export shape
-    # across majors).
+  # GHSA-3jxr-9vmj-r5cp: two different minimatch majors coexist in this
+  # workspace (minimatch@9 wants brace-expansion ^2.0.2, minimatch@10 wants
+  # ^5.0.5), and brace-expansion's export shape changed across those majors
+  # (CJS default vs a named `.expand` export), so ONE blanket override breaks
+  # whichever major it doesn't match. Scoped per parent instead of a single
+  # bare key.
+  minimatch@9>brace-expansion: 2.1.2
+  minimatch@10>brace-expansion: ">=5.0.7"
   js-yaml@>=4.0.0 <4.3.0: ">=4.3.0" # GHSA-52cp-r559-cp3m
   "@opentelemetry/propagator-jaeger": 2.9.0 # GHSA-45rx-2jwx-cxfr; some
     # consumers pin this to an exact version (no range) rather than a caret
