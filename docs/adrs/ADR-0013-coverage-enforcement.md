@@ -123,6 +123,18 @@ add it to this table first, then add the comment in code.
 | `ws_packages/telemetry` | `vitest run` without coverage threshold | Shared telemetry package is tested and typechecked but not yet a coverage-gated surface. Treat as policy debt. |
 | `harness/sensors` | `just cov-sensors` measured floor below 100 percent | The slot's node:test suite gates at a measured floor (67 lines, 70 branches, 62 functions; observed 69-70 / 72-73 / 64-65 across runs on 2026-06-11) because environment-probing adapters (license scan, sentrux scan) have error paths only reachable with broken-tool fixtures, and their coverage varies run to run. Ratchet the floor in `scripts/lib/coverage.ts` as fixtures land. |
 | `harness/stack/rust-stub` | Listed under root `Cargo.toml` `excluded_surfaces` | Stub crate is not part of the current Rust coverage gate. |
+| Consumer-declared `scripts/**` files | Optional root `vitest.consumer.json`, merged into `coverage.exclude` by `vitest.config.ts` | Forks inherit the `scripts/**/*.ts` 100 percent gate but cannot durably edit the harness-owned `vitest.config.ts` (it is in the `just update` overwrite set). The consumer file sits outside that set, so a fork's exemptions survive a sync. Absent by default — the canonical template ships no such file and its own numbers are unchanged. Auditable in the fork's own repo, not here. |
+
+### Consumer extension point
+
+Forked consumers own `vitest.consumer.json` at the repo root. It is
+deliberately absent from `HARNESS_OWNED_PATHS` in `scripts/update.ts`, which
+is what makes it durable; the merge helper is
+`consumerCoverageExclude()` in `vitest.config.ts`, pinned by
+`scripts/tests/vitest-consumer-config.test.ts`. Thresholds stay harness-owned
+at 100 percent — the lever exempts files from measurement, it does not lower
+the bar. See [`docs/updating.md`](../updating.md) for the consumer-facing
+write-up.
 
 ### Not current template surfaces
 
