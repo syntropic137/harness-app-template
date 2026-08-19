@@ -414,3 +414,263 @@ describe('CLI', () => {
     expect(d.errors.join('\n')).toMatch(/usage: beads-migrate/);
   });
 });
+
+// The template enforces 100% coverage on scripts/. These close the branches the
+// behavioural tests above do not reach: the nullish/optional fallbacks on
+// partially-populated records (real br exports omit fields freely), and the CLI's
+// usage, --json, and warning paths.
+describe('optional-field fallbacks on sparse records', () => {
+  test('a record with no dependencies, labels, comments or description scans cleanly', () => {
+    const report = preflight([{ id: 'bare' }]);
+    expect(report.recordCount).toBe(1);
+    expect(report.issueTypes).toEqual({ '<none>': 1 });
+    expect(report.statuses).toEqual({ '<none>': 1 });
+    expect(report.sourceRepos).toEqual({ '<none>': 1 });
+    expect(report.dependencyTriples).toEqual([]);
+    expect(report.labelAssignments).toBe(0);
+    expect(report.commentCount).toBe(0);
+    expect(report.oversizeDescriptions).toEqual([]);
+  });
+
+  test('a dependency with no issue_id falls back to the owning record id', () => {
+    const deps = [{ depends_on_id: 'b', type: 'blocks' }] as unknown as BeadRecord['dependencies'];
+    const triples = dependencyTriples([record({ id: 'a', dependencies: deps })]);
+    expect(triples).toEqual(['a\tb\tblocks']);
+  });
+
+  test('a non-integer comment id is counted, which is how a bd export is recognised', () => {
+    const report = preflight([record({ comments: [{ id: 'uuid-1', text: 't' }] })]);
+    expect(report.commentCount).toBe(1);
+    expect(report.nonIntegerCommentIds).toBe(1);
+  });
+
+  test('comments with no created_at or text still key deterministically', () => {
+    const bd = [record({ id: 'a', comments: [{ id: 'uuid-1' }] })];
+    const reference = [record({ id: 'a', comments: [{ id: 9 }] })];
+    expect(transformReverse(bd, { reference }).records[0].comments?.[0].id).toBe(9);
+  });
+
+  test('reference records without comments are skipped when indexing', () => {
+    const result = transformReverse([record({ id: 'a', comments: [{ id: 'uuid-1' }] })], {
+      reference: [record({ id: 'z' })],
+    });
+    expect(result.restoredFromReference).toBe(0);
+  });
+
+  test('a non-integer id in the reference is not indexed', () => {
+    const result = transformReverse(
+      [record({ id: 'a', comments: [{ id: 'uuid-1', text: 't' }] })],
+      {
+        reference: [record({ id: 'a', comments: [{ id: 'also-uuid', text: 't' }] })],
+      },
+    );
+    expect(result.restoredFromReference).toBe(0);
+    expect(result.records[0].comments?.[0].id).toBe(1);
+  });
+
+  test('provenance note omits the path when only source_repo is present', () => {
+    const result = transformForward([{ id: 'a', source_repo: 'only-repo' }], {
+      preserveProvenance: true,
+      provenanceToNotes: true,
+    });
+    expect(result.records[0].notes).toBe('br-provenance: only-repo');
+    expect(result.records[0].metadata).toEqual({ source_repo: 'only-repo' });
+  });
+
+  test('provenance survives when only source_repo_path is present', () => {
+    const result = transformForward([{ id: 'a', source_repo_path: '/tmp/x' }], {
+      preserveProvenance: true,
+      provenanceToNotes: true,
+    });
+    expect(result.records[0].notes).toBe('br-provenance: (/tmp/x)');
+  });
+
+  test('a record with no provenance at all is passed through untouched', () => {
+    const result = transformForward([{ id: 'a' }], { preserveProvenance: true });
+    expect(result.records[0].metadata).toBeUndefined();
+    expect(result.provenancePreserved).toBe(0);
+  });
+
+  test('non-string notes are replaced rather than concatenated', () => {
+    const result = transformForward([record({ notes: undefined })], {
+      preserveProvenance: true,
+      provenanceToNotes: true,
+    });
+    expect(result.records[0].notes).toMatch(/^br-provenance: /);
+  });
+
+  test('an added edge is reported alongside missing ones', () => {
+    const before = preflight([record({ id: 'a' })]);
+    const after = preflight([
+      record({ id: 'a', dependencies: [{ issue_id: 'a', depends_on_id: 'b', type: 'blocks' }] }),
+    ]);
+    const diff = compareReports(before, after).find((d) =>
+      d.label.startsWith('dependency triples'),
+    );
+    expect(diff?.ok).toBe(false);
+    expect(diff?.detail).toMatch(/missing: none; added: a\tb\tblocks/);
+  });
+});
+
+// CLI branches the behavioural tests above do not reach: --json output, every
+// missing-argument usage path, the --out alias, and the stderr warning paths.
+describe('CLI branches', () => {
+  function deps(files: Record<string, string> = {}): MigrateDeps & {
+    logs: string[];
+    errors: string[];
+    written: Record<string, string>;
+  } {
+    const logs: string[] = [];
+    const errors: string[] = [];
+    const written: Record<string, string> = {};
+    return {
+      readFile: (path: string) => {
+        if (!(path in files)) throw new Error(`no such fixture: ${path}`);
+        return files[path];
+      },
+      writeFile: (path: string, contents: string) => {
+        written[path] = contents;
+      },
+      stdout: { log: (line: string) => logs.push(line) },
+      stderr: { error: (line: string) => errors.push(line) },
+      exit: (code: number): never => {
+        throw new Error(`exit ${code}`);
+      },
+      logs,
+      errors,
+      written,
+    };
+  }
+
+  test('preflight --json emits the machine-readable report', () => {
+    const d = deps({ 'in.jsonl': serializeJsonl([record()]) });
+    main(['preflight', 'in.jsonl', '--json'], d);
+    expect(JSON.parse(d.logs.join('\n')).recordCount).toBe(1);
+  });
+
+  test('preflight prints the bd config a store with custom types needs', () => {
+    const d = deps({
+      'in.jsonl': serializeJsonl([
+        record({ issue_type: 'docs' }),
+        record({ id: 'b', status: 'tombstone' }),
+        record({ id: 'c', status: 'closed' }),
+      ]),
+    });
+    main(['preflight', 'in.jsonl'], d);
+    const out = d.logs.join('\n');
+    expect(out).toMatch(/bd config set types.custom "docs"/);
+    expect(out).toMatch(/bd config set status.custom "tombstone:done"/);
+    expect(out).toMatch(/closed with no closed_at .*: c/);
+    expect(out).toMatch(/not a recognized config key/);
+  });
+
+  test('preflight names each oversize description with its byte count', () => {
+    const d = deps({
+      'in.jsonl': serializeJsonl([
+        record({ id: 'big', description: 'a'.repeat(BD_MAX_DESCRIPTION_BYTES + 5) }),
+      ]),
+    });
+    expect(() => main(['preflight', 'in.jsonl'], d)).toThrow('exit 1');
+    expect(d.logs.join('\n')).toMatch(/big: 65540 bytes \(65540 chars\)/);
+  });
+
+  test('verify --json emits the diff array', () => {
+    const one = serializeJsonl([record()]);
+    const d = deps({ 'a.jsonl': one, 'b.jsonl': one });
+    main(['verify', 'a.jsonl', 'b.jsonl', '--json'], d);
+    expect(Array.isArray(JSON.parse(d.logs.join('\n')))).toBe(true);
+  });
+
+  test('forward reports dropped tombstones and warns about kept ones', () => {
+    const withTombstone = serializeJsonl([record({ id: 'dead', status: 'tombstone' })]);
+    const dropped = deps({ 'in.jsonl': withTombstone });
+    main(['forward', 'in.jsonl', '--out', 'out.jsonl', '--drop-tombstones'], dropped);
+    expect(dropped.logs.join('\n')).toMatch(/dropped dead: tombstone/);
+
+    const kept = deps({ 'in.jsonl': withTombstone });
+    main(['forward', 'in.jsonl', '-o', 'out.jsonl'], kept);
+    expect(kept.errors.join('\n')).toMatch(/WARN dead: tombstone kept/);
+  });
+
+  test('reverse warns when a comment cannot be matched to the reference', () => {
+    const d = deps({
+      'in.jsonl': serializeJsonl([record({ comments: [{ id: 'uuid-1', text: 'x' }] })]),
+      'ref.jsonl': serializeJsonl([record()]),
+    });
+    main(['reverse', 'in.jsonl', '-o', 'out.jsonl', '--reference', 'ref.jsonl'], d);
+    expect(d.errors.join('\n')).toMatch(/WARN .*could not be matched/);
+  });
+
+  test.each([
+    ['preflight', []],
+    ['forward', []],
+    ['forward', ['in.jsonl']],
+    ['reverse', []],
+    ['reverse', ['in.jsonl']],
+    ['verify', []],
+    ['verify', ['a.jsonl']],
+  ])('%s with missing arguments exits 64 with usage', (sub, args) => {
+    const d = deps();
+    expect(() => main([sub, ...args], d)).toThrow('exit 64');
+    expect(d.errors.join('\n')).toMatch(/usage: beads-migrate/);
+  });
+
+  test('no subcommand at all exits 64', () => {
+    const d = deps();
+    expect(() => main([], d)).toThrow('exit 64');
+  });
+});
+
+describe('final branch closures', () => {
+  test('an existing note without the marker is appended to, not replaced', () => {
+    const result = transformForward([record({ notes: 'shipped in f723018' })], {
+      preserveProvenance: true,
+      provenanceToNotes: true,
+    });
+    expect(result.records[0].notes).toBe(
+      'shipped in f723018\n\nbr-provenance: harness-app-template (/home/ubuntu/Code/syntropic137/harness-app-template)',
+    );
+  });
+
+  test('simultaneous missing and added edges are both listed and joined', () => {
+    const before = preflight([
+      record({
+        id: 'a',
+        dependencies: [
+          { issue_id: 'a', depends_on_id: 'b', type: 'blocks' },
+          { issue_id: 'a', depends_on_id: 'c', type: 'blocks' },
+        ],
+      }),
+    ]);
+    const after = preflight([
+      record({
+        id: 'a',
+        dependencies: [
+          { issue_id: 'a', depends_on_id: 'd', type: 'blocks' },
+          { issue_id: 'a', depends_on_id: 'e', type: 'blocks' },
+        ],
+      }),
+    ]);
+    const diff = compareReports(before, after).find((d) =>
+      d.label.startsWith('dependency triples'),
+    );
+    expect(diff?.ok).toBe(false);
+    expect(diff?.detail).toMatch(/missing: a\tb\tblocks \| a\tc\tblocks/);
+    expect(diff?.detail).toMatch(/added: a\td\tblocks \| a\te\tblocks/);
+  });
+
+  test('an edge lost with none gained reports added as none', () => {
+    // The case a real migration failure looks like: edges silently dropped,
+    // nothing gained. Distinct from the rewired-edge case above, where both
+    // sides are non-empty.
+    const before = preflight([
+      record({ id: 'a', dependencies: [{ issue_id: 'a', depends_on_id: 'b', type: 'blocks' }] }),
+    ]);
+    const after = preflight([record({ id: 'a' })]);
+    const diff = compareReports(before, after).find((d) =>
+      d.label.startsWith('dependency triples'),
+    );
+    expect(diff?.ok).toBe(false);
+    expect(diff?.detail).toBe('missing: a\tb\tblocks; added: none');
+  });
+});

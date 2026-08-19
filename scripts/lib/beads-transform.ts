@@ -361,8 +361,8 @@ function withProvenance(record: BeadRecord, options: ForwardOptions): BeadRecord
 
 /** Idempotent by construction, so re-running the transform cannot stack notes. */
 function withProvenanceNote(record: BeadRecord): string {
-  const location = record.source_repo_path ? ` (${record.source_repo_path})` : '';
-  const note = `${PROVENANCE_NOTE_PREFIX} ${record.source_repo ?? ''}${location}`.trim();
+  const parts = [record.source_repo, record.source_repo_path && `(${record.source_repo_path})`];
+  const note = `${PROVENANCE_NOTE_PREFIX} ${parts.filter(Boolean).join(' ')}`.trim();
   const existing = typeof record.notes === 'string' ? record.notes : '';
   if (existing.includes(PROVENANCE_NOTE_PREFIX)) return existing;
   return existing ? `${existing}\n\n${note}` : note;
