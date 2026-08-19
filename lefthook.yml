@@ -30,6 +30,32 @@ skip_output:
 pre-commit:
   parallel: true
   commands:
+    # Keep .beads/issues.jsonl in step with the bd (Dolt) database, which is
+    # the write authority; the JSONL is a passive export and the only part of
+    # the store that git tracks.
+    #
+    # `bd init` wants to own this by pointing core.hooksPath at .beads/hooks/
+    # and copying lefthook's scripts there with its own block appended. That
+    # works right up until lefthook reinstalls — it writes .git/hooks/, which
+    # git is no longer reading, so gate changes silently stop taking effect.
+    # Declaring the bd step here instead keeps lefthook.yml the single gate
+    # surface. If you ever re-run `bd init`, unset core.hooksPath afterwards.
+    #
+    # Exit 3 means "no database initialized" — a fresh clone before `bd init`,
+    # not a failure.
+    beads-export:
+      run: |
+        sh -eu -c '
+          if ! command -v bd >/dev/null 2>&1; then
+            exit 0
+          fi
+          BD_GIT_HOOK=1 bd hooks run pre-commit || {
+            status=$?
+            [ "$status" -eq 3 ] && exit 0
+            exit "$status"
+          }
+        '
+
     biome-format-lint:
       glob: "*.{js,jsx,ts,tsx,mjs,cjs,json,jsonc,css,scss,md,yml,yaml}"
       run: |
@@ -275,4 +301,35 @@ pre-push:
           git rev-parse --verify "$base" >/dev/null 2>&1 || base="origin/main"
           mkdir -p .beads
           ubs --diff "$base" --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
+        '
+
+# After a checkout or merge the tracked .beads/issues.jsonl can be ahead of
+# the local Dolt database (someone else's beads arrived through git). These
+# replay it back into the DB so `bd ready` reflects what was just pulled.
+# Both are advisory: a missing bd, or an uninitialized store (exit 3), is a
+# fresh clone, not an error.
+post-merge:
+  commands:
+    beads-import:
+      run: |
+        sh -eu -c '
+          command -v bd >/dev/null 2>&1 || exit 0
+          BD_GIT_HOOK=1 bd hooks run post-merge || {
+            status=$?
+            [ "$status" -eq 3 ] && exit 0
+            exit "$status"
+          }
+        '
+
+post-checkout:
+  commands:
+    beads-import:
+      run: |
+        sh -eu -c '
+          command -v bd >/dev/null 2>&1 || exit 0
+          BD_GIT_HOOK=1 bd hooks run post-checkout || {
+            status=$?
+            [ "$status" -eq 3 ] && exit 0
+            exit "$status"
+          }
         '
