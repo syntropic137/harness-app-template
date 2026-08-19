@@ -10,6 +10,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import {
   compareReports,
+  type PreflightReport,
   parseJsonl,
   preflight,
   requiredBdConfig,
@@ -54,73 +55,73 @@ function positionals(argv: string[]): string[] {
   return out;
 }
 
+function reportSummary(report: PreflightReport, log: (line: string) => void): void {
+  log(`records:                 ${report.recordCount}`);
+  log(`expected bd import count:${report.expectedImportCount}`);
+  log(`issue types:             ${JSON.stringify(report.issueTypes)}`);
+  log(`statuses:                ${JSON.stringify(report.statuses)}`);
+  log(
+    `dependency edges:        ${report.dependencyTriples.length} ${JSON.stringify(report.dependencyTypeCounts)}`,
+  );
+  log(
+    `labels:                  ${report.labelAssignments} assignments / ${report.uniqueLabels.length} unique`,
+  );
+  log(`comments:                ${report.commentCount}`);
+  log(`source_repo values:      ${JSON.stringify(report.sourceRepos)}`);
+  log(
+    `sub-second timestamps:   ${JSON.stringify(report.subSecondTimestamps)} (rounded to whole seconds by bd, irreversible)`,
+  );
+}
+
+function reportBlockers(report: PreflightReport, log: (line: string) => void): void {
+  const list = (values: string[]) => (values.length ? values.join(', ') : 'none');
+  log('');
+  log('BLOCKERS');
+  log(`  1. custom issue types:   ${list(report.customTypes)}`);
+  log(`  2. custom statuses:      ${list(report.customStatuses)}`);
+  log(`     tombstones:           ${list(report.tombstones)}`);
+  log(`  3. oversize descriptions:${report.oversizeDescriptions.length ? '' : ' none'}`);
+  for (const over of report.oversizeDescriptions) {
+    log(
+      `       ${over.id}: ${over.bytes} bytes (${over.characters} chars) — exceeds 65535-BYTE ceiling`,
+    );
+  }
+}
+
+function reportLosses(report: PreflightReport, log: (line: string) => void): void {
+  const list = (values: string[]) => (values.length ? values.join(', ') : 'none');
+  log('');
+  log('KNOWN LOSSES');
+  log(`  tombstones dropped silently by bd: ${report.tombstones.length}`);
+  log(`  closed with no closed_at (bd fabricates one): ${list(report.closedWithoutClosedAt)}`);
+  log('  source_repo / source_repo_path dropped unless --preserve-provenance');
+
+  const config = requiredBdConfig(report);
+  log('');
+  if (config.length === 0) {
+    log('bd config required: NONE — importable as-is');
+    return;
+  }
+  log('bd config required BEFORE import:');
+  for (const cmd of config) log(`  ${cmd}`);
+  log('  (types.custom prints a "not a recognized config key" warning and works anyway)');
+}
+
 function runPreflight(argv: string[], deps: MigrateDeps): void {
   const [input] = positionals(argv);
   if (!input) {
     deps.stderr.error(USAGE);
     deps.exit(64);
   }
-  const records = parseJsonl(deps.readFile(input));
-  const report = preflight(records);
+  const report = preflight(parseJsonl(deps.readFile(input)));
 
   if (argv.includes('--json')) {
     deps.stdout.log(JSON.stringify(report, null, 2));
   } else {
-    deps.stdout.log(`records:                 ${report.recordCount}`);
-    deps.stdout.log(`expected bd import count:${report.expectedImportCount}`);
-    deps.stdout.log(`issue types:             ${JSON.stringify(report.issueTypes)}`);
-    deps.stdout.log(`statuses:                ${JSON.stringify(report.statuses)}`);
-    deps.stdout.log(
-      `dependency edges:        ${report.dependencyTriples.length} ${JSON.stringify(report.dependencyTypeCounts)}`,
-    );
-    deps.stdout.log(
-      `labels:                  ${report.labelAssignments} assignments / ${report.uniqueLabels.length} unique`,
-    );
-    deps.stdout.log(`comments:                ${report.commentCount}`);
-    deps.stdout.log(`source_repo values:      ${JSON.stringify(report.sourceRepos)}`);
-    deps.stdout.log(
-      `sub-second timestamps:   ${JSON.stringify(report.subSecondTimestamps)} (rounded to whole seconds by bd, irreversible)`,
-    );
-
-    deps.stdout.log('');
-    deps.stdout.log('BLOCKERS');
-    deps.stdout.log(
-      `  1. custom issue types:   ${report.customTypes.length ? report.customTypes.join(', ') : 'none'}`,
-    );
-    deps.stdout.log(
-      `  2. custom statuses:      ${report.customStatuses.length ? report.customStatuses.join(', ') : 'none'}`,
-    );
-    deps.stdout.log(
-      `     tombstones:           ${report.tombstones.length ? report.tombstones.join(', ') : 'none'}`,
-    );
-    deps.stdout.log(
-      `  3. oversize descriptions:${report.oversizeDescriptions.length ? '' : ' none'}`,
-    );
-    for (const over of report.oversizeDescriptions) {
-      deps.stdout.log(
-        `       ${over.id}: ${over.bytes} bytes (${over.characters} chars) — exceeds 65535-BYTE ceiling`,
-      );
-    }
-
-    deps.stdout.log('');
-    deps.stdout.log('KNOWN LOSSES');
-    deps.stdout.log(`  tombstones dropped silently by bd: ${report.tombstones.length}`);
-    deps.stdout.log(
-      `  closed with no closed_at (bd fabricates one): ${report.closedWithoutClosedAt.length ? report.closedWithoutClosedAt.join(', ') : 'none'}`,
-    );
-    deps.stdout.log(`  source_repo / source_repo_path dropped unless --preserve-provenance`);
-
-    const config = requiredBdConfig(report);
-    deps.stdout.log('');
-    if (config.length === 0) {
-      deps.stdout.log('bd config required: NONE — importable as-is');
-    } else {
-      deps.stdout.log('bd config required BEFORE import:');
-      for (const cmd of config) deps.stdout.log(`  ${cmd}`);
-      deps.stdout.log(
-        '  (types.custom prints a "not a recognized config key" warning and works anyway)',
-      );
-    }
+    const log = (line: string) => deps.stdout.log(line);
+    reportSummary(report, log);
+    reportBlockers(report, log);
+    reportLosses(report, log);
   }
 
   // Blocker 3 is the only one no config can fix, and bd's import is atomic:

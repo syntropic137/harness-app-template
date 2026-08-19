@@ -164,88 +164,125 @@ export function dependencyTriples(records: BeadRecord[]): string[] {
   return triples.sort();
 }
 
-export function preflight(records: BeadRecord[]): PreflightReport {
-  const issueTypes: Record<string, number> = {};
-  const statuses: Record<string, number> = {};
-  const dependencyTypeCounts: Record<string, number> = {};
-  const sourceRepos: Record<string, number> = {};
+/**
+ * Mutable tallies threaded through the per-record scanners below. Splitting
+ * the scan into one function per concern keeps each one small enough to read
+ * at a glance — and keeps this file under the MT01 complexity floor the
+ * template ratchets on (see docs/adrs/ADR-0020).
+ */
+interface ScanState {
+  issueTypes: Record<string, number>;
+  statuses: Record<string, number>;
+  dependencyTypeCounts: Record<string, number>;
+  sourceRepos: Record<string, number>;
+  subSecondTimestamps: Record<string, number>;
+  tombstones: string[];
+  oversizeDescriptions: OversizeDescription[];
+  closedWithoutClosedAt: string[];
+  labels: Set<string>;
+  labelAssignments: number;
+  commentCount: number;
+  nonIntegerCommentIds: number;
+}
+
+function emptyScanState(): ScanState {
   const subSecondTimestamps: Record<string, number> = {};
-  const tombstones: string[] = [];
-  const oversizeDescriptions: OversizeDescription[] = [];
-  const closedWithoutClosedAt: string[] = [];
-  const labels = new Set<string>();
-  let labelAssignments = 0;
-  let commentCount = 0;
-  let nonIntegerCommentIds = 0;
-
   for (const field of TIMESTAMP_FIELDS) subSecondTimestamps[field] = 0;
+  return {
+    issueTypes: {},
+    statuses: {},
+    dependencyTypeCounts: {},
+    sourceRepos: {},
+    subSecondTimestamps,
+    tombstones: [],
+    oversizeDescriptions: [],
+    closedWithoutClosedAt: [],
+    labels: new Set<string>(),
+    labelAssignments: 0,
+    commentCount: 0,
+    nonIntegerCommentIds: 0,
+  };
+}
 
-  for (const record of records) {
-    tally(issueTypes, record.issue_type ?? '<none>');
-    tally(statuses, record.status ?? '<none>');
-    tally(sourceRepos, record.source_repo ?? '<none>');
+function scanClassification(record: BeadRecord, state: ScanState): void {
+  tally(state.issueTypes, record.issue_type ?? '<none>');
+  tally(state.statuses, record.status ?? '<none>');
+  tally(state.sourceRepos, record.source_repo ?? '<none>');
+  if (record.status === BR_TOMBSTONE_STATUS) state.tombstones.push(record.id);
+}
 
-    if (record.status === BR_TOMBSTONE_STATUS) tombstones.push(record.id);
+/** Blocker 3: the ceiling is bytes, so a character count would miss it. */
+function scanDescriptionSize(record: BeadRecord, state: ScanState): void {
+  const description = record.description ?? '';
+  const bytes = byteLength(description);
+  if (bytes > BD_MAX_DESCRIPTION_BYTES) {
+    state.oversizeDescriptions.push({
+      id: record.id,
+      bytes,
+      characters: description.length,
+    });
+  }
+}
 
-    const description = record.description ?? '';
-    const bytes = byteLength(description);
-    if (bytes > BD_MAX_DESCRIPTION_BYTES) {
-      oversizeDescriptions.push({
-        id: record.id,
-        bytes,
-        characters: description.length,
-      });
-    }
-
-    if (record.status === 'closed' && !record.closed_at) {
-      closedWithoutClosedAt.push(record.id);
-    }
-
-    for (const field of TIMESTAMP_FIELDS) {
-      const value = record[field];
-      if (typeof value === 'string' && value.includes('.')) {
-        subSecondTimestamps[field] += 1;
-      }
-    }
-
-    for (const dep of record.dependencies ?? []) tally(dependencyTypeCounts, dep.type);
-
-    for (const label of record.labels ?? []) {
-      labelAssignments += 1;
-      labels.add(label);
-    }
-
-    for (const comment of record.comments ?? []) {
-      commentCount += 1;
-      if (!Number.isInteger(comment.id)) nonIntegerCommentIds += 1;
+function scanTimestamps(record: BeadRecord, state: ScanState): void {
+  if (record.status === 'closed' && !record.closed_at) {
+    state.closedWithoutClosedAt.push(record.id);
+  }
+  for (const field of TIMESTAMP_FIELDS) {
+    const value = record[field];
+    if (typeof value === 'string' && value.includes('.')) {
+      state.subSecondTimestamps[field] += 1;
     }
   }
+}
 
-  const builtinTypes = new Set<string>(BD_BUILTIN_TYPES);
-  const builtinStatuses = new Set<string>(BD_BUILTIN_STATUSES);
+function scanCollections(record: BeadRecord, state: ScanState): void {
+  for (const dep of record.dependencies ?? []) tally(state.dependencyTypeCounts, dep.type);
+  for (const label of record.labels ?? []) {
+    state.labelAssignments += 1;
+    state.labels.add(label);
+  }
+  for (const comment of record.comments ?? []) {
+    state.commentCount += 1;
+    if (!Number.isInteger(comment.id)) state.nonIntegerCommentIds += 1;
+  }
+}
+
+function customValues(present: Record<string, number>, builtin: readonly string[]): string[] {
+  const known = new Set<string>(builtin);
+  return Object.keys(present)
+    .filter((v) => v !== '<none>' && v !== BR_TOMBSTONE_STATUS && !known.has(v))
+    .sort();
+}
+
+export function preflight(records: BeadRecord[]): PreflightReport {
+  const state = emptyScanState();
+
+  for (const record of records) {
+    scanClassification(record, state);
+    scanDescriptionSize(record, state);
+    scanTimestamps(record, state);
+    scanCollections(record, state);
+  }
 
   return {
     recordCount: records.length,
-    expectedImportCount: records.length - tombstones.length,
-    issueTypes,
-    statuses,
-    customTypes: Object.keys(issueTypes)
-      .filter((t) => t !== '<none>' && !builtinTypes.has(t))
-      .sort(),
-    customStatuses: Object.keys(statuses)
-      .filter((s) => s !== '<none>' && s !== BR_TOMBSTONE_STATUS && !builtinStatuses.has(s))
-      .sort(),
-    tombstones,
-    oversizeDescriptions,
+    expectedImportCount: records.length - state.tombstones.length,
+    issueTypes: state.issueTypes,
+    statuses: state.statuses,
+    customTypes: customValues(state.issueTypes, BD_BUILTIN_TYPES),
+    customStatuses: customValues(state.statuses, BD_BUILTIN_STATUSES),
+    tombstones: state.tombstones,
+    oversizeDescriptions: state.oversizeDescriptions,
     dependencyTriples: dependencyTriples(records),
-    dependencyTypeCounts,
-    labelAssignments,
-    uniqueLabels: [...labels].sort(),
-    commentCount,
-    closedWithoutClosedAt,
-    subSecondTimestamps,
-    sourceRepos,
-    nonIntegerCommentIds,
+    dependencyTypeCounts: state.dependencyTypeCounts,
+    labelAssignments: state.labelAssignments,
+    uniqueLabels: [...state.labels].sort(),
+    commentCount: state.commentCount,
+    closedWithoutClosedAt: state.closedWithoutClosedAt,
+    subSecondTimestamps: state.subSecondTimestamps,
+    sourceRepos: state.sourceRepos,
+    nonIntegerCommentIds: state.nonIntegerCommentIds,
   };
 }
 
@@ -307,6 +344,41 @@ const PROVENANCE_NOTE_PREFIX = 'br-provenance:';
  * relocate, or truncate), not something a migration script should silently
  * resolve — so it is reported by preflight and left alone here.
  */
+/**
+ * Copy the two fields bd drops on the floor into `metadata`, which does
+ * survive: verified round-tripping through bd 1.0.4 import + export, and
+ * rendered by `bd show` as a METADATA block.
+ */
+function withProvenance(record: BeadRecord, options: ForwardOptions): BeadRecord {
+  const metadata: Record<string, unknown> = { ...(record.metadata ?? {}) };
+  if (record.source_repo) metadata.source_repo = record.source_repo;
+  if (record.source_repo_path) metadata.source_repo_path = record.source_repo_path;
+
+  const next: BeadRecord = { ...record, metadata };
+  if (options.provenanceToNotes) next.notes = withProvenanceNote(record);
+  return next;
+}
+
+/** Idempotent by construction, so re-running the transform cannot stack notes. */
+function withProvenanceNote(record: BeadRecord): string {
+  const location = record.source_repo_path ? ` (${record.source_repo_path})` : '';
+  const note = `${PROVENANCE_NOTE_PREFIX} ${record.source_repo ?? ''}${location}`.trim();
+  const existing = typeof record.notes === 'string' ? record.notes : '';
+  if (existing.includes(PROVENANCE_NOTE_PREFIX)) return existing;
+  return existing ? `${existing}\n\n${note}` : note;
+}
+
+function hasProvenance(record: BeadRecord): boolean {
+  return Boolean(record.source_repo || record.source_repo_path);
+}
+
+/**
+ * br -> bd. Deliberately conservative: it moves provenance out of fields bd
+ * discards and can drop tombstones explicitly, but it does not rewrite
+ * descriptions. An oversize description is a decision for a human (split,
+ * relocate, or truncate), not something a migration script should silently
+ * resolve — so it is reported by preflight and left alone here.
+ */
 export function transformForward(
   records: BeadRecord[],
   options: ForwardOptions = {},
@@ -317,39 +389,21 @@ export function transformForward(
   let provenancePreserved = 0;
 
   for (const record of records) {
-    if (record.status === BR_TOMBSTONE_STATUS) {
-      if (options.dropTombstones) {
-        dropped.push({ id: record.id, reason: 'tombstone (dropped explicitly)' });
-        continue;
-      }
+    const isTombstone = record.status === BR_TOMBSTONE_STATUS;
+
+    if (isTombstone && options.dropTombstones) {
+      dropped.push({ id: record.id, reason: 'tombstone (dropped explicitly)' });
+      continue;
+    }
+    if (isTombstone) {
       warnings.push(
         `${record.id}: tombstone kept in output; bd's importer will skip it silently unless status.custom maps it`,
       );
     }
 
-    const next: BeadRecord = { ...record };
-
-    if (options.preserveProvenance && (record.source_repo || record.source_repo_path)) {
-      const metadata: Record<string, unknown> = { ...(record.metadata ?? {}) };
-      if (record.source_repo) metadata.source_repo = record.source_repo;
-      if (record.source_repo_path) metadata.source_repo_path = record.source_repo_path;
-      next.metadata = metadata;
-      provenancePreserved += 1;
-
-      if (options.provenanceToNotes) {
-        const note = `${PROVENANCE_NOTE_PREFIX} ${record.source_repo ?? ''}${
-          record.source_repo_path ? ` (${record.source_repo_path})` : ''
-        }`.trim();
-        const existing = typeof record.notes === 'string' ? record.notes : '';
-        next.notes = existing.includes(PROVENANCE_NOTE_PREFIX)
-          ? existing
-          : existing
-            ? `${existing}\n\n${note}`
-            : note;
-      }
-    }
-
-    out.push(next);
+    const preserve = Boolean(options.preserveProvenance) && hasProvenance(record);
+    if (preserve) provenancePreserved += 1;
+    out.push(preserve ? withProvenance(record, options) : { ...record });
   }
 
   return { records: out, dropped, warnings, provenancePreserved };
@@ -385,31 +439,47 @@ function commentKey(issueId: string, comment: BeadComment): string {
  * meets. Nothing else in bd's export blocks br — the rest of the drift is
  * additive fields br ignores.
  */
+interface ReferenceIndex {
+  originalIds: Map<string, number>;
+  nextSequentialId: number;
+}
+
+/**
+ * Index the original br comments by (issue, created_at, text) so the reverse
+ * transform can restore each comment's ORIGINAL integer id. bd's export keeps
+ * both timestamp and text intact, which is what makes the match reliable.
+ */
+function indexReference(reference: BeadRecord[] | undefined): ReferenceIndex {
+  const originalIds = new Map<string, number>();
+  let nextSequentialId = 1;
+
+  for (const record of reference ?? []) {
+    for (const comment of record.comments ?? []) {
+      if (!Number.isInteger(comment.id)) continue;
+      const id = comment.id as number;
+      originalIds.set(commentKey(record.id, comment), id);
+      nextSequentialId = Math.max(nextSequentialId, id + 1);
+    }
+  }
+
+  return { originalIds, nextSequentialId };
+}
+
+/**
+ * bd -> br. This is the rollback path, and without it the migration is
+ * one-way: bd rewrites every comment `id` from br's integer to a UUID
+ * string, br's schema requires an i64, and br aborts on the first one it
+ * meets. Nothing else in bd's export blocks br — the rest of the drift is
+ * additive fields br ignores.
+ */
 export function transformReverse(
   records: BeadRecord[],
   options: ReverseOptions = {},
 ): ReverseResult {
+  const index = indexReference(options.reference);
   const warnings: string[] = [];
   let remappedComments = 0;
   let restoredFromReference = 0;
-
-  const referenceIds = new Map<string, number>();
-  for (const record of options.reference ?? []) {
-    for (const comment of record.comments ?? []) {
-      if (Number.isInteger(comment.id)) {
-        referenceIds.set(commentKey(record.id, comment), comment.id as number);
-      }
-    }
-  }
-
-  let nextSequentialId = 1;
-  for (const record of options.reference ?? []) {
-    for (const comment of record.comments ?? []) {
-      if (Number.isInteger(comment.id)) {
-        nextSequentialId = Math.max(nextSequentialId, (comment.id as number) + 1);
-      }
-    }
-  }
 
   const out = records.map((record) => {
     if (!record.comments || record.comments.length === 0) return { ...record };
@@ -418,18 +488,17 @@ export function transformReverse(
       if (Number.isInteger(comment.id)) return { ...comment };
 
       remappedComments += 1;
-      const original = referenceIds.get(commentKey(record.id, comment));
-      if (original !== undefined) {
-        restoredFromReference += 1;
-        return { ...comment, id: original };
-      }
-      return { ...comment, id: nextSequentialId++ };
+      const original = index.originalIds.get(commentKey(record.id, comment));
+      if (original === undefined) return { ...comment, id: index.nextSequentialId++ };
+
+      restoredFromReference += 1;
+      return { ...comment, id: original };
     });
 
     return { ...record, comments };
   });
 
-  if (remappedComments > 0 && restoredFromReference < remappedComments) {
+  if (remappedComments > restoredFromReference) {
     warnings.push(
       `${remappedComments - restoredFromReference} comment id(s) could not be matched to the reference and were assigned fresh sequential ids; comment text is preserved but the original id is not recoverable from bd's export`,
     );
