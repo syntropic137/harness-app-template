@@ -16,9 +16,15 @@ overrides:
   # (CJS default vs a named `.expand` export), so ONE blanket override breaks
   # whichever major it doesn't match. Scoped per parent instead of a single
   # bare key.
-  minimatch@9>brace-expansion: 2.1.2
+  minimatch@9>brace-expansion: 2.1.4
   minimatch@10>brace-expansion: ">=5.0.7"
-  js-yaml@>=4.0.0 <4.3.0: ">=4.3.0" # GHSA-52cp-r559-cp3m
+  nanoid: 3.3.18 # GHSA-2v37-7h3g-55p8; reaches us only via
+    # ws_apps/docs -> next -> postcss. Exact pin per the policy above.
+  postcss: 8.5.26 # GHSA-fxqj-rqcc-2cmp; reaches us via ws_apps/docs -> next.
+    # Exact pin per the policy above.
+  js-yaml: 5.2.2 # GHSA-pm4m-ph32-ghv5; via ws_apps/docs -> fumadocs-mdx.
+    # Replaces a dead `js-yaml@>=4.0.0 <4.3.0` selector (GHSA-52cp-r559-cp3m):
+    # the tree has resolved onto the 5.x line, so that range matched nothing.
   "@opentelemetry/propagator-jaeger": 2.9.0 # GHSA-45rx-2jwx-cxfr; some
     # consumers pin this to an exact version (no range) rather than a caret
     # range, so a range-selector override key doesn't match -- the bare

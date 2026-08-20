@@ -16,7 +16,10 @@ export default defineConfig({
     coverage: {
       // Policy: PER_APP_COVERAGE_POLICY_DOC, "Per-App Unit Coverage".
       provider: 'v8',
-      all: true,
+      // `coverage.all` was removed in vitest 4: coverage now always reports
+      // every file matched by `include`, whether a test touched it or not,
+      // which is exactly what `all: true` used to request. Dropping the key
+      // preserves the behaviour the 100% thresholds below depend on.
       reporter: ['text'],
       include: ['src/**/*.ts'],
       thresholds: PER_APP_UNIT_COVERAGE_THRESHOLDS,
