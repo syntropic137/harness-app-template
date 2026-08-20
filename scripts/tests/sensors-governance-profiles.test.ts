@@ -21,12 +21,25 @@ describe('shipped governance profiles', () => {
     expect([...PERF_GATE_OWNED_ADAPTERS]).toContain('hyperfine-perf');
   });
 
-  test('local requires only the zero-dep adapters', () => {
-    expect(profiles.local.required_adapters).toHaveLength(3);
+  test('local requires the zero-dep adapters plus apss-topology', () => {
     expect(new Set(profiles.local.required_adapters)).toEqual(
-      new Set(['deadcode', 'cruiser-coupling', 'complexity']),
+      new Set(['deadcode', 'cruiser-coupling', 'complexity', 'apss-topology']),
     );
-    expect(profiles.local.required_adapters).not.toContain('sentrux');
-    expect(profiles.local.required_adapters).not.toContain('apss-topology');
+  });
+
+  test('local requires apss-topology, the only source of the MT01 readings', () => {
+    // Regression guard for the reason this was changed: while apss-topology
+    // was optional locally, max-cognitive / max-cyclomatic were simply not
+    // measured on a developer machine, so complexity regressions pushed green
+    // and were caught only by CI's --profile=strict run.
+    expect(profiles.local.required_adapters).toContain('apss-topology');
+  });
+
+  test('local still does not require the adapters with no zero-cost path', () => {
+    // These need a separate install and have no MT01-style enforcement gap
+    // justifying the onboarding cost; they stay skipped-loud when absent.
+    for (const adapter of ['sentrux', 'ubs-security', 'coverage', 'suite-duration', 'license']) {
+      expect(profiles.local.required_adapters).not.toContain(adapter);
+    }
   });
 });

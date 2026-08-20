@@ -254,12 +254,18 @@ pre-push:
       # missing so a freshly-cloned environment without those installed
       # can still commit and push.
       #
-      # Profile (ADR-0028): local pre-push runs the LEAN `local` profile so
-      # a developer machine without the instrumented adapters installed
-      # (apss binary, sentrux, hyperfine, coverage tooling) still pushes —
-      # those adapters are skipped-loud (DEGRADED), not failed. CI's
-      # `fitness` job pins `--profile=strict` for full fail-closed
-      # enforcement where every adapter is installed.
+      # Profile (ADR-0028): local pre-push runs the `local` profile, which
+      # requires the zero-dependency adapters PLUS apss-topology. sentrux,
+      # hyperfine and the coverage tooling remain skipped-loud (DEGRADED)
+      # when absent. CI's `fitness` job pins `--profile=strict` for full
+      # fail-closed enforcement where every adapter is installed.
+      #
+      # apss-topology is required here on purpose: it is the ONLY source of
+      # the MT01 max-cognitive / max-cyclomatic readings, so while it was
+      # optional this hook passed green on complexity regressions that CI
+      # then rejected. It costs ~2.5s of a ~45s gate. A fresh clone needs
+      # `just apss-install` before its first push; `just doctor` reports the
+      # gap up front.
       run: |
         sh -eu -c '
           if ! command -v node >/dev/null 2>&1; then
