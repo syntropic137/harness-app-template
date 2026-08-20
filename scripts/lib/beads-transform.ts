@@ -572,19 +572,23 @@ interface ReverseTally {
   restored: number;
 }
 
+// Takes the comment list rather than reading it off the record: the caller
+// has already established it is non-empty, so a `?? []` fallback here would be
+// an unreachable branch.
 function reverseComments(
-  record: BeadRecord,
+  issueId: string,
+  comments: BeadComment[],
   index: ReferenceIndex,
   freshId: () => number,
   tally: ReverseTally,
 ): BeadComment[] {
   let ordinal = -1;
-  return (record.comments ?? []).map((comment) => {
+  return comments.map((comment) => {
     ordinal += 1;
     if (Number.isInteger(comment.id)) return { ...comment };
 
     tally.remapped += 1;
-    const original = index.originalIds.get(commentKey(record.id, comment, ordinal));
+    const original = index.originalIds.get(commentKey(issueId, comment, ordinal));
     if (original === undefined) return { ...comment, id: freshId() };
 
     tally.restored += 1;
@@ -606,7 +610,7 @@ export function transformReverse(
 
   const out = records.map((record) =>
     record.comments && record.comments.length > 0
-      ? { ...record, comments: reverseComments(record, index, freshId, tally) }
+      ? { ...record, comments: reverseComments(record.id, record.comments, index, freshId, tally) }
       : { ...record },
   );
 
