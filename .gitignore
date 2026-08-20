@@ -99,3 +99,14 @@ go.sum
 .dolt/
 *.db
 .beads-credential-key
+
+# APSS toolchain and its scan output. Both are generated — `just apss-install`
+# builds .apss/, `apss run code-topology analyze .` writes .topology/ — and
+# both are inputs to the sensors gate rather than source.
+#
+# They are ignored rather than merely untracked because the `dev` profile now
+# REQUIRES the apss-topology reading: while they were untracked-but-unignored,
+# any `git stash -u` swept them away and the next pre-push failed with
+# "MISSING REQUIRED: apss-topology" on a tree that was otherwise fine.
+.apss/
+.topology/
