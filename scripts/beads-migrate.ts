@@ -150,7 +150,7 @@ function runForward(argv: string[], deps: MigrateDeps): void {
   });
   deps.writeFile(out as string, serializeJsonl(result.records));
   deps.stdout.log(`forward: ${records.length} in -> ${result.records.length} out (${out})`);
-  deps.stdout.log(`  provenance preserved into metadata: ${result.provenancePreserved}`);
+  deps.stdout.log(`  records with provenance preserved: ${result.provenancePreserved}`);
   for (const drop of result.dropped) deps.stdout.log(`  dropped ${drop.id}: ${drop.reason}`);
   for (const warning of result.warnings) deps.stderr.error(`  WARN ${warning}`);
 }

@@ -46,14 +46,35 @@ pre-commit:
     beads-export:
       run: |
         sh -eu -c '
-          if ! command -v bd >/dev/null 2>&1; then
-            exit 0
-          fi
-          BD_GIT_HOOK=1 bd hooks run pre-commit || {
-            status=$?
-            [ "$status" -eq 3 ] && exit 0
-            exit "$status"
+          command -v bd >/dev/null 2>&1 || exit 0
+          _t=${BEADS_HOOK_TIMEOUT:-300}
+          run_bd() {
+            if command -v timeout >/dev/null 2>&1; then
+              timeout "$_t" bd "$@"
+            else
+              bd "$@"
+            fi
           }
+          # `bd hooks run pre-commit` would also `git add` the export itself.
+          # This hook is `parallel: true` alongside biome-format-lint, which
+          # writes the index via stage_fixed, and two concurrent index writers
+          # surface as intermittent ".git/index.lock: File exists" commit
+          # failures. Exporting explicitly keeps the index write ours alone,
+          # and bounded-retries it if another job holds the lock.
+          run_bd export -o .beads/issues.jsonl || status=$?
+          case "${status:-0}" in
+            0) ;;
+            3) exit 0 ;;   # no database initialized: a fresh clone, not a failure
+            124) printf "%s\n" "beads: export timed out after ${_t}s - continuing without beads" >&2; exit 0 ;;
+            *) exit "$status" ;;
+          esac
+          git diff --quiet -- .beads/issues.jsonl && exit 0
+          i=0
+          until git add .beads/issues.jsonl 2>/dev/null; do
+            i=$((i+1))
+            [ "$i" -ge 30 ] && { printf "%s\n" "beads: could not stage .beads/issues.jsonl (index busy)" >&2; exit 1; }
+            sleep 0.1
+          done
         '
 
     biome-format-lint:
@@ -314,12 +335,18 @@ post-merge:
       run: |
         sh -eu -c '
           command -v bd >/dev/null 2>&1 || exit 0
-          BD_GIT_HOOK=1 bd hooks run post-merge || {
-            status=$?
-            [ "$status" -eq 3 ] && exit 0
-            exit "$status"
-          }
-        '
+          _t=${BEADS_HOOK_TIMEOUT:-300}
+          if command -v timeout >/dev/null 2>&1; then
+            BD_GIT_HOOK=1 timeout "$_t" bd hooks run post-merge "$@" || status=$?
+          else
+            BD_GIT_HOOK=1 bd hooks run post-merge "$@" || status=$?
+          fi
+          case "${status:-0}" in
+            0|3) exit 0 ;;
+            124) printf "%s\n" "beads: post-merge timed out after ${_t}s - continuing without beads" >&2; exit 0 ;;
+            *) exit "$status" ;;
+          esac
+        ' -- {args}
 
 post-checkout:
   commands:
@@ -327,9 +354,15 @@ post-checkout:
       run: |
         sh -eu -c '
           command -v bd >/dev/null 2>&1 || exit 0
-          BD_GIT_HOOK=1 bd hooks run post-checkout || {
-            status=$?
-            [ "$status" -eq 3 ] && exit 0
-            exit "$status"
-          }
-        '
+          _t=${BEADS_HOOK_TIMEOUT:-300}
+          if command -v timeout >/dev/null 2>&1; then
+            BD_GIT_HOOK=1 timeout "$_t" bd hooks run post-checkout "$@" || status=$?
+          else
+            BD_GIT_HOOK=1 bd hooks run post-checkout "$@" || status=$?
+          fi
+          case "${status:-0}" in
+            0|3) exit 0 ;;
+            124) printf "%s\n" "beads: post-checkout timed out after ${_t}s - continuing without beads" >&2; exit 0 ;;
+            *) exit "$status" ;;
+          esac
+        ' -- {args}

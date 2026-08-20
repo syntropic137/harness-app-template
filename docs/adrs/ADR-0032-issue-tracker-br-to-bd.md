@@ -60,6 +60,11 @@ Measured before and after, not asserted. All five checks passed:
 Dependency counts alone would not have been proof; the triples were compared as
 sorted sets so that an edge silently rewired to a different target would fail.
 
+`verify` compares values rather than totals throughout — record **ids**, titles,
+status/type/priority, description byte sizes, label sets, and provenance — after
+review found it reconciling only counts, which a run that dropped one record and
+gained another would have passed.
+
 A full `br → bd → br` round trip was also run against real binaries: `br`
 imported the reverse-transformed file cleanly (84/84) with comments — including
 their original integer ids — byte-identical to the source.
@@ -134,9 +139,18 @@ Error: Configuration error: Invalid JSON at line 29: invalid type: string
 
 Rewriting those ids back to integers makes `br` import cleanly. `reverse`
 does this, and with `--reference <original.jsonl>` it restores each comment's
-*original* integer id by matching on issue, timestamp, and text — so the round
-trip is exact rather than merely valid. Without the reference it assigns fresh
-sequential ids and says so; comment text survives either way.
+*original* integer id by matching on issue, occurrence ordinal, and text — so
+the round trip is exact rather than merely valid. Without the reference it
+assigns fresh sequential ids and says so; comment text survives either way.
+
+**The timestamp is deliberately not part of that match key.** bd stores comment
+timestamps at whole-second resolution and *rounds* to get there, so br's
+`...:19.987654321Z` returns as `...:20Z` — probe-verified against bd 1.0.4. An
+earlier revision keyed on the timestamp, which meant every ns-precision comment
+(br's default) missed the index and was silently renumbered on rollback. This
+store's own comments happen to sit on whole seconds, so both the fixtures and
+the live round trip passed while the bug was present; it was caught by review,
+not by the migration.
 
 ### `bd init` has four unrequested side effects on the repo
 

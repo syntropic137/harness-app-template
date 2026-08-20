@@ -682,3 +682,153 @@ describe('final branch closures', () => {
     expect(diff?.detail).toBe('missing: a\tb\tblocks; added: none');
   });
 });
+
+// Regression tests for the code-review findings on PR #74. Each one failed
+// against the pre-fix transform.
+describe('review findings', () => {
+  test('rollback restores original ids even though bd ROUNDS comment timestamps', () => {
+    // The one that mattered: br writes ns precision, bd returns whole seconds
+    // rounded UP, so a timestamp-keyed index missed every comment and quietly
+    // renumbered them. This store's own comments happen to sit on whole
+    // seconds, which is why the live round trip never caught it.
+    const br: BeadRecord[] = [
+      record({
+        id: 'a',
+        comments: [
+          { id: 7, text: 'first', created_at: '2026-05-30T16:12:19.987654321Z' },
+          { id: 9, text: 'second', created_at: '2026-05-30T16:35:13.123456789Z' },
+        ],
+      }),
+    ];
+    const fromBd: BeadRecord[] = [
+      record({
+        id: 'a',
+        comments: [
+          { id: 'uuid-1', text: 'first', created_at: '2026-05-30T16:12:20Z' },
+          { id: 'uuid-2', text: 'second', created_at: '2026-05-30T16:35:13Z' },
+        ],
+      }),
+    ];
+    const result = transformReverse(fromBd, { reference: br });
+    expect(result.records[0].comments?.map((c) => c.id)).toEqual([7, 9]);
+    expect(result.restoredFromReference).toBe(2);
+    expect(result.warnings).toEqual([]);
+  });
+
+  test('two identical comments on one issue keep distinct ids', () => {
+    // Keyed on text alone they collapse to a single map entry and br gets a
+    // duplicate i64, which it rejects.
+    const br: BeadRecord[] = [
+      record({
+        id: 'a',
+        comments: [
+          { id: 4, text: 'same' },
+          { id: 5, text: 'same' },
+        ],
+      }),
+    ];
+    const fromBd: BeadRecord[] = [
+      record({
+        id: 'a',
+        comments: [
+          { id: 'u1', text: 'same' },
+          { id: 'u2', text: 'same' },
+        ],
+      }),
+    ];
+    expect(
+      transformReverse(fromBd, { reference: br }).records[0].comments?.map((c) => c.id),
+    ).toEqual([4, 5]);
+  });
+
+  test('fresh ids never collide with integer ids already in the input', () => {
+    const partiallyReversed: BeadRecord[] = [
+      record({
+        id: 'a',
+        comments: [
+          { id: 1, text: 'kept' },
+          { id: 'uuid-x', text: 'new' },
+        ],
+      }),
+    ];
+    const ids = transformReverse(partiallyReversed).records[0].comments?.map((c) => c.id);
+    expect(new Set(ids).size).toBe(2);
+    expect(ids).not.toEqual([1, 1]);
+  });
+
+  test('--provenance-to-notes works without --preserve-provenance', () => {
+    // They were coupled, so the notes-only flag silently emitted the record
+    // unchanged -- and source_repo is unrecoverable once bd drops it.
+    const result = transformForward([record()], { provenanceToNotes: true });
+    expect(result.records[0].notes).toMatch(/^br-provenance: harness-app-template/);
+    expect(result.records[0].metadata).toBeUndefined();
+    expect(result.provenancePreserved).toBe(1);
+  });
+
+  test('a tombstone issue_type is still reported as needing types.custom', () => {
+    // The sentinel is a status; filtering it from the type list too let a
+    // `tombstone` type through to an import that rolls the whole file back.
+    const report = preflight([record({ issue_type: 'tombstone' })]);
+    expect(report.customTypes).toEqual(['tombstone']);
+    expect(requiredBdConfig(report)).toContain('bd config set types.custom "tombstone"');
+  });
+
+  test('event is a bd built-in and needs no custom-type config', () => {
+    expect(preflight([record({ issue_type: 'event' })]).customTypes).toEqual([]);
+  });
+
+  test('preflight counts sub-second comment timestamps', () => {
+    const report = preflight([
+      record({ comments: [{ id: 1, text: 't', created_at: '2026-05-30T16:12:19.98Z' }] }),
+    ]);
+    expect(report.subSecondTimestamps['comments.created_at']).toBe(1);
+  });
+
+  test('verify catches a swapped record id that reconciles on totals', () => {
+    const before = preflight([record({ id: 'a' }), record({ id: 'b' })]);
+    const after = preflight([record({ id: 'a' }), record({ id: 'c' })]);
+    const diff = compareReports(before, after).find((d) => d.label === 'record ids');
+    expect(diff?.before).toBe(2);
+    expect(diff?.after).toBe(2);
+    expect(diff?.ok).toBe(false);
+    expect(diff?.detail).toMatch(/missing: b; added: c/);
+  });
+
+  test('verify catches a silently rewritten title, status and description', () => {
+    const before = preflight([
+      record({ id: 'a', title: 'original', status: 'open', description: 'body' }),
+    ]);
+    const after = preflight([
+      record({ id: 'a', title: 'rewritten', status: 'closed', description: 'b' }),
+    ]);
+    const diffs = compareReports(before, after);
+    for (const label of ['titles', 'status / type / priority', 'description byte sizes']) {
+      expect(diffs.find((d) => d.label === label)?.ok).toBe(false);
+    }
+  });
+
+  test('verify flags provenance dropped by bd, and passes when it was preserved', () => {
+    const before = preflight([record()]);
+    const lost = preflight([{ id: 'store-1', title: 'A bead' }]);
+    const dropped = compareReports(before, lost).find((d) => d.label === 'source_repo provenance');
+    expect(dropped?.ok).toBe(false);
+    expect(dropped?.detail).toMatch(/--preserve-provenance/);
+
+    const preserved = preflight(
+      transformForward([record()], { preserveProvenance: true }).records.map((r) => ({
+        ...r,
+        source_repo: undefined,
+        source_repo_path: undefined,
+      })),
+    );
+    expect(
+      compareReports(before, preserved).find((d) => d.label === 'source_repo provenance')?.ok,
+    ).toBe(true);
+  });
+
+  test('tombstones are not reported as missing records on a clean migration', () => {
+    const before = preflight([record({ id: 'live' }), record({ id: 'dead', status: 'tombstone' })]);
+    const after = preflight([record({ id: 'live' })]);
+    expect(compareReports(before, after).every((d) => d.ok)).toBe(true);
+  });
+});

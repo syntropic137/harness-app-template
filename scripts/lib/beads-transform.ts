@@ -22,7 +22,18 @@
 // success must never be judged from the tail of bd's output.
 
 /** bd 1.0.4 built-in issue types (`bd create --help`). */
-export const BD_BUILTIN_TYPES = ['bug', 'feature', 'task', 'epic', 'chore', 'decision'] as const;
+export const BD_BUILTIN_TYPES = [
+  'bug',
+  'feature',
+  'task',
+  'epic',
+  'chore',
+  'decision',
+  // `bd create --help` documents --type=event with its own --event-* flags.
+  // Omitting it makes requiredBdConfig demand a types.custom entry for a type
+  // bd already understands.
+  'event',
+] as const;
 
 /** bd 1.0.4 built-in statuses (`bd list --status` help text). */
 export const BD_BUILTIN_STATUSES = [
@@ -136,13 +147,28 @@ export interface PreflightReport {
   closedWithoutClosedAt: string[];
   /** Records whose timestamps carry sub-second precision bd will round away. */
   subSecondTimestamps: Record<string, number>;
-  /** Distinct source_repo values — dropped entirely unless preserved. */
+  /**
+   * Distinct provenance values, read from `source_repo` (br) or from
+   * `metadata.source_repo` (bd, after --preserve-provenance). Reading only the
+   * former would report a successful preserve as a total loss.
+   */
   sourceRepos: Record<string, number>;
   /** Non-integer comment ids, i.e. this file is a bd export, not a br one. */
   nonIntegerCommentIds: number;
+  /** Sorted record ids, so verification can prove WHICH records survived. */
+  ids: string[];
+  /** Sorted `id\ttitle` pairs — catches a title rewritten in place. */
+  titles: string[];
+  /** Sorted `id\tstatus\ttype\tpriority` triples. */
+  classifications: string[];
+  /** Sorted `id\t<utf8 byte length>` — catches a truncated description. */
+  descriptionSizes: string[];
 }
 
 const TIMESTAMP_FIELDS = ['created_at', 'updated_at', 'closed_at'] as const;
+
+/** Reported beside TIMESTAMP_FIELDS but read off each comment, not the record. */
+const COMMENT_TIMESTAMP_FIELD = 'comments.created_at';
 
 function tally(target: Record<string, number>, key: string): void {
   target[key] = (target[key] ?? 0) + 1;
@@ -188,6 +214,7 @@ interface ScanState {
 function emptyScanState(): ScanState {
   const subSecondTimestamps: Record<string, number> = {};
   for (const field of TIMESTAMP_FIELDS) subSecondTimestamps[field] = 0;
+  subSecondTimestamps[COMMENT_TIMESTAMP_FIELD] = 0;
   return {
     issueTypes: {},
     statuses: {},
@@ -207,7 +234,12 @@ function emptyScanState(): ScanState {
 function scanClassification(record: BeadRecord, state: ScanState): void {
   tally(state.issueTypes, record.issue_type ?? '<none>');
   tally(state.statuses, record.status ?? '<none>');
-  tally(state.sourceRepos, record.source_repo ?? '<none>');
+  // Provenance lives in `source_repo` before the migration and in `metadata`
+  // after it. Reading only the former reports a successful --preserve-provenance
+  // run as a total loss.
+  const metaRepo = (record.metadata as Record<string, unknown> | undefined)?.source_repo;
+  const repo = record.source_repo ?? (typeof metaRepo === 'string' ? metaRepo : undefined);
+  tally(state.sourceRepos, repo ?? '<none>');
   if (record.status === BR_TOMBSTONE_STATUS) state.tombstones.push(record.id);
 }
 
@@ -245,13 +277,31 @@ function scanCollections(record: BeadRecord, state: ScanState): void {
   for (const comment of record.comments ?? []) {
     state.commentCount += 1;
     if (!Number.isInteger(comment.id)) state.nonIntegerCommentIds += 1;
+    // Comment timestamps round exactly as record ones do. Reported separately
+    // so the loss ledger cannot read clean while every comment is about to
+    // move by up to a second.
+    if (typeof comment.created_at === 'string' && comment.created_at.includes('.')) {
+      state.subSecondTimestamps[COMMENT_TIMESTAMP_FIELD] += 1;
+    }
   }
 }
 
-function customValues(present: Record<string, number>, builtin: readonly string[]): string[] {
+/**
+ * Values present in the data that bd does not know natively.
+ *
+ * `dropTombstone` exists because the sentinel is a STATUS, never a type. A
+ * store carrying `issue_type: "tombstone"` must still be reported as needing
+ * `types.custom`, or the atomic import rolls the whole file back to count 0 -
+ * the exact failure the preflight exists to catch.
+ */
+function customValues(
+  present: Record<string, number>,
+  builtin: readonly string[],
+  dropTombstone: boolean,
+): string[] {
   const known = new Set<string>(builtin);
   return Object.keys(present)
-    .filter((v) => v !== '<none>' && v !== BR_TOMBSTONE_STATUS && !known.has(v))
+    .filter((v) => v !== '<none>' && !(dropTombstone && v === BR_TOMBSTONE_STATUS) && !known.has(v))
     .sort();
 }
 
@@ -270,8 +320,8 @@ export function preflight(records: BeadRecord[]): PreflightReport {
     expectedImportCount: records.length - state.tombstones.length,
     issueTypes: state.issueTypes,
     statuses: state.statuses,
-    customTypes: customValues(state.issueTypes, BD_BUILTIN_TYPES),
-    customStatuses: customValues(state.statuses, BD_BUILTIN_STATUSES),
+    customTypes: customValues(state.issueTypes, BD_BUILTIN_TYPES, false),
+    customStatuses: customValues(state.statuses, BD_BUILTIN_STATUSES, true),
     tombstones: state.tombstones,
     oversizeDescriptions: state.oversizeDescriptions,
     dependencyTriples: dependencyTriples(records),
@@ -283,6 +333,12 @@ export function preflight(records: BeadRecord[]): PreflightReport {
     subSecondTimestamps: state.subSecondTimestamps,
     sourceRepos: state.sourceRepos,
     nonIntegerCommentIds: state.nonIntegerCommentIds,
+    ids: records.map((r) => r.id).sort(),
+    titles: records.map((r) => `${r.id}\t${r.title ?? ''}`).sort(),
+    classifications: records
+      .map((r) => `${r.id}\t${r.status ?? ''}\t${r.issue_type ?? ''}\t${r.priority ?? ''}`)
+      .sort(),
+    descriptionSizes: records.map((r) => `${r.id}\t${byteLength(r.description ?? '')}`).sort(),
   };
 }
 
@@ -332,6 +388,7 @@ export interface ForwardResult {
   /** Ids removed from the output, with the reason. */
   dropped: Array<{ id: string; reason: string }>;
   warnings: string[];
+  /** Records that had provenance written to at least one surviving carrier. */
   provenancePreserved: number;
 }
 
@@ -350,11 +407,17 @@ const PROVENANCE_NOTE_PREFIX = 'br-provenance:';
  * rendered by `bd show` as a METADATA block.
  */
 function withProvenance(record: BeadRecord, options: ForwardOptions): BeadRecord {
-  const metadata: Record<string, unknown> = { ...(record.metadata ?? {}) };
-  if (record.source_repo) metadata.source_repo = record.source_repo;
-  if (record.source_repo_path) metadata.source_repo_path = record.source_repo_path;
+  const next: BeadRecord = { ...record };
 
-  const next: BeadRecord = { ...record, metadata };
+  // The two carriers are independent: metadata is the clean home, notes is the
+  // belt-and-braces one for a store that cannot afford to lose provenance if
+  // bd ever changes how it treats unknown metadata shapes.
+  if (options.preserveProvenance) {
+    const metadata: Record<string, unknown> = { ...(record.metadata ?? {}) };
+    if (record.source_repo) metadata.source_repo = record.source_repo;
+    if (record.source_repo_path) metadata.source_repo_path = record.source_repo_path;
+    next.metadata = metadata;
+  }
   if (options.provenanceToNotes) next.notes = withProvenanceNote(record);
   return next;
 }
@@ -401,7 +464,11 @@ export function transformForward(
       );
     }
 
-    const preserve = Boolean(options.preserveProvenance) && hasProvenance(record);
+    // Either flag alone is enough to act. They were previously coupled, so
+    // `--provenance-to-notes` on its own silently emitted the record unchanged
+    // - and source_repo is unrecoverable once bd has dropped it.
+    const wants = Boolean(options.preserveProvenance) || Boolean(options.provenanceToNotes);
+    const preserve = wants && hasProvenance(record);
     if (preserve) provenancePreserved += 1;
     out.push(preserve ? withProvenance(record, options) : { ...record });
   }
@@ -428,48 +495,57 @@ export interface ReverseResult {
   warnings: string[];
 }
 
-function commentKey(issueId: string, comment: BeadComment): string {
-  return `${issueId} ${comment.created_at ?? ''} ${comment.text ?? ''}`;
+/**
+ * Match key pairing a bd comment back to its br original.
+ *
+ * The timestamp is deliberately NOT part of the key. bd stores comment
+ * timestamps at whole-second resolution and ROUNDS to get there, so br's
+ * `...:19.987654321Z` comes back as `...:20Z`. Keying on it means every
+ * ns-precision comment - which is br's default - misses the index and
+ * silently receives a fresh id on rollback. Text plus an occurrence ordinal
+ * survives the round trip; the timestamp does not.
+ */
+function commentKey(issueId: string, comment: BeadComment, ordinal: number): string {
+  return [issueId, String(ordinal), comment.text ?? ''].join('\u0000');
 }
 
-/**
- * bd -> br. This is the rollback path, and without it the migration is
- * one-way: bd rewrites every comment `id` from br's integer to a UUID
- * string, br's schema requires an i64, and br aborts on the first one it
- * meets. Nothing else in bd's export blocks br — the rest of the drift is
- * additive fields br ignores.
- */
 interface ReferenceIndex {
   originalIds: Map<string, number>;
-  nextSequentialId: number;
+  /** Every integer id already spoken for, so a fresh one cannot collide. */
+  usedIds: Set<number>;
 }
 
 /**
- * Index the original br comments by (issue, created_at, text) so the reverse
- * transform can restore each comment's ORIGINAL integer id. bd's export keeps
- * both timestamp and text intact, which is what makes the match reliable.
+ * Index the original br comments so the reverse transform can restore each
+ * comment's ORIGINAL integer id.
+ *
+ * The ordinal in the key also disambiguates two identical comments on the
+ * same issue, which would otherwise collapse to one entry and hand both the
+ * same id - br requires comment ids to be unique i64s.
  */
 function indexReference(reference: BeadRecord[] | undefined): ReferenceIndex {
   const originalIds = new Map<string, number>();
-  let nextSequentialId = 1;
+  const usedIds = new Set<number>();
 
   for (const record of reference ?? []) {
+    let ordinal = 0;
     for (const comment of record.comments ?? []) {
       if (!Number.isInteger(comment.id)) continue;
       const id = comment.id as number;
-      originalIds.set(commentKey(record.id, comment), id);
-      nextSequentialId = Math.max(nextSequentialId, id + 1);
+      originalIds.set(commentKey(record.id, comment, ordinal), id);
+      usedIds.add(id);
+      ordinal += 1;
     }
   }
 
-  return { originalIds, nextSequentialId };
+  return { originalIds, usedIds };
 }
 
 /**
  * bd -> br. This is the rollback path, and without it the migration is
  * one-way: bd rewrites every comment `id` from br's integer to a UUID
  * string, br's schema requires an i64, and br aborts on the first one it
- * meets. Nothing else in bd's export blocks br — the rest of the drift is
+ * meets. Nothing else in bd's export blocks br - the rest of the drift is
  * additive fields br ignores.
  */
 export function transformReverse(
@@ -481,15 +557,32 @@ export function transformReverse(
   let remappedComments = 0;
   let restoredFromReference = 0;
 
+  // Integer ids already in the INPUT are spoken for too: a partially-reversed
+  // file carries some, and reusing one hands br a duplicate.
+  for (const record of records) {
+    for (const comment of record.comments ?? []) {
+      if (Number.isInteger(comment.id)) index.usedIds.add(comment.id as number);
+    }
+  }
+
+  let nextCandidate = 1;
+  const freshId = (): number => {
+    while (index.usedIds.has(nextCandidate)) nextCandidate += 1;
+    index.usedIds.add(nextCandidate);
+    return nextCandidate;
+  };
+
   const out = records.map((record) => {
     if (!record.comments || record.comments.length === 0) return { ...record };
 
+    let ordinal = -1;
     const comments = record.comments.map((comment) => {
+      ordinal += 1;
       if (Number.isInteger(comment.id)) return { ...comment };
 
       remappedComments += 1;
-      const original = index.originalIds.get(commentKey(record.id, comment));
-      if (original === undefined) return { ...comment, id: index.nextSequentialId++ };
+      const original = index.originalIds.get(commentKey(record.id, comment, ordinal));
+      if (original === undefined) return { ...comment, id: freshId() };
 
       restoredFromReference += 1;
       return { ...comment, id: original };
@@ -515,10 +608,29 @@ export interface VerificationDiff {
   detail?: string;
 }
 
+/** Sorted-list diff helper: what `before` had that `after` lost, and vice versa. */
+function setDiff(before: string[], after: string[]): { missing: string[]; added: string[] } {
+  const afterSet = new Set(after);
+  const beforeSet = new Set(before);
+  return {
+    missing: before.filter((v) => !afterSet.has(v)),
+    added: after.filter((v) => !beforeSet.has(v)),
+  };
+}
+
+function describe(missing: string[], added: string[]): string {
+  const show = (list: string[]) => (list.length ? list.slice(0, 5).join(' | ') : 'none');
+  const more = missing.length + added.length > 10 ? ' (truncated)' : '';
+  return `missing: ${show(missing)}; added: ${show(added)}${more}`;
+}
+
 /**
- * Compare a before/after pair of preflight reports. `expectedLoss` names the
- * records the migration is knowingly giving up (tombstones), so the record
- * count reconciles explicitly instead of being waved through as close enough.
+ * Compare a before/after pair of preflight reports.
+ *
+ * Every check here compares the actual VALUES, never just their counts: a run
+ * that dropped one record and gained another reconciles perfectly on totals.
+ * `expectedLoss` names what the migration knowingly gives up (tombstones), so
+ * the record count reconciles explicitly rather than being waved through.
  */
 export function compareReports(
   before: PreflightReport,
@@ -537,22 +649,56 @@ export function compareReports(
         : undefined,
   });
 
-  const beforeTriples = before.dependencyTriples;
-  const afterTriples = after.dependencyTriples;
-  const afterSet = new Set(afterTriples);
-  const beforeSet = new Set(beforeTriples);
-  const missing = beforeTriples.filter((t) => !afterSet.has(t));
-  const added = afterTriples.filter((t) => !beforeSet.has(t));
+  // Identity, not just arithmetic. Tombstones are the one expected loss, so
+  // they are excluded from the before-side rather than reported as missing.
+  const tombstoned = new Set(before.tombstones);
+  const expectedIds = before.ids.filter((id) => !tombstoned.has(id));
+  const idDiff = setDiff(expectedIds, after.ids);
   diffs.push({
-    label: 'dependency triples (issue, depends_on, type)',
-    before: beforeTriples.length,
-    after: afterTriples.length,
-    ok: missing.length === 0 && added.length === 0,
+    label: 'record ids',
+    before: expectedIds.length,
+    after: after.ids.length,
+    ok: idDiff.missing.length === 0 && idDiff.added.length === 0,
     detail:
-      missing.length || added.length
-        ? `missing: ${missing.length ? missing.join(' | ') : 'none'}; added: ${added.length ? added.join(' | ') : 'none'}`
-        : 'exact triple match',
+      idDiff.missing.length || idDiff.added.length
+        ? describe(idDiff.missing, idDiff.added)
+        : 'exact id match',
   });
+
+  const rows: Array<[string, string[], string[], string]> = [
+    [
+      'dependency triples (issue, depends_on, type)',
+      before.dependencyTriples,
+      after.dependencyTriples,
+      'exact triple match',
+    ],
+    ['titles', before.titles, after.titles, 'exact title match'],
+    [
+      'status / type / priority',
+      before.classifications,
+      after.classifications,
+      'exact classification match',
+    ],
+    [
+      'description byte sizes',
+      before.descriptionSizes,
+      after.descriptionSizes,
+      'every description survived byte-for-byte',
+    ],
+  ];
+  for (const [label, b, a, okDetail] of rows) {
+    // Rows keyed by record id would report every tombstone as missing; drop
+    // the expected losses from the before-side first.
+    const bKept = b.filter((v) => !tombstoned.has(v.split('\t')[0] as string));
+    const d = setDiff(bKept, a);
+    diffs.push({
+      label,
+      before: bKept.length,
+      after: a.length,
+      ok: d.missing.length === 0 && d.added.length === 0,
+      detail: d.missing.length || d.added.length ? describe(d.missing, d.added) : okDetail,
+    });
+  }
 
   diffs.push({
     label: 'label assignments',
@@ -561,14 +707,16 @@ export function compareReports(
     ok: before.labelAssignments === after.labelAssignments,
   });
 
-  const beforeLabels = before.uniqueLabels.join(',');
-  const afterLabels = after.uniqueLabels.join(',');
+  const labelDiff = setDiff(before.uniqueLabels, after.uniqueLabels);
   diffs.push({
     label: 'unique labels',
     before: before.uniqueLabels.length,
     after: after.uniqueLabels.length,
-    ok: beforeLabels === afterLabels,
-    detail: beforeLabels === afterLabels ? 'exact set match' : 'label set differs',
+    ok: labelDiff.missing.length === 0 && labelDiff.added.length === 0,
+    detail:
+      labelDiff.missing.length || labelDiff.added.length
+        ? describe(labelDiff.missing, labelDiff.added)
+        : 'exact set match',
   });
 
   diffs.push({
@@ -576,6 +724,25 @@ export function compareReports(
     before: before.commentCount,
     after: after.commentCount,
     ok: before.commentCount === after.commentCount,
+  });
+
+  // Provenance is dropped by bd unless the transform preserved it, and it is
+  // unrecoverable afterwards; surface it as a check rather than a footnote.
+  const beforeRepos = Object.keys(before.sourceRepos)
+    .filter((r) => r !== '<none>')
+    .sort();
+  const afterRepos = Object.keys(after.sourceRepos)
+    .filter((r) => r !== '<none>')
+    .sort();
+  diffs.push({
+    label: 'source_repo provenance',
+    before: beforeRepos.length,
+    after: afterRepos.length,
+    ok: beforeRepos.length === 0 || afterRepos.join(',') === beforeRepos.join(','),
+    detail:
+      beforeRepos.length > 0 && afterRepos.length === 0
+        ? 'dropped by bd — rerun forward with --preserve-provenance (unrecoverable once lost)'
+        : undefined,
   });
 
   return diffs;
