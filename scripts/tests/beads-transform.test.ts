@@ -99,6 +99,14 @@ describe('blockers 1 and 2: config the store needs before import', () => {
     expect(requiredBdConfig(report)).toContain('bd config set status.custom "tombstone:done"');
   });
 
+  test('a custom non-tombstone status is mapped to open in status.custom', () => {
+    // br allows statuses bd has never heard of; they need a mapping onto a bd
+    // lifecycle state, and anything that is not a deletion maps to open.
+    const report = preflight([record({ status: 'triage' })]);
+    expect(report.customStatuses).toEqual(['triage']);
+    expect(requiredBdConfig(report)).toContain('bd config set status.custom "triage:open"');
+  });
+
   test('a store using only bd built-ins needs no config at all', () => {
     const report = preflight([
       record({ issue_type: 'feature', status: 'closed', closed_at: '2026-06-02T00:00:00Z' }),

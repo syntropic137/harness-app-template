@@ -18,7 +18,9 @@ export type SymlinkFn = (target: string, path: string) => void;
 
 const REQUIRED_TOOLS = ['bun', 'pnpm', 'cargo', 'uv'] as const;
 
-const INSTALL_HINTS: Record<string, string> = {
+// Keyed by REQUIRED_TOOLS rather than `string`, so the compiler guarantees
+// every required tool carries a hint and the lookup below cannot miss.
+const INSTALL_HINTS: Record<(typeof REQUIRED_TOOLS)[number], string> = {
   bun: 'install via https://bun.sh (curl -fsSL https://bun.sh/install | bash)',
   pnpm: 'install via corepack enable, or npm i -g pnpm',
   cargo: 'install via https://rustup.rs (curl https://sh.rustup.rs -sSf | sh)',
@@ -48,7 +50,7 @@ export interface EsbuildMismatch {
   actual: string;
 }
 
-export function detectMissingTools(spawn: typeof spawnSync): string[] {
+export function detectMissingTools(spawn: typeof spawnSync): (typeof REQUIRED_TOOLS)[number][] {
   return REQUIRED_TOOLS.filter(
     (tool) => spawn(tool, ['--version'], { stdio: 'ignore' }).status !== 0,
   );
@@ -239,13 +241,13 @@ function resolveContext(deps: BootstrapDeps): BootstrapContext {
 }
 
 /** Emit the "missing required tools" report, including install hints. */
-function reportMissingTools(deps: BootstrapDeps, missing: string[]): void {
+function reportMissingTools(
+  deps: BootstrapDeps,
+  missing: readonly (typeof REQUIRED_TOOLS)[number][],
+): void {
   deps.stderr.error(`bootstrap: missing required tools: ${missing.join(', ')}`);
   for (const tool of missing) {
-    const hint = INSTALL_HINTS[tool];
-    if (hint) {
-      deps.stderr.error(`bootstrap:   ${tool}: ${hint}`);
-    }
+    deps.stderr.error(`bootstrap:   ${tool}: ${INSTALL_HINTS[tool]}`);
   }
 }
 
