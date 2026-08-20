@@ -225,6 +225,7 @@ const invokedDirectly = (() => {
     return false;
   }
 })();
+/* v8 ignore start -- CLI entrypoint guard, exercised by running the binary */
 if (invokedDirectly) {
   main({
     spawn: spawnSync,
@@ -236,3 +237,4 @@ if (invokedDirectly) {
     now: () => Date.now(),
   });
 }
+/* v8 ignore stop */
