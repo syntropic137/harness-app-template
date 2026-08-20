@@ -826,6 +826,17 @@ describe('review findings', () => {
     ).toBe(true);
   });
 
+  test('a large diff is truncated rather than dumping every id', () => {
+    // A migration that loses a whole store should stay readable in a hook's
+    // output, so the detail line caps the listing and says it did.
+    const before = preflight(Array.from({ length: 12 }, (_, i) => record({ id: `old-${i}` })));
+    const after = preflight(Array.from({ length: 12 }, (_, i) => record({ id: `new-${i}` })));
+    const diff = compareReports(before, after).find((d) => d.label === 'record ids');
+    expect(diff?.ok).toBe(false);
+    expect(diff?.detail).toMatch(/\(truncated\)$/);
+    expect(diff?.detail?.split('|').length).toBeLessThan(12);
+  });
+
   test('tombstones are not reported as missing records on a clean migration', () => {
     const before = preflight([record({ id: 'live' }), record({ id: 'dead', status: 'tombstone' })]);
     const after = preflight([record({ id: 'live' })]);
