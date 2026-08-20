@@ -21,25 +21,30 @@ describe('shipped governance profiles', () => {
     expect([...PERF_GATE_OWNED_ADAPTERS]).toContain('hyperfine-perf');
   });
 
-  test('local requires the zero-dep adapters plus apss-topology', () => {
+  test('local requires only the zero-dep adapters', () => {
+    // `local` must keep working where APSS genuinely is not installed: a
+    // fresh clone, and the CI jobs that run `pnpm qa` (workspace-qa,
+    // fork-check, scaffolder-fork-check) without installing it. Requiring
+    // apss-topology here failed exactly those three.
     expect(new Set(profiles.local.required_adapters)).toEqual(
-      new Set(['deadcode', 'cruiser-coupling', 'complexity', 'apss-topology']),
+      new Set(['deadcode', 'cruiser-coupling', 'complexity']),
     );
   });
 
-  test('local requires apss-topology, the only source of the MT01 readings', () => {
-    // Regression guard for the reason this was changed: while apss-topology
-    // was optional locally, max-cognitive / max-cyclomatic were simply not
-    // measured on a developer machine, so complexity regressions pushed green
-    // and were caught only by CI's --profile=strict run.
-    expect(profiles.local.required_adapters).toContain('apss-topology');
+  test('dev is local plus apss-topology, and is what the pre-push hook runs', () => {
+    // apss-topology is the ONLY source of the MT01 max-cognitive /
+    // max-cyclomatic readings. While the hook ran `local` those metrics went
+    // unmeasured locally, so complexity regressions reached CI green.
+    expect(new Set(profiles.dev.required_adapters)).toEqual(
+      new Set([...profiles.local.required_adapters, 'apss-topology']),
+    );
   });
 
-  test('local still does not require the adapters with no zero-cost path', () => {
-    // These need a separate install and have no MT01-style enforcement gap
-    // justifying the onboarding cost; they stay skipped-loud when absent.
+  test('dev does not require the adapters with no zero-cost path', () => {
+    // These each cost an install too, but none is the sole source of an
+    // otherwise-unmeasured enforced metric, so none earns the onboarding cost.
     for (const adapter of ['sentrux', 'ubs-security', 'coverage', 'suite-duration', 'license']) {
-      expect(profiles.local.required_adapters).not.toContain(adapter);
+      expect(profiles.dev.required_adapters).not.toContain(adapter);
     }
   });
 });

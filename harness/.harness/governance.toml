@@ -1,3 +1,33 @@
+# local   — only the always-available zero-dependency adapters are required:
+#             deadcode         (scoped grep, no external binary)
+#             cruiser-coupling (dependency-cruiser + aggregate, pure-node)
+#             complexity       (complexity.mjs, pure-node)
+#           This is the profile for environments that may legitimately lack
+#           the instrumented adapters: a fresh clone, and the CI jobs that run
+#           `pnpm qa` (workspace-qa, fork-check, scaffolder-fork-check) without
+#           installing APSS. Instrumented adapters are skipped-loud here.
+# dev     — `local` PLUS apss-topology. This is what the pre-push hook runs.
+#
+#           apss-topology is the ONLY source of the MT01 max-cognitive /
+#           max-cyclomatic readings. While the hook ran `local`, those two
+#           metrics were simply not measured on a developer machine: the hook
+#           reported PASS and CI's strict run then rejected the same commit.
+#           A gate that silently does not run is not a gate — the inner loop
+#           has to enforce what the merge enforces.
+#
+#           It is its own profile rather than an addition to `local` because
+#           `local` has to keep working where APSS genuinely is not installed;
+#           requiring it there fails the three CI jobs above, which is the
+#           opposite of the intent. A developer machine is the one environment
+#           that both has the toolchain and needs the fast feedback.
+#
+#           Cost is ~2.5s of a ~45s gate (measured: 2.44/2.45/2.46s warm,
+#           2.46s cold over 843 functions), so ~5% for the adapter that
+#           carries complexity enforcement.
+#
+#           A fresh clone needs `just apss-install` before its first push;
+#           `just doctor` reports the gap up front so it surfaces during
+#           setup rather than during a push.
 # harness/.harness/governance.toml — Eat-our-own-dogfood fitness gate.
 #
 # This file is the architectural fitness contract for the HARNESS ITSELF.
@@ -80,4 +110,7 @@ max_max_depth = { value = 8, severity = "warn" }
 required_adapters = ["sentrux", "apss-topology", "complexity", "cruiser-coupling", "ubs-security", "license", "deadcode", "suite-duration", "coverage", "loc"]
 
 [profiles.local]
+required_adapters = ["deadcode", "cruiser-coupling", "complexity"]
+
+[profiles.dev]
 required_adapters = ["deadcode", "cruiser-coupling", "complexity", "apss-topology"]
