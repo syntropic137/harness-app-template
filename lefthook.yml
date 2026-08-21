@@ -77,6 +77,27 @@ pre-commit:
           done
         '
 
+    # APS-V1-0003 documentation structure gate.
+    #
+    # APSS.yaml declares `tool.hooks.pre_commit: true`, but nothing was
+    # honouring it: `apss install` would contend for .git/hooks, which lefthook
+    # owns, so the declared gate simply never ran. Running it from here keeps
+    # lefthook.yml the single gate surface (same reasoning as beads-export
+    # above) and makes the declaration true.
+    #
+    # The validator exits 1 on errors and 0 on warnings-only, so this gates
+    # structural breakage (a new docs/ directory with no README) without
+    # demanding the docs-wide front-matter work that is still open — tracked as
+    # G2-G9 in docs/standards-integration/doc-standard-APS-V1-0003.md, which
+    # currently reports 0 errors / 42 warnings. Costs ~0.12s.
+    apss-docs:
+      glob: "docs/**/*"
+      run: |
+        sh -eu -c '
+          [ -x .apss/bin/apss ] || exit 0
+          .apss/bin/apss run documentation validate .
+        '
+
     biome-format-lint:
       glob: "*.{js,jsx,ts,tsx,mjs,cjs,json,jsonc,css,scss,md,yml,yaml}"
       run: |
