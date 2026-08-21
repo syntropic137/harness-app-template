@@ -100,13 +100,24 @@ go.sum
 *.db
 .beads-credential-key
 
-# APSS toolchain and its scan output. Both are generated — `just apss-install`
-# builds .apss/, `apss run code-topology analyze .` writes .topology/ — and
-# both are inputs to the sensors gate rather than source.
+# APSS generated output. The project config surface is APSS.yaml + apss.lock
+# at the repo root (schema apss.project/v1) — both tracked. `.apss/` holds only
+# generated artifacts: `just apss-install` composes the CLI into .apss/bin/, and
+# .apss/build/ is the Cargo scaffold it builds from (already `exclude`d from the
+# root workspace in Cargo.toml). APS-V1-0000-meta does not prescribe `.apss/` at
+# all, and puts derived output in the same category as `generated/`, which it
+# says SHOULD be gitignored.
 #
-# They are ignored rather than merely untracked because the `dev` profile now
-# REQUIRES the apss-topology reading: while they were untracked-but-unignored,
-# any `git stash -u` swept them away and the next pre-push failed with
-# "MISSING REQUIRED: apss-topology" on a tree that was otherwise fine.
-.apss/
+# Scoped to the two generated subpaths rather than the whole directory: if this
+# repo later adopts EXP-V1-0004, that standard places project config at
+# `.apss/config.toml` (currently listed as an unimplemented gap), and a blanket
+# `.apss/` rule would silently ignore a file meant to be committed.
+#
+# These are ignored rather than merely untracked because the `dev` sensors
+# profile now REQUIRES the apss-topology reading: while they were
+# untracked-but-unignored, any `git stash -u` swept them away and the next
+# pre-push failed with "MISSING REQUIRED: apss-topology" on a tree that was
+# otherwise fine.
+.apss/bin/
+.apss/build/
 .topology/
