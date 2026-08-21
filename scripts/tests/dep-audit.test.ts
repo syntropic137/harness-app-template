@@ -286,6 +286,30 @@ describe('Rust lane', () => {
     expect(calls.find((c) => c.cmd === 'cargo' && c.args[0] === 'audit')).toBeUndefined();
   });
 
+  test('a failing cargo generate-lockfile with no stderr still FAILs, printing nothing', () => {
+    // The stderr relay is conditional, so a tool that fails silently exercises
+    // a different path from one that fails loudly.
+    const errLines: string[] = [];
+    const spawn: SpawnFn = (cmd, args) => {
+      const key = `${cmd} ${[...args].join(' ')}`;
+      if (key === 'sh -c command -v cargo' || key === 'sh -c command -v cargo-audit') {
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      if (cmd === 'cargo' && args[0] === 'generate-lockfile') {
+        return { status: 101, stdout: '', stderr: '' };
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    const results = runDepAudit(
+      { spawn, fs: mkFs([...CARGO_MANIFESTS]), cwd: '/repo' },
+      { only: 'rust' },
+      () => undefined,
+      (line) => errLines.push(line),
+    );
+    expect(results.every((r) => r.status === 'fail')).toBe(true);
+    expect(errLines).toEqual([]);
+  });
+
   test('fails CLOSED when cargo-audit is not on PATH', () => {
     const calls: SpawnCall[] = [];
     const spawn = mkSpawn(
@@ -412,6 +436,24 @@ describe('Python lane', () => {
     expect(results).toEqual([
       { lane: 'python', status: 'skip', reason: 'no Python projects found' },
     ]);
+  });
+
+  test('a failing uv export with no stderr still FAILs, printing nothing', () => {
+    const errLines: string[] = [];
+    const spawn: SpawnFn = (cmd, args) => {
+      const key = `${cmd} ${[...args].join(' ')}`;
+      if (key === 'sh -c command -v uv') return { status: 0, stdout: '', stderr: '' };
+      if (cmd === 'uv' && args[0] === 'export') return { status: 2, stdout: '', stderr: '' };
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    const results = runDepAudit(
+      { spawn, fs: mkFs(['ws_apps/example-python/pyproject.toml']), cwd: '/repo' },
+      { only: 'python' },
+      () => undefined,
+      (line) => errLines.push(line),
+    );
+    expect(results[0]).toMatchObject({ status: 'fail', reason: 'uv export exited 2' });
+    expect(errLines).toEqual([]);
   });
 
   test('fails CLOSED when uv is not on PATH', () => {

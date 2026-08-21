@@ -77,6 +77,12 @@ Subcommands:
                               unused-export-count ratchet. No node_modules /
                               network / npx dependency
                               (ADR-0024-dead-code-ratchet.md).
+  loc                         Per-file LOC ratchet adapter: walks each Cargo
+                              workspace member's src/ tree and emits the MAX
+                              physical line count across active source files
+                              plus the ranked offender list. Feeds the MT01
+                              max-file-loc ratchet, which walks the tree down
+                              toward a ~500-line soft target.
   suite-duration              PF01 test-suite wall-clock adapter (ADR-0025).
                               Hybrid absolute ceiling + relative regression
                               delta against the committed
@@ -365,10 +371,11 @@ case "${1:-}" in
     lic_tmp=""
     sentrux_tmp=""
     deadcode_tmp=""
+    loc_tmp=""
     coverage_tmp=""
     suite_duration_tmp=""
     report_tmp="$(mktemp -t harness-sensors-report-XXXXXX.json)"
-    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$coverage_tmp" "$suite_duration_tmp" "$report_tmp"' EXIT
+    trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$loc_tmp" "$coverage_tmp" "$suite_duration_tmp" "$report_tmp"' EXIT
     if [ -z "$readings_from" ]; then
       build_report "json" "$report_tmp" "$workspace_root" "$skip_tier"
     else
@@ -443,6 +450,27 @@ case "${1:-}" in
         > "$deadcode_tmp" 2>/dev/null || true
       if [ -s "$deadcode_tmp" ]; then
         gate_args+=("--deadcode=$deadcode_tmp")
+      fi
+    fi
+    # Per-file LOC ratchet adapter (harness/sensors/loc_scan.mjs). Walks
+    # each Cargo workspace member's src/ tree and emits the MAX physical
+    # line count across active source files (MT01 max-file-loc); the
+    # ratchet seeds the floor at today's worst file and walks it down
+    # toward the ~500-line soft target as files shrink. Soft-skips cleanly
+    # when no Cargo workspace exists (envelope sets available=false;
+    # gate.mjs degrades max-file-loc to no-reading, same shape as the
+    # sentrux/deadcode wiring above). Skipped via --skip-tier=loc and on
+    # replay (--readings-from).
+    loc_skip=0
+    case ",${skip_tier}," in
+      *,loc,*) loc_skip=1 ;;
+    esac
+    if [ -z "$readings_from" ] && [ "$loc_skip" -eq 0 ]; then
+      loc_tmp="$(mktemp -t harness-sensors-loc-XXXXXX.json)"
+      node "$HERE/loc_scan.mjs" --workspace-root="$workspace_root" \
+        > "$loc_tmp" 2>/dev/null || true
+      if [ -s "$loc_tmp" ]; then
+        gate_args+=("--loc=$loc_tmp")
       fi
     fi
     # CV01 Test Coverage adapter (ADR-0025-coverage-ratchet.md). Promotes
@@ -542,11 +570,11 @@ case "${1:-}" in
           fitness_args+=("$1")
           shift
           ;;
-        --baseline=*|--readings-from=*|--perf-baseline=*|--security=*|--licenses=*|--sentrux=*|--deadcode=*|--coverage=*|--suite-duration=*)
+        --baseline=*|--readings-from=*|--perf-baseline=*|--security=*|--licenses=*|--sentrux=*|--deadcode=*|--loc=*|--coverage=*|--suite-duration=*)
           fitness_args+=("$1")
           shift
           ;;
-        --baseline|--readings-from|--perf-baseline|--security|--licenses|--sentrux|--deadcode|--coverage|--suite-duration)
+        --baseline|--readings-from|--perf-baseline|--security|--licenses|--sentrux|--deadcode|--loc|--coverage|--suite-duration)
           fitness_args+=("$1" "${2:-}")
           shift 2 || true
           ;;
@@ -588,10 +616,11 @@ case "${1:-}" in
       lic_tmp=""
       sentrux_tmp=""
       deadcode_tmp=""
+      loc_tmp=""
       coverage_tmp=""
       suite_duration_tmp=""
       report_tmp="$(mktemp -t harness-sensors-fitness-XXXXXX.json)"
-      trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$coverage_tmp" "$suite_duration_tmp" "$report_tmp"' EXIT
+      trap 'rm -f "$cruiser_tmp" "$abs_tmp" "$cplx_tmp" "$apss_tmp" "$sec_tmp" "$lic_tmp" "$sentrux_tmp" "$deadcode_tmp" "$loc_tmp" "$coverage_tmp" "$suite_duration_tmp" "$report_tmp"' EXIT
       build_report "json" "$report_tmp" "$workspace_root" "$skip_tier"
       # Mirror the gate's optional adapter wiring so fitness sees the
       # same SC01/LG01/sentrux/perf readings the gate would.
@@ -633,6 +662,19 @@ case "${1:-}" in
           > "$deadcode_tmp" 2>/dev/null || true
         if [ -s "$deadcode_tmp" ]; then
           fitness_args+=("--deadcode=$deadcode_tmp")
+        fi
+      fi
+      # Mirror the per-file LOC ratchet wiring from the gate path (see above).
+      loc_skip=0
+      case ",${skip_tier}," in
+        *,loc,*) loc_skip=1 ;;
+      esac
+      if [ "$loc_skip" -eq 0 ]; then
+        loc_tmp="$(mktemp -t harness-sensors-fitness-loc-XXXXXX.json)"
+        node "$HERE/loc_scan.mjs" --workspace-root="$workspace_root" \
+          > "$loc_tmp" 2>/dev/null || true
+        if [ -s "$loc_tmp" ]; then
+          fitness_args+=("--loc=$loc_tmp")
         fi
       fi
       # Mirror the CV01 test-coverage wiring from the gate path. Only
@@ -717,6 +759,29 @@ case "${1:-}" in
     done
     workspace_root="$(cd "$workspace_root" && pwd)"
     node "$HERE/deadcode_scan.mjs" --workspace-root="$workspace_root"
+    ;;
+  loc)
+    require_node_modules
+    shift
+    workspace_root="$REPO_ROOT"
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --workspace-root)
+          workspace_root="${2:-$workspace_root}"
+          shift 2 || true
+          ;;
+        --workspace-root=*)
+          workspace_root="${1#--workspace-root=}"
+          shift
+          ;;
+        *)
+          echo "error: unknown loc flag: $1" >&2
+          exit 2
+          ;;
+      esac
+    done
+    workspace_root="$(cd "$workspace_root" && pwd)"
+    node "$HERE/loc_scan.mjs" --workspace-root="$workspace_root"
     ;;
   coverage)
     require_node_modules

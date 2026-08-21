@@ -143,6 +143,15 @@
           "default_threshold": 0,
           "baseline": 14,
           "fail_on_regression": true
+        },
+        "max-file-loc": {
+          "name": "Maximum File LOC",
+          "objective": "Largest source file line count; ratchets down toward a ~500-LOC soft target. The metric VALUE is the MAX physical line count across every active workspace Cargo source file (harness/sensors/loc_scan.mjs, walking each root-manifest workspace member's src/ tree). Direction max (smaller-is-better): the ratchet seeds the floor at the current worst file and fails only when a file grows the maximum PAST the recorded baseline (a regression). Each legitimate shrink of the worst file re-seeds the floor DOWNWARD via --update-baseline, walking the whole tree toward the soft target without ever hard-failing at an arbitrary number.",
+          "source": "harness/sensors/loc_scan.mjs max_file_loc (pure-source physical line count)",
+          "direction": "max",
+          "default_threshold": 2000,
+          "baseline": 227,
+          "fail_on_regression": true
         }
       }
     },

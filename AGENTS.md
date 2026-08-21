@@ -99,7 +99,7 @@ job, so a stale list fails the gate.
 - **`error-handling`**: Use when reviewing error-handling concerns: error taxonomy, propagation discipline, swallow-vs-crash, retry semantics with backoff and idempotency, exit codes as API, error messages as contract, cause-chain preservation
 - **`logging`**: Use when reviewing logging concerns: structured-vs-unstructured logs, log-level policy, secret and PII redaction, correlation IDs in distributed systems, log/trace linkage, print statements in production code paths
 - **`observability-queries`**: Canonical LogsQL, PromQL, and Jaeger-compatible trace queries against the harness Victoria stack. Use when investigating a bug via logs, metrics, traces, building an evidence bundle, or wiring a new alert. Includes copy-pasteable curl examples and gotchas: severity, not level; case-sensitive enum; mandatory `| fields` projection.
-- **`orchestrating-a-vps-agent-swarm`**: Guidance for managing a multi-agent swarm on this template's VPS environment. Use when coordinating multiple autonomous agents (Claude Code, Codex, Gemini) across parallel beads, handling double-claim collisions via Agent Mail, and using beads for global task state. Covers per-agent autonomy toggles (YOLO vs review-gated), multi-model layered review, the human framing gate, and the canonical CLI surface (`br`, `bv`, `am`, `proj`, `ntm`).
+- **`orchestrating-a-vps-agent-swarm`**: Guidance for managing a multi-agent swarm on this template's VPS environment. Use when coordinating multiple autonomous agents (Claude Code, Codex, Gemini) across parallel beads, handling double-claim collisions via Agent Mail, and using beads for global task state. Covers per-agent autonomy toggles (YOLO vs review-gated), multi-model layered review, the human framing gate, and the canonical CLI surface (`bd`, `bv`, `am`, `proj`, `ntm`).
 - **`playwright-debug`**: Drive your app via Playwright for UI debugging: navigation, console errors, network failures, accessibility-tree DOM snapshots, JS evaluation. Use when investigating UI bugs, validating fixes, or capturing what the user sees.
 - **`principles-and-patterns`**: Use when reviewing cross-cutting design principles: SOLID applicability, separation of concerns, dependency direction, composition vs inheritance, coupling and cohesion, OO-vs-functional style consistency, pattern enforcement style, project-level bounded-context coupling
 - **`purpose-and-scope`**: Use when reviewing purpose-and-scope concerns: stated project purpose, declared in-scope and out-of-scope, non-goals, plan-purpose alignment, scope-creep within a single change, project-level bounded contexts, dependency-purpose linkage
@@ -304,3 +304,26 @@ _This template is a v0.1 draft. Edit freely for your project; the canonical Stan
 ## Issue triage
 
 When triaging tasks, run `bv --robot-triage` as your single entry point. See [docs/development/beads-viewer.md](./docs/development/beads-viewer.md) for the full command reference, filtering options, and session workflow.
+
+Issues are tracked with **`bd`** ([gastownhall/beads](https://github.com/gastownhall/beads)). The store is a local Dolt database under `.beads/`; `.beads/issues.jsonl` is a passive export and the only part git tracks. The lefthook `beads-export` pre-commit job keeps that export current, so you commit `.beads/` alongside your change rather than running a sync step by hand.
+
+```sh
+bd ready                     # available work
+bd show <id>                 # issue detail + dependencies
+bd update <id> --claim       # claim (atomic)
+bd close <id> --reason "..." # finalize
+```
+
+Two things to know before you trust `bd` or `bv` output:
+
+- **`bd import` is atomic and fails quietly.** One bad record rolls back the whole file and leaves the store at count 0, with the error scrolled off above a usage dump. Confirm with `bd count`, never with the tail of the import. Run `bun run scripts/beads-migrate.ts preflight <file.jsonl>` before importing foreign JSONL.
+- **`bv` prints `br` commands.** It reads a `bd` store correctly, but every `claim_command` it emits is hardcoded to the old `br` binary. Translate before pasting; the mapping table is in [docs/development/beads-viewer.md](./docs/development/beads-viewer.md).
+
+This project migrated from `br` (beads_rust) to `bd` on 2026-08-19 — see [ADR-0032](./docs/adrs/ADR-0032-issue-tracker-br-to-bd.md) for what was measured, what was lost, and how to roll back.
+
+> **Do not run `bd init` in this repo.** It is not idempotent housekeeping: it
+> writes a git commit under your name, repoints `core.hooksPath` at
+> `.beads/hooks/` (shadowing lefthook), injects `SessionStart` and `PreCompact`
+> hooks into `.claude/settings.json`, and appends its own instruction block to
+> this file. The store is already initialized; if you must re-run it, review and
+> revert those four side effects afterwards.

@@ -94,3 +94,8 @@ go.sum
 # Test coverage artifacts
 .coverage
 **/.coverage
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key

@@ -326,6 +326,7 @@ function parseArgs(argv) {
     licensesPath: null,
     sentruxPath: null,
     deadcodePath: null,
+    locPath: null,
     coveragePath: null,
     suiteDurationPath: null,
     format: 'text',
@@ -353,6 +354,10 @@ function parseArgs(argv) {
     } else if (a.startsWith('--deadcode=')) opts.deadcodePath = a.slice('--deadcode='.length);
     else if (a === '--deadcode') {
       opts.deadcodePath = argv[i + 1] ?? opts.deadcodePath;
+      i += 1;
+    } else if (a.startsWith('--loc=')) opts.locPath = a.slice('--loc='.length);
+    else if (a === '--loc') {
+      opts.locPath = argv[i + 1] ?? opts.locPath;
       i += 1;
     } else if (a.startsWith('--coverage=')) opts.coveragePath = a.slice('--coverage='.length);
     else if (a === '--coverage') {
@@ -388,6 +393,7 @@ Options:
   --licenses=PATH        License scan JSON (feeds LG01).
   --sentrux=PATH         Sentrux adapter envelope (feeds MT01/MD01/ST01 sentrux metrics).
   --deadcode=PATH        Deterministic dead-code adapter envelope (feeds MT01 unused-export-count).
+  --loc=PATH             Per-file LOC adapter envelope (feeds MT01 max-file-loc).
   --coverage=PATH        Deterministic test-coverage adapter envelope (feeds CV01 rust/python/javascript coverage percentages).
   --suite-duration=PATH  Suite-duration adapter envelope (feeds PF01 suite-duration-* metrics).
   --format=FMT           text (default), json, or summary (one-liner for hooks).
@@ -473,6 +479,7 @@ export async function main(argv = process.argv.slice(2), io = defaultIo()) {
     licensesPath: opts.licensesPath,
     sentruxPath: opts.sentruxPath,
     deadcodePath: opts.deadcodePath,
+    locPath: opts.locPath,
     coveragePath: opts.coveragePath,
     suiteDurationPath: opts.suiteDurationPath,
     io,

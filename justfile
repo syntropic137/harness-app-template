@@ -118,6 +118,13 @@ sensors *args:
 doc-validator *args:
     harness/doc-validator/bin/doc-validator {{args}}
 
+# Subcommands: preflight (scan; hard-fails on the 65535-byte ceiling), forward,
+# reverse (rollback), verify. See docs/adrs/ADR-0032-issue-tracker-br-to-bd.md.
+# Migrate or verify an issue store between br (beads_rust) and bd (beads)
+[group('gates')]
+beads-migrate *args:
+    bun run scripts/beads-migrate.ts {{args}}
+
 # config-manager slot — typed env-var schema, .env.example codegen, secret resolution
 [group('gates')]
 config *args:

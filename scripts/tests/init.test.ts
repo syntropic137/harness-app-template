@@ -253,4 +253,48 @@ describe('initProject', () => {
       rmSync(minimal, { recursive: true, force: true });
     }
   });
+
+  test('leaves already-renamed files untouched on a clean tree', () => {
+    // A re-run, or a fork that never carried the template markers: each
+    // rewrite is guarded by "did the content actually change", and the
+    // no-change path must write nothing rather than rewrite the file.
+    const root = mkdtempSync(join(tmpdir(), 'init-noop-'));
+    try {
+      write(join(root, 'README.md'), 'no template markers here\n');
+      write(join(root, 'pyproject.toml'), '[project]\nname = "already-renamed"\n');
+      write(join(root, 'harness/observability/compose.harness.yml'), 'name: already-renamed\n');
+      write(
+        join(root, 'harness.manifest.json'),
+        '{"name":"polyglot-monorepo","version":"0.4.0","standard":"0.2"}\n',
+      );
+
+      const readmeBefore = readFileSync(join(root, 'README.md'), 'utf8');
+      const pyprojectBefore = readFileSync(join(root, 'pyproject.toml'), 'utf8');
+      const composeBefore = readFileSync(
+        join(root, 'harness/observability/compose.harness.yml'),
+        'utf8',
+      );
+
+      // A clean git repo, and no --force: exercises the "tree is clean, carry
+      // on" path rather than the dirty-tree throw.
+      initRepo(root);
+      git(root, [
+        'remote',
+        'add',
+        'origin',
+        'https://github.com/syntropic137/harness-app-template',
+      ]);
+      commitAll(root, 'seed');
+
+      initProject('acme', { cwd: root, verify: false, now: new Date('2026-05-30T00:00:00.000Z') });
+
+      expect(readFileSync(join(root, 'README.md'), 'utf8')).toBe(readmeBefore);
+      expect(readFileSync(join(root, 'pyproject.toml'), 'utf8')).toBe(pyprojectBefore);
+      expect(readFileSync(join(root, 'harness/observability/compose.harness.yml'), 'utf8')).toBe(
+        composeBefore,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

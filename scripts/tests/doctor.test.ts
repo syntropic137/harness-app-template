@@ -188,6 +188,25 @@ describe('doctor', () => {
     expect(lines.some((l) => l.includes('[FAIL]') && l.includes('provenance'))).toBe(true);
   });
 
+  test('printReport omits the fix line for failed checks that carry no hint', () => {
+    // hint is optional on every check type, so each renderer has a
+    // no-hint path; without these the branch only ever runs hinted.
+    const lines: string[] = [];
+    const { failed } = printReport(
+      [{ name: 'nohint-tool', ok: false }],
+      [{ name: 'nohint-runtime', ok: false, detail: 'broken' }],
+      [],
+      (line) => lines.push(line),
+      [],
+      [{ name: 'nohint-optional', ok: false }],
+    );
+    expect(failed).toBe(2);
+    expect(lines.some((l) => l.includes('[FAIL]') && l.includes('nohint-tool'))).toBe(true);
+    expect(lines.some((l) => l.includes('[FAIL]') && l.includes('nohint-runtime'))).toBe(true);
+    expect(lines.some((l) => l.includes('[SKIP]') && l.includes('nohint-optional'))).toBe(true);
+    expect(lines.some((l) => l.includes('fix: '))).toBe(false);
+  });
+
   test('printReport renders ok=true tools whose version is undefined as "present"', () => {
     const lines: string[] = [];
     printReport([{ name: 'synthetic', ok: true }], [], [], (line) => lines.push(line));
