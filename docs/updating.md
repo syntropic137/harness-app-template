@@ -53,7 +53,7 @@ vitest.config.ts               # root test runner config
 harness.manifest.json          # slot ⟶ plugin documentation
 ```
 
-Anything not on this list is **consumer-owned** and never touched by `just update`. The seed examples in `ws_apps/example-*` and `ws_packages/` are sync-owned only **at fork time** (when you click "Use this template"); from your first commit onward they belong to you.
+Anything not on this list is **consumer-owned** and never touched by `just update`. That includes the coverage-gate extension point `vitest.consumer.json` — see [Excluding your own scripts from the coverage gate](#excluding-your-own-scripts-from-the-coverage-gate). The seed examples in `ws_apps/example-*` and `ws_packages/` are sync-owned only **at fork time** (when you click "Use this template"); from your first commit onward they belong to you.
 
 ## Modes
 
@@ -135,6 +135,29 @@ git config harness.upstreamRef next
 ```
 
 `update.ts` reads this from git config — it's never stored in a tracked file (otherwise `just update` would overwrite your preference on the next sync). Useful if upstream cuts release branches like `release/v0.5.x` and you want to track a specific one.
+
+## Excluding your own scripts from the coverage gate
+
+The root [`vitest.config.ts`](../vitest.config.ts) enforces 100 percent coverage over `scripts/**/*.ts` (see [ADR-0013](./adrs/ADR-0013-coverage-enforcement.md)). It is harness-owned, so editing its `coverage.exclude` array works exactly until your next `just update` — and then silently reverts, breaking the pre-push `cov-ts` gate with no obvious cause.
+
+The supported lever is an optional `vitest.consumer.json` at the repo root. It is **not** in the harness-owned path list above, so `just update` never overwrites or deletes it:
+
+```jsonc
+// vitest.consumer.json — consumer-owned, commit it to your fork
+{
+  "coverage": {
+    "exclude": ["scripts/ingest-my-seed-data.ts", "scripts/adhoc/**/*.ts"]
+  }
+}
+```
+
+`vitest.config.ts` reads the file at config-load time and appends the entries to its own `coverage.exclude`. Semantics:
+
+- **Absent file** (the canonical template's own state) contributes zero entries — include globs, excludes, and thresholds are byte-identical to a fresh clone.
+- **Malformed JSON** or a non-array / non-string `coverage.exclude` **fails loudly** with a message naming the file, rather than degrading to "no excludes". A silent degrade would reproduce the exact confusion this hatch exists to remove.
+- Entries are ordinary vitest coverage globs, relative to the repo root.
+
+The thresholds themselves stay at 100 percent and remain harness-owned; the lever exempts files from the measurement, it does not lower the bar. Exempt deliberately — a throwaway offline data-ingest script is a fair exemption; your app's business logic is not (and that belongs under `ws_apps/` with its own config anyway).
 
 ## When `just update` fails
 

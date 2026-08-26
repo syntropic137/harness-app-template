@@ -32,6 +32,11 @@ export interface UpdateOptions {
  * The list is intentionally explicit and narrow. Consumer-owned roots
  * (`ws_apps/`, `ws_packages/`, `apps/`, `packages/`, `docs/journal/`,
  * `experiments/`, `runs/`) are NOT here.
+ *
+ * DO NOT add `vitest.consumer.json`. That file is the deliberate
+ * consumer-owned extension point for the `scripts/` TypeScript coverage gate
+ * (read by `vitest.config.ts`, which IS harness-owned and overwritten).
+ * Its absence from this list is what makes it durable across syncs.
  */
 const HARNESS_OWNED_PATHS = [
   'harness/',
