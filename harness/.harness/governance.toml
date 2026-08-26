@@ -1,3 +1,33 @@
+# local   — only the always-available zero-dependency adapters are required:
+#             deadcode         (scoped grep, no external binary)
+#             cruiser-coupling (dependency-cruiser + aggregate, pure-node)
+#             complexity       (complexity.mjs, pure-node)
+#           This is the profile for environments that may legitimately lack
+#           the instrumented adapters: a fresh clone, and the CI jobs that run
+#           `pnpm qa` (workspace-qa, fork-check, scaffolder-fork-check) without
+#           installing APSS. Instrumented adapters are skipped-loud here.
+# dev     — `local` PLUS apss-topology. This is what the pre-push hook runs.
+#
+#           apss-topology is the ONLY source of the MT01 max-cognitive /
+#           max-cyclomatic readings. While the hook ran `local`, those two
+#           metrics were simply not measured on a developer machine: the hook
+#           reported PASS and CI's strict run then rejected the same commit.
+#           A gate that silently does not run is not a gate — the inner loop
+#           has to enforce what the merge enforces.
+#
+#           It is its own profile rather than an addition to `local` because
+#           `local` has to keep working where APSS genuinely is not installed;
+#           requiring it there fails the three CI jobs above, which is the
+#           opposite of the intent. A developer machine is the one environment
+#           that both has the toolchain and needs the fast feedback.
+#
+#           Cost is ~2.5s of a ~45s gate (measured: 2.44/2.45/2.46s warm,
+#           2.46s cold over 843 functions), so ~5% for the adapter that
+#           carries complexity enforcement.
+#
+#           A fresh clone needs `just apss-install` before its first push;
+#           `just doctor` reports the gap up front so it surfaces during
+#           setup rather than during a push.
 # harness/.harness/governance.toml — Eat-our-own-dogfood fitness gate.
 #
 # This file is the architectural fitness contract for the HARNESS ITSELF.
@@ -52,16 +82,35 @@ max_max_depth = { value = 8, severity = "warn" }
 #           [profiles.strict] table below (unless perf-gate-owned); the
 #           governance-profiles test (sensors-governance-profiles.test.ts)
 #           enforces parity against strictRequiredAdapters().
-# local   — only the always-available zero-dependency adapters are required:
-#             deadcode        (scoped grep, no external binary)
+# local   — the zero-dependency adapters, PLUS apss-topology:
+#             deadcode         (scoped grep, no external binary)
 #             cruiser-coupling (dependency-cruiser + aggregate, pure-node)
 #             complexity       (complexity.mjs, pure-node)
-#           Instrumented adapters that need external installs are NOT required
-#           here and are skipped-loud when absent: apss-topology (needs APSS
-#           binary + .topology/ data), sentrux, ubs-security, hyperfine-perf,
-#           suite-duration, coverage, license.
+#             apss-topology    (needs the APSS binary + .topology/ data)
+#
+#           apss-topology is required here deliberately, and it is the one
+#           entry that costs an install. It is the ONLY source of the MT01
+#           max-cognitive / max-cyclomatic readings, so while it was optional
+#           a developer machine without it pushed green on complexity
+#           regressions that CI then rejected against --profile=strict. A gate
+#           that silently does not run is not a gate; the loop has to enforce
+#           what the merge enforces.
+#
+#           The cost is small: `apss run code-topology analyze .` is ~2.5s
+#           against ~45s for the whole gate (measured on 843 functions, warm
+#           and cold alike), so this buys real enforcement for ~5% wall-clock.
+#
+#           A fresh clone therefore needs `just apss-install` before its first
+#           push. `just doctor` reports apss as a required adapter so the gap
+#           is visible before it blocks a push rather than during one.
+#
+#           Still NOT required here, and skipped-loud when absent: sentrux,
+#           ubs-security, hyperfine-perf, suite-duration, coverage, license.
 [profiles.strict]
 required_adapters = ["sentrux", "apss-topology", "complexity", "cruiser-coupling", "ubs-security", "license", "deadcode", "suite-duration", "coverage", "loc"]
 
 [profiles.local]
 required_adapters = ["deadcode", "cruiser-coupling", "complexity"]
+
+[profiles.dev]
+required_adapters = ["deadcode", "cruiser-coupling", "complexity", "apss-topology"]

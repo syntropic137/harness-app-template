@@ -7,6 +7,14 @@ project:
 tool:
   hooks:
     # Keep pre-commit validation enabled unless it is temporarily blocking critical refactoring.
+    #
+    # EXECUTOR: lefthook, not `apss install`. lefthook owns .git/hooks in this
+    # repo, so a hook installed there by another tool is either clobbered on the
+    # next `lefthook install` or wins by repointing core.hooksPath and silently
+    # shadowing every other gate. The APS-V1-0003 validator therefore runs as
+    # the `apss-docs` job in lefthook.yml. Do not run `apss install`'s hook
+    # step; flipping this to false would only make the declaration inert again,
+    # not disable the gate.
     pre_commit: true
 
 standards:

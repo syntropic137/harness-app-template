@@ -151,7 +151,23 @@ describe('doctor', () => {
     const cwd = '/repo';
     const fs = fakeFs({}, [`${cwd}/node_modules`]);
     const checks = runtimeChecks(cwd, fs.exists);
-    expect(checks).toEqual([{ name: 'node_modules', ok: true, detail: 'installed' }]);
+    expect(checks).toContainEqual({ name: 'node_modules', ok: true, detail: 'installed' });
+  });
+
+  test('runtimeChecks flags a missing apss binary with the install recipe', () => {
+    // apss-topology is required by BOTH sensors profiles and is the only
+    // source of the MT01 complexity readings, so its absence has to be a
+    // visible failure here rather than a surprise on someone's first push.
+    const checks = runtimeChecks('/repo', (path) => path.endsWith('node_modules'));
+    const apss = checks.find((c) => c.name === 'apss');
+    expect(apss?.ok).toBe(false);
+    expect(apss?.hint).toBe('just apss-install');
+    expect(apss?.detail).toMatch(/MT01/);
+  });
+
+  test('runtimeChecks reports apss present when the project-local binary exists', () => {
+    const checks = runtimeChecks('/repo', () => true);
+    expect(checks.find((c) => c.name === 'apss')?.ok).toBe(true);
   });
 
   test('runtimeChecks reports node_modules missing with bootstrap hint', () => {
@@ -266,7 +282,7 @@ describe('doctor', () => {
     const errors: string[] = [];
     const logs: string[] = [];
     const cwd = '/repo';
-    const fs = fakeFs(validFiles(cwd), [`${cwd}/node_modules`]);
+    const fs = fakeFs(validFiles(cwd), [`${cwd}/node_modules`, `${cwd}/.apss/bin/apss`]);
     expect(() =>
       main({
         spawn: spawn as never,
@@ -288,7 +304,7 @@ describe('doctor', () => {
   test('main prints structured pass output when everything is healthy', () => {
     const logs: string[] = [];
     const cwd = '/repo';
-    const fs = fakeFs(validFiles(cwd), [`${cwd}/node_modules`]);
+    const fs = fakeFs(validFiles(cwd), [`${cwd}/node_modules`, `${cwd}/.apss/bin/apss`]);
     main({
       spawn: spawnWith(DEFAULT_VERSIONS) as never,
       stdout: { log: (message: string) => logs.push(message) },
@@ -392,7 +408,7 @@ describe('doctor', () => {
         [`${cwd}/harness/profiling/bin/profile`]: '#!/usr/bin/env bash\n',
         [`${cwd}/harness/profiling/baseline.json`]: '{"signals":{}}\n',
       },
-      [`${cwd}/node_modules`],
+      [`${cwd}/node_modules`, `${cwd}/.apss/bin/apss`],
     );
     const errors: string[] = [];
     const logs: string[] = [];
@@ -592,7 +608,7 @@ describe('doctor', () => {
     const cwd = '/repo';
     const files = validFiles(cwd);
     delete files[`${cwd}/harness/profiling/baseline.json`];
-    const fs = fakeFs(files, [`${cwd}/node_modules`]);
+    const fs = fakeFs(files, [`${cwd}/node_modules`, `${cwd}/.apss/bin/apss`]);
     const errors: string[] = [];
     const logs: string[] = [];
     expect(() =>
