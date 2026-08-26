@@ -10,10 +10,9 @@ tool:
     pre_commit: true
 
 standards:
-  # STAGED FOR PHASE B (issue #58): bumped to >=0.3.0 for the SonarSource
-  # cognitive-complexity fix (AgentParadise PR #90). Requires aps-cli 1.4.0.
-  # Run `just apss-install` once code-topology 0.3.0 is published to regenerate
-  # apss.lock with the real checksum, then re-derive the MT01 baseline.
+  # code-topology >=0.3.0: APSS SonarSource cognitive-complexity fix
+  # (AgentParadise PR #90 + #112, published as aps-cli 1.4.0). Re-enables Rust
+  # cognitive/cyclomatic gating; MT01 baseline re-derived. See ADR-0030 / issue #58.
   code-topology:
     id: APS-V1-0001
     version: ">=0.3.0"
