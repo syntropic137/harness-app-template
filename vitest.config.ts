@@ -11,7 +11,10 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary'],
-      all: true,
+      // `coverage.all` was removed in vitest 4: coverage now always reports
+      // every file matched by `include`, whether a test touched it or not,
+      // which is exactly what `all: true` used to request. Dropping the key
+      // preserves the behaviour the 100% thresholds below depend on.
       // template-hygiene-gate.mjs rides the scripts coverage gate even
       // though it lives under harness/hooks/: it is dependency-injected
       // and unit-tested from scripts/tests/template-hygiene-gate.test.ts

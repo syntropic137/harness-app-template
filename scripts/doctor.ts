@@ -267,6 +267,24 @@ export function runtimeChecks(
       hint: 'just bootstrap',
     });
   }
+
+  // apss-topology is a REQUIRED adapter in both sensors profiles (see the
+  // ADR-0028 block in harness/.harness/governance.toml). It is the only
+  // source of the MT01 max-cognitive / max-cyclomatic readings, so without
+  // this binary the pre-push fitness gate fails closed rather than passing
+  // with the metric unmeasured. Surfaced here so the gap shows up in
+  // `just doctor` instead of on someone's first push.
+  const apss = join(cwd, '.apss/bin/apss');
+  if (exists(apss)) {
+    checks.push({ name: 'apss', ok: true, detail: 'installed (.apss/bin/apss)' });
+  } else {
+    checks.push({
+      name: 'apss',
+      ok: false,
+      detail: 'missing — required by the local sensors profile (MT01 complexity)',
+      hint: 'just apss-install',
+    });
+  }
   return checks;
 }
 

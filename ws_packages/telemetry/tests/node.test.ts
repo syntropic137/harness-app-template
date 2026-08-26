@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildNodeTelemetryConfig, initNodeTelemetry, safeShutdown } from '../src/node.js';
+import {
+  buildNodeTelemetryConfig,
+  initNodeTelemetry,
+  type NodeSdkFactory,
+  safeShutdown,
+} from '../src/node.js';
 
 describe('node telemetry builders', () => {
   it('builds traces metrics and logs config', () => {
@@ -43,7 +48,15 @@ describe('node telemetry builders', () => {
   it('can build an SDK through an injected factory', () => {
     const start = vi.fn();
     const shutdown = vi.fn().mockResolvedValue(undefined);
-    const SdkFactory = vi.fn().mockImplementation(() => ({ start, shutdown }));
+    // vitest 4 no longer lets an arrow-function-backed mock be used with
+    // `new`, and NodeSdkFactory is a constructor type, so the double has to be
+    // a real class. vi.fn wraps it to keep the call assertion below.
+    const SdkFactory = vi.fn(
+      class {
+        start = start;
+        shutdown = shutdown;
+      },
+    ) as unknown as NodeSdkFactory & { mock: { calls: unknown[] } };
     const handle = initNodeTelemetry({
       env: {},
       sdkFactory: SdkFactory,

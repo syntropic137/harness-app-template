@@ -7,16 +7,33 @@ project:
 tool:
   hooks:
     # Keep pre-commit validation enabled unless it is temporarily blocking critical refactoring.
+    #
+    # EXECUTOR: lefthook, not `apss install`. lefthook owns .git/hooks in this
+    # repo, so a hook installed there by another tool is either clobbered on the
+    # next `lefthook install` or wins by repointing core.hooksPath and silently
+    # shadowing every other gate. The APS-V1-0003 validator therefore runs as
+    # the `apss-docs` job in lefthook.yml. Do not run `apss install`'s hook
+    # step; flipping this to false would only make the declaration inert again,
+    # not disable the gate.
     pre_commit: true
 
 standards:
-  # STAGED FOR PHASE B (issue #58): bumped to >=0.3.0 for the SonarSource
-  # cognitive-complexity fix (AgentParadise PR #90). Requires aps-cli 1.4.0.
-  # Run `just apss-install` once code-topology 0.3.0 is published to regenerate
-  # apss.lock with the real checksum, then re-derive the MT01 baseline.
+  # code-topology >=0.3.0: APSS SonarSource cognitive-complexity fix
+  # (AgentParadise PR #90 + #112, published as aps-cli 1.4.0). Re-enables Rust
+  # cognitive/cyclomatic gating; MT01 baseline re-derived. See ADR-0030 / issue #58.
   code-topology:
     id: APS-V1-0001
     version: ">=0.3.0"
+  # architecture-fitness is declared for its vocabulary and artifact contracts,
+  # NOT to be invoked directly. Per ADR-0018 §2, fitness signals route through
+  # harness/sensors/apss_topology.mjs and "gate.mjs does not call `apss run`
+  # directly"; the harness keeps its own 8-dimension enforcement posture.
+  #
+  # DO NOT "fix" `apss run architecture-fitness validate .` reporting a missing
+  # fitness.toml by writing one. Its absence is the decision. Adopting the
+  # standard's own config would downgrade four currently-ENFORCED dimensions
+  # (ST01, SC01, LG01, PF01) to advisory — see the stance analysis in
+  # docs/standards-integration/fitness-function-APS-V1-0002.md.
   architecture-fitness:
     id: APS-V1-0002
     version: ">=0.2.0"
