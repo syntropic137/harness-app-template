@@ -360,6 +360,43 @@ function ensurePnpmInstall(ctx: BootstrapContext, deps: BootstrapDeps): boolean 
   return recoverFailedInstall(ctx, deps, installStatus);
 }
 
+/**
+ * Compose the project APSS CLI into .apss/bin/ if it is not already there.
+ *
+ * This is a bootstrap step rather than an optional extra because the `dev`
+ * sensors profile REQUIRES the apss-topology reading — it is the only source
+ * of the MT01 max-cognitive / max-cyclomatic metrics — so without it the
+ * pre-push fitness gate fails closed on a freshly-bootstrapped clone. See the
+ * ADR-0028 profile block in harness/.harness/governance.toml.
+ *
+ * Deliberately does NOT `cargo install apss` on the developer's behalf: that
+ * is a multi-minute compile of a global binary outside the repo, which is not
+ * a thing `just bootstrap` should do silently. When the composer is absent the
+ * step soft-skips with the exact command, matching how every other optional
+ * adapter is handled.
+ */
+function ensureApssInstalled(deps: BootstrapDeps, cwd: string): void {
+  if (deps.exists?.(join(cwd, '.apss/bin/apss')) ?? existsSync(join(cwd, '.apss/bin/apss'))) {
+    deps.stdout.log('bootstrap: apss already composed (.apss/bin/apss)');
+    return;
+  }
+  if (deps.spawn('apss', ['--help'], { stdio: 'ignore' }).status !== 0) {
+    deps.stderr.error(
+      'bootstrap: warning: apss composer not found; the pre-push fitness gate needs it',
+    );
+    deps.stderr.error('bootstrap:   fix: cargo install apss && just apss-install');
+    return;
+  }
+  // `apss install` hard-codes its post-build binary lookup under the repo, so
+  // an inherited CARGO_TARGET_DIR (common on shared build-cache hosts) sends it
+  // looking in the wrong place. Same unset the `just apss-install` recipe does.
+  if (runInherit(deps.spawn, 'env', ['-u', 'CARGO_TARGET_DIR', 'apss', 'install'], cwd) !== 0) {
+    deps.stderr.error(
+      'bootstrap: warning: `apss install` failed; run `just apss-install` manually',
+    );
+  }
+}
+
 /** Run `cargo check` then `uv sync`. Returns true if either failed and it exited. */
 function runFinalChecks(deps: BootstrapDeps, cwd: string): boolean {
   if (runInherit(deps.spawn, 'cargo', ['check'], cwd) !== 0) {
@@ -398,6 +435,8 @@ export function main(deps: BootstrapDeps): void {
   if (runFinalChecks(deps, ctx.cwd)) {
     return;
   }
+
+  ensureApssInstalled(deps, ctx.cwd);
 
   deps.stdout.log('bootstrap: complete');
 }
