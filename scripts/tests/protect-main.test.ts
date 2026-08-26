@@ -296,3 +296,17 @@ describe('main', () => {
     expect(exitCode).toBe(1);
   });
 });
+
+describe('parseTargetArgs trailing-flag handling', () => {
+  test('a --repo or --branch with no value after it is ignored, not consumed', () => {
+    // `--repo` as the final argv entry has no value to take; the parser must
+    // fall through to origin resolution rather than reading past the end.
+    const spawn: SpawnFn = () => ({
+      status: 0,
+      stdout: 'https://github.com/acme/widget.git',
+      stderr: '',
+    });
+    expect(resolveTarget(['--repo'], spawn)).toEqual({ repo: 'acme/widget', branch: 'main' });
+    expect(resolveTarget(['--branch'], spawn)).toEqual({ repo: 'acme/widget', branch: 'main' });
+  });
+});

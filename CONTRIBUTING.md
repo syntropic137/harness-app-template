@@ -23,7 +23,7 @@ Decisions live under [`docs/adrs/`](./docs/adrs/) in the APSS ADR01 shape (`ADR-
 
 ## Bead-driven work
 
-In-flight work is tracked under `.beads/`. Use `br ready` to find the next P0/P1 item.
+In-flight work is tracked under `.beads/`. Use `bd ready` to find the next P0/P1 item.
 
 ## Code of conduct
 

@@ -1,6 +1,6 @@
 ---
 name: orchestrating-a-vps-agent-swarm
-description: Guidance for managing a multi-agent swarm on this template's VPS environment. Use when coordinating multiple autonomous agents (Claude Code, Codex, Gemini) across parallel beads, handling double-claim collisions via Agent Mail, and using beads for global task state. Covers per-agent autonomy toggles (YOLO vs review-gated), multi-model layered review, the human framing gate, and the canonical CLI surface (`br`, `bv`, `am`, `proj`, `ntm`).
+description: Guidance for managing a multi-agent swarm on this template's VPS environment. Use when coordinating multiple autonomous agents (Claude Code, Codex, Gemini) across parallel beads, handling double-claim collisions via Agent Mail, and using beads for global task state. Covers per-agent autonomy toggles (YOLO vs review-gated), multi-model layered review, the human framing gate, and the canonical CLI surface (`bd`, `bv`, `am`, `proj`, `ntm`).
 ---
 
 # Orchestrating a VPS agent swarm
@@ -76,9 +76,9 @@ Structured state plus asynchronous communication.
 
 ```sh
 # beads (per-project tracker; cwd-scoped)
-br create -t "..." -d "..."           # new bead
-br update <id> --status in_progress   # claim
-br close <id> --reason "..."          # finalize (terminal-state)
+bd create "..." -t task -d "..."      # new bead
+bd update <id> --claim                # claim (atomic)
+bd close <id> --reason "..."          # finalize (terminal-state)
 bv                                    # interactive TUI
 bv --robot-next                       # pick next ready bead (JSON)
 bv --robot-triage                     # full recommendation set
@@ -111,7 +111,7 @@ systemctl --user status agent-mail    # the mail service is required
       --project <abs path> --program <cli> --model <id>` on every fresh
       turn. Without an identity, `am status` cannot inspect inbox or
       reservations.
-- [ ] **Claim before you edit.** `br update <id> --status in_progress`
+- [ ] **Claim before you edit.** `bd update <id> --claim`
       is the authoritative claim. Two agents that both claim are a
       coordination bug; one of them must stand down via Agent Mail.
 - [ ] **Reserve shared files.** When a bead touches a file another
@@ -136,7 +136,7 @@ systemctl --user status agent-mail    # the mail service is required
 When `bv --robot-next` hands you a bead another agent has already
 claimed (visible in Agent Mail threads):
 
-1. Re-read the bead state: `br show <id>`. The status field is the
+1. Re-read the bead state: `bd show <id>`. The status field is the
    shared source of truth.
 2. Look up active Agent Mail threads referencing the bead ID:
    `am status --agent <NAME>` then `am thread <ID>` on any
@@ -153,9 +153,11 @@ claimed (visible in Agent Mail threads):
 
 ## Anti-patterns
 
-- **Silent double-claim.** Two agents both run `br update --status
-  in_progress` without checking Agent Mail. Recovery: stand down via
-  Agent Mail; the bead claim is not exclusive at the beads layer.
+- **Silent double-claim.** Two agents both run `bd update <id> --claim`
+  without checking Agent Mail. `--claim` is atomic and idempotent for
+  the *same* agent, but it does not stop a second agent from taking a
+  bead the first is already working: the claim is not exclusive at the
+  beads layer. Recovery: stand down via Agent Mail.
 - **Unilateral retirement.** Removing or deprecating shared
   infrastructure (a hook, a sensor adapter, an ADR) without an Agent
   Mail broadcast first. The operator's preservation rule applies; see
