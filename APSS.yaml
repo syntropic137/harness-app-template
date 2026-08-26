@@ -24,6 +24,16 @@ standards:
   code-topology:
     id: APS-V1-0001
     version: ">=0.3.0"
+  # architecture-fitness is declared for its vocabulary and artifact contracts,
+  # NOT to be invoked directly. Per ADR-0018 §2, fitness signals route through
+  # harness/sensors/apss_topology.mjs and "gate.mjs does not call `apss run`
+  # directly"; the harness keeps its own 8-dimension enforcement posture.
+  #
+  # DO NOT "fix" `apss run architecture-fitness validate .` reporting a missing
+  # fitness.toml by writing one. Its absence is the decision. Adopting the
+  # standard's own config would downgrade four currently-ENFORCED dimensions
+  # (ST01, SC01, LG01, PF01) to advisory — see the stance analysis in
+  # docs/standards-integration/fitness-function-APS-V1-0002.md.
   architecture-fitness:
     id: APS-V1-0002
     version: ">=0.2.0"

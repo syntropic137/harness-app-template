@@ -95,6 +95,13 @@ pre-commit:
       run: |
         sh -eu -c '
           [ -x .apss/bin/apss ] || exit 0
+          # APSS.yaml is fork-owned (deliberately absent from HARNESS_OWNED_PATHS
+          # in scripts/update.ts) while this file is harness-owned, so a fork can
+          # receive this job without declaring APS-V1-0003. Skip rather than fail
+          # if the standard is not installed.
+          # 2>&1 is load-bearing: `apss list` writes to STDERR, so piping only
+          # stdout matches nothing and this guard silently skips the gate.
+          .apss/bin/apss list 2>&1 | grep -q "documentation" || exit 0
           .apss/bin/apss run documentation validate .
         '
 

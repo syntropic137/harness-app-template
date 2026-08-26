@@ -966,4 +966,68 @@ describe('main', () => {
       expect(sinks2.exit).not.toHaveBeenCalled();
     });
   });
+
+  test('composes apss when the composer is present and .apss/bin is empty', () => {
+    // The dev sensors profile requires the apss-topology reading, so a clone
+    // that bootstraps without this fails its first pre-push.
+    const sinks = captureSinks();
+    const calls: string[][] = [];
+    const spawn = vi.fn((command: string, args: readonly string[]) => {
+      calls.push([command, ...args]);
+      return { status: 0 };
+    });
+    main(
+      baseDeps({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks.stdout,
+        stderr: sinks.stderr,
+        exit: sinks.exit,
+        exists: (path: string) => !path.endsWith('.apss/bin/apss'),
+      }),
+    );
+    expect(calls).toContainEqual(['env', '-u', 'CARGO_TARGET_DIR', 'apss', 'install']);
+  });
+
+  test('skips composing when .apss/bin/apss already exists', () => {
+    const sinks = captureSinks();
+    const calls: string[][] = [];
+    const spawn = vi.fn((command: string, args: readonly string[]) => {
+      calls.push([command, ...args]);
+      return { status: 0 };
+    });
+    main(
+      baseDeps({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks.stdout,
+        stderr: sinks.stderr,
+        exit: sinks.exit,
+        exists: () => true,
+      }),
+    );
+    expect(calls).not.toContainEqual(['env', '-u', 'CARGO_TARGET_DIR', 'apss', 'install']);
+    expect(sinks.stdoutLog).toHaveBeenCalledWith(
+      'bootstrap: apss already composed (.apss/bin/apss)',
+    );
+  });
+
+  test('soft-skips with the exact recipe when the apss composer is absent', () => {
+    // Deliberately does not `cargo install` on the developer's behalf.
+    const sinks = captureSinks();
+    const spawn = vi.fn((command: string, args: readonly string[]) => {
+      if (command === 'apss' && args[0] === '--help') return { status: 1 };
+      return { status: 0 };
+    });
+    main(
+      baseDeps({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks.stdout,
+        stderr: sinks.stderr,
+        exit: sinks.exit,
+        exists: (path: string) => !path.endsWith('.apss/bin/apss'),
+      }),
+    );
+    expect(sinks.stderrError).toHaveBeenCalledWith(
+      'bootstrap:   fix: cargo install apss && just apss-install',
+    );
+  });
 });
