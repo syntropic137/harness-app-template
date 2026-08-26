@@ -1030,4 +1030,27 @@ describe('main', () => {
       'bootstrap:   fix: cargo install apss && just apss-install',
     );
   });
+
+  test('warns but does not abort when `apss install` itself fails', () => {
+    // Composing apss is best-effort: a failed compose must not block a
+    // bootstrap that has otherwise succeeded, it must just say so.
+    const sinks = captureSinks();
+    const spawn = vi.fn((command: string, args: readonly string[]) => {
+      if (command === 'env' && args.includes('apss')) return { status: 1 };
+      return { status: 0 };
+    });
+    main(
+      baseDeps({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks.stdout,
+        stderr: sinks.stderr,
+        exit: sinks.exit,
+        exists: (path: string) => !path.endsWith('.apss/bin/apss'),
+      }),
+    );
+    expect(sinks.stderrError).toHaveBeenCalledWith(
+      'bootstrap: warning: `apss install` failed; run `just apss-install` manually',
+    );
+    expect(sinks.exit).not.toHaveBeenCalled();
+  });
 });
