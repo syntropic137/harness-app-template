@@ -281,13 +281,28 @@ and every signature is publicly auditable via Rekor.
 
 ### 7. UBS bug scanning
 
-**State: wired.** The [Ultimate Bug Scanner](https://github.com/Dicklesworthstone/ultimate_bug_scanner)
-runs in two places:
+**State: partially wired.** The [Ultimate Bug Scanner](https://github.com/Dicklesworthstone/ultimate_bug_scanner)
+runs in three places:
 
-- **Pre-commit** (`lefthook.yml` → `ubs --staged --fail-on-warning`) —
-  scans only the staged files; sub-second.
-- **CI** (`.github/workflows/test.yml` → `ubs --ci --fail-on-warning .`) —
-  full-tree scan.
+- **Pre-commit** (`lefthook.yml` → `ubs --staged --fail-on-error`) —
+  scans only the staged files; sub-second. Note this fails on **critical**
+  findings only; warnings are recorded to `.beads/ubs-findings.jsonl` for
+  triage but do not block the commit.
+- **Pre-push** (`lefthook.yml` → `ubs --files <changed vs base>
+  --fail-on-error`) — scans the source files this branch adds relative to
+  the base ref. See the correctness note in Controls 8: `ubs --diff` does
+  **not** accept a base ref, so the file list must be resolved by the hook
+  and passed explicitly.
+- **Claude file-write** (`.claude/hooks/ubs-diff.sh` → `ubs --diff`) —
+  bare `--diff` is correct here: it means "working tree vs HEAD", and the
+  tree genuinely is dirty right after an agent edit.
+
+**Not wired (aspirational):** a full-tree `ubs --ci --fail-on-warning .`
+CI scan. `.github/workflows/test.yml` installs ubs only so the SC01
+sensors security adapter has it on PATH; there is no standalone UBS CI
+gate today. Until one exists, UBS coverage is diff-scoped only — code
+that entered the tree without passing a hook (merge, rebase, import) has
+never been scanned.
 
 UBS's category set (null safety, XSS / injection, async/await,
 memory leaks, type narrowing, division-by-zero, resource leaks) covers
@@ -314,8 +329,21 @@ sub-second:
 
 | Stage | Speed | What runs |
 |---|---|---|
-| **pre-commit** | sub-second | Biome format + lint on `{staged_files}`; Gitleaks staged-scan; UBS `--staged --fail-on-warning`; the global attribution `prepare-commit-msg` hook coexists via `core.hooksPath` |
-| **pre-push** | a few seconds | Type-check and affected tests through Turbo's diff filter; UBS `--diff`; base ref selected from `harness.hookBaseRemote` / `harness.hookBaseRef`, then `harness.upstreamRef`, then `origin/main` fallback |
+| **pre-commit** | sub-second | Biome format + lint on `{staged_files}`; Gitleaks staged-scan; UBS `--staged --fail-on-error`; the global attribution `prepare-commit-msg` hook coexists via `core.hooksPath` |
+| **pre-push** | a few seconds | Type-check and affected tests through Turbo's diff filter; UBS `--files` over the changed-source list; base ref selected from `harness.hookBaseRemote` / `harness.hookBaseRef`, then `harness.upstreamRef`, then `origin/main` fallback |
+
+> **Correctness note — `ubs --diff` takes no argument.** Through
+> 2026-08-14 the pre-push hook invoked `ubs --diff "$base"`. In ubs 5.3.4
+> the parse arm is `--diff|--git-diff) GIT_MODE="diff"; shift` (a single
+> `shift`), and the file list is `git diff --name-only --diff-filter=ACMR
+> HEAD` — the base is hardcoded to `HEAD`. The `"$base"` argument was
+> therefore silently discarded, and since the working tree is clean at
+> pre-push by definition, the gate scanned **zero files on every push
+> while still reporting success**. This is a fail-open defect: an empty
+> scan is visually identical to a passing one. The hook now resolves
+> `git diff --name-only --diff-filter=ACMR "$base"...HEAD` itself, filters
+> to source extensions, and passes the list via `--files`, printing the
+> file count so an empty scan can never again be mistaken for a pass.
 
 The concrete hook files are [`lefthook.yml`](./lefthook.yml) and
 [`.claude/settings.json`](./.claude/settings.json). Lefthook writes UBS
