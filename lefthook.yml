@@ -166,7 +166,13 @@ pre-commit:
             printf "%s\n" "warning: ubs not found; skipping ubs-staged hook" >&2
             exit 0
           fi
-          mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
+          # `--fail-on-error` does not exist in ubs 5.3.4 (only `--fail-on-warning`
+          # is a real flag; see `ubs --help`), so this previously ran the scan and
+          # then discarded the flag entirely, always exiting 0 regardless of
+          # findings -- a gate that can never go red. `--staged` takes no value,
+          # so the bogus flag was silently swallowed rather than mis-parsed as a
+          # filename (contrast the `--files`-form invocation below).
+          mkdir -p .beads && ubs --staged --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl
         '
 
     python-ruff-format:
@@ -385,7 +391,17 @@ pre-push:
           # Loud by design: a scan of nothing must never again look like a pass.
           printf "%s\n" "ubs-diff: scanning $(printf "%s\n" "$files" | wc -l | tr -d " ") changed file(s) vs $base"
           mkdir -p .beads
-          ubs --files "$(printf "%s\n" "$files" | paste -sd, -)" --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
+          # `--fail-on-error` is not a real ubs flag (`--fail-on-warning` is; see
+          # `ubs --help`) -- AND, worse, `--files VALUE` followed by more tokens
+          # parses every trailing token as another positional file to scan. So
+          # `ubs` never ran a real scan here: it exited 2 with
+          # `file not found: --fail-on-error` on every push, unconditionally --
+          # a false red that blocked every push regardless of actual findings.
+          # Reproduced directly: `ubs --files a.ts --fail-on-error ...` exits 2
+          # on the bogus filename; `ubs --fail-on-warning --files a.ts ...`
+          # (flags before --files) scans normally. Real flags go BEFORE --files
+          # so nothing trails it.
+          ubs --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl --files "$(printf "%s\n" "$files" | paste -sd, -)"
         '
 
 # After a checkout or merge the tracked .beads/issues.jsonl can be ahead of
