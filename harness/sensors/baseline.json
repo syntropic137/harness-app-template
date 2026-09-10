@@ -87,7 +87,7 @@
           "source": ".topology/metrics/functions.json metrics.halstead.volume",
           "direction": "max",
           "default_threshold": 1000,
-          "baseline": null,
+          "baseline": 1498.2969584883049,
           "fail_on_regression": true
         },
         "high-cognitive-fn-count": {
@@ -105,7 +105,7 @@
           "source": ".sentrux/baseline.json quality_signal (via harness/sensors/sentrux_scan.mjs)",
           "direction": "min",
           "default_threshold": 0,
-          "baseline": null,
+          "baseline": 0.6883233949696704,
           "fail_on_regression": true
         },
         "sentrux-god-file-count": {
@@ -114,7 +114,7 @@
           "source": ".sentrux/baseline.json god_file_count (via harness/sensors/sentrux_scan.mjs)",
           "direction": "max",
           "default_threshold": 0,
-          "baseline": null,
+          "baseline": 0,
           "fail_on_regression": true
         },
         "sentrux-hotspot-count": {
@@ -123,7 +123,7 @@
           "source": ".sentrux/baseline.json hotspot_count (via harness/sensors/sentrux_scan.mjs)",
           "direction": "max",
           "default_threshold": 0,
-          "baseline": null,
+          "baseline": 0,
           "fail_on_regression": true
         },
         "sentrux-complex-fn-count": {
@@ -132,7 +132,7 @@
           "source": ".sentrux/baseline.json complex_fn_count (via harness/sensors/sentrux_scan.mjs)",
           "direction": "max",
           "default_threshold": 0,
-          "baseline": null,
+          "baseline": 8,
           "fail_on_regression": true
         },
         "unused-export-count": {
@@ -187,7 +187,7 @@
           "source": ".topology/metrics/coupling.json or aggregate workspace modules",
           "direction": "max",
           "default_threshold": 0,
-          "baseline": 6,
+          "baseline": 3,
           "fail_on_regression": true
         },
         "sentrux-max-depth": {
@@ -197,7 +197,7 @@
           "direction": "max",
           "default_threshold": 10,
           "ratchet_floor": 10,
-          "baseline": null,
+          "baseline": 10,
           "fail_on_regression": true
         }
       }
@@ -223,7 +223,7 @@
           "source": ".sentrux/baseline.json cycle_count (via harness/sensors/sentrux_scan.mjs)",
           "direction": "max",
           "default_threshold": 0,
-          "baseline": null,
+          "baseline": 0,
           "fail_on_regression": true
         }
       }
@@ -240,7 +240,7 @@
           "source": "ubs --report-json totals.critical (template-owned source paths)",
           "direction": "max",
           "default_threshold": 0,
-          "baseline": null,
+          "baseline": 0,
           "fail_on_regression": true
         }
       }
@@ -318,7 +318,7 @@
           "source": "harness/sensors/suite_duration.mjs envelope iteration_count",
           "direction": "min",
           "default_threshold": 0,
-          "baseline": null,
+          "baseline": 5,
           "fail_on_regression": true
         }
       }
