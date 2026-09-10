@@ -61,12 +61,23 @@ pre-commit:
           # surface as intermittent ".git/index.lock: File exists" commit
           # failures. Exporting explicitly keeps the index write ours alone,
           # and bounded-retries it if another job holds the lock.
-          run_bd export -o .beads/issues.jsonl || status=$?
+          _out=$(run_bd export -o .beads/issues.jsonl 2>&1) || status=$?
           case "${status:-0}" in
             0) ;;
             3) exit 0 ;;   # no database initialized: a fresh clone, not a failure
             124) printf "%s\n" "beads: export timed out after ${_t}s - continuing without beads" >&2; exit 0 ;;
-            *) exit "$status" ;;
+            *)
+              # A fresh clone has no beads database, and the installed `bd`
+              # reports that with exit 1 and this message - NOT the exit 3 the
+              # case above assumed. The mismatch made this hook reject every
+              # commit on a fresh clone of this template, which is the state a
+              # new consumer is in. Match on the message so the tolerance holds
+              # whatever exit code bd picks.
+              case "$_out" in
+                *"no beads database found"*|*"no beads database"*) exit 0 ;;
+                *) printf "%s\n" "$_out" >&2; exit "$status" ;;
+              esac
+              ;;
           esac
           git diff --quiet -- .beads/issues.jsonl && exit 0
           i=0
