@@ -162,17 +162,54 @@ function assertUpdatable(cwd: string, options: UpdateOptions): string[] {
   return dirty;
 }
 
-function buildSummaryLines(cwd: string, templateBase: string, target: string): string[] {
-  const commitCount = git(['rev-list', '--count', `${templateBase}..${target}`], { cwd });
-  const localHarnessChanges = git(
-    ['diff', '--name-only', `${templateBase}..HEAD`, '--', ...HARNESS_OWNED_PATHS],
-    {
-      cwd,
-      allowFailure: true,
-    },
-  )
+/** Harness-owned paths this consumer has COMMITTED changes to since the base. */
+function consumerTouchedHarnessPaths(cwd: string, templateBase: string): string[] {
+  return git(['diff', '--name-only', `${templateBase}..HEAD`, '--', ...HARNESS_OWNED_PATHS], {
+    cwd,
+    allowFailure: true,
+  })
     .split('\n')
     .filter(Boolean);
+}
+
+/**
+ * Harness-owned paths where an update would DESTROY committed consumer work.
+ *
+ * Distinct from `dirtyHarnessPaths`, which reads `git status --porcelain` and so
+ * only ever sees the WORKING TREE: a consumer who committed a fix to a
+ * harness-owned path has a clean tree, passes that check, and loses the fix.
+ *
+ * BOTH conditions are required, and the second one is what makes this usable:
+ *   1. the consumer committed a change to the path since the template base, AND
+ *   2. the path's content at HEAD still DIFFERS from upstream.
+ *
+ * Condition 2 exists because `applyUpdate` COMMITS the files it syncs, and the
+ * merge base does not advance (this tool checks paths out, it never merges). So
+ * on the very next run every previously-synced file satisfies condition 1 while
+ * being byte-identical to upstream. Gating on condition 1 alone makes `just
+ * update` refuse to run twice in a row - caught by the fast-forward test, which
+ * is exactly the false positive that would have made this guard worse than the
+ * bug it fixes.
+ */
+export function divergedHarnessPaths(cwd: string, templateBase: string, target: string): string[] {
+  const touched = consumerTouchedHarnessPaths(cwd, templateBase);
+  if (touched.length === 0) {
+    return [];
+  }
+  const differsFromUpstream = new Set(
+    git(['diff', '--name-only', 'HEAD', target, '--', ...HARNESS_OWNED_PATHS], {
+      cwd,
+      allowFailure: true,
+    })
+      .split('\n')
+      .filter(Boolean),
+  );
+  return touched.filter((path) => differsFromUpstream.has(path));
+}
+
+function buildSummaryLines(cwd: string, templateBase: string, target: string): string[] {
+  const commitCount = git(['rev-list', '--count', `${templateBase}..${target}`], { cwd });
+  const localHarnessChanges = consumerTouchedHarnessPaths(cwd, templateBase);
   const provenance = readProvenance(cwd);
   const provenanceLine = provenance?.canonical_commit
     ? `provenance: forked at ${shortSha(provenance.canonical_commit)} (${provenance.forked_at ?? 'unknown date'})`
@@ -266,6 +303,33 @@ export function updateProject(options: UpdateOptions = {}): string {
   }
   if (strategy === 'preview') {
     return `${summaryLines.join('\n')}\njust update: preview only (no TTY detected). rerun with\n  \`just update -- --strategy=merge\` to apply harness updates.`;
+  }
+
+  // DEFAULT-CLOSED on committed divergence. `summaryLines` already carries a
+  // `local harness edits:` line, but it was only ever surfaced on --check and
+  // preview - the two strategies that change nothing - and DISCARDED here, on
+  // the one path that actually overwrites files. A consumer who fixed a bug in
+  // a harness-owned path and committed it had a clean working tree, sailed past
+  // `dirtyHarnessPaths`, and silently lost the fix.
+  //
+  // Losing committed work must be a conscious act, not the default. --force
+  // still proceeds (and still stashes the dirty pre-image), so the workflow is
+  // intact; it just can no longer happen by accident.
+  const diverged = divergedHarnessPaths(cwd, templateBase, target);
+  if (diverged.length > 0 && !options.force) {
+    throw new Error(
+      [
+        `refusing to update: ${diverged.length} harness-owned path(s) carry COMMITTED local changes`,
+        'that this update would overwrite:',
+        ...diverged.map((path) => `  ${path}`),
+        '',
+        'These are committed, so the working tree is clean and the dirty-path check does not',
+        'see them. Review each one and contribute anything worth keeping upstream first:',
+        `  git diff ${shortSha(templateBase)}..HEAD -- <path>`,
+        '',
+        'Then re-run with --force to accept the overwrite.',
+      ].join('\n'),
+    );
   }
 
   return applyUpdate(cwd, target, ref, upstreamSha, dirty, options);
