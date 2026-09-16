@@ -85,6 +85,56 @@ describe('updateProject', () => {
     }
   });
 
+  // The consumer committed a fix to a harness-owned path. Before this guard,
+  // `just update` overwrote it silently: `dirtyHarnessPaths` reads
+  // `git status --porcelain`, which only sees the WORKING TREE, and a committed
+  // fix leaves that clean. The `local harness edits:` warning WAS computed, but
+  // only reached --check and preview - the two strategies that change nothing -
+  // and was discarded on the merge path that does the overwriting.
+  //
+  // Observed for real on a consumer (dream-ship_v0): five harness-owned files
+  // diverged, including a 128-line hardening of scripts/test-coverage.ts fixing
+  // a gate flake that had been fixed there three separate times. Every one would
+  // have been reverted with no output naming them.
+  test('merge REFUSES when a harness path carries committed local changes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-diverged-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+
+      // Consumer fixes a bug in a HARNESS-owned path and COMMITS it, so the
+      // working tree is clean and the dirty-path check cannot see it.
+      write(join(fork, 'harness/file.txt'), 'consumer harness fix\n');
+      commitAll(fork, 'consumer fixes a harness bug');
+      expect(run(fork, ['status', '--porcelain'])).toBe('');
+
+      // Canonical ships its own change to the same surface.
+      write(join(canonical, 'harness/file.txt'), 'v2\n');
+      commitAll(canonical, 'template harness update');
+
+      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
+        /refusing to update.*COMMITTED local changes/s,
+      );
+      // Refusing means refusing: the consumer's fix is still on disk.
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe('consumer harness fix\n');
+
+      // The refusal must NAME the file, or it cannot be acted on.
+      let message = '';
+      try {
+        updateProject({ cwd: fork, strategy: 'merge' });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain('harness/file.txt');
+
+      // --force is the conscious override, and still applies the update.
+      const forced = updateProject({ cwd: fork, strategy: 'merge', force: true });
+      expect(forced).toContain('ws_apps/ws_packages untouched');
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe('v2\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('preview leaves working tree intact; merge applies harness paths only', () => {
     const root = mkdtempSync(join(tmpdir(), 'cha-update-'));
     try {

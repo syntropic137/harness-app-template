@@ -61,12 +61,23 @@ pre-commit:
           # surface as intermittent ".git/index.lock: File exists" commit
           # failures. Exporting explicitly keeps the index write ours alone,
           # and bounded-retries it if another job holds the lock.
-          run_bd export -o .beads/issues.jsonl || status=$?
+          _out=$(run_bd export -o .beads/issues.jsonl 2>&1) || status=$?
           case "${status:-0}" in
             0) ;;
             3) exit 0 ;;   # no database initialized: a fresh clone, not a failure
             124) printf "%s\n" "beads: export timed out after ${_t}s - continuing without beads" >&2; exit 0 ;;
-            *) exit "$status" ;;
+            *)
+              # A fresh clone has no beads database, and the installed `bd`
+              # reports that with exit 1 and this message - NOT the exit 3 the
+              # case above assumed. The mismatch made this hook reject every
+              # commit on a fresh clone of this template, which is the state a
+              # new consumer is in. Match on the message so the tolerance holds
+              # whatever exit code bd picks.
+              case "$_out" in
+                *"no beads database found"*|*"no beads database"*) exit 0 ;;
+                *) printf "%s\n" "$_out" >&2; exit "$status" ;;
+              esac
+              ;;
           esac
           git diff --quiet -- .beads/issues.jsonl && exit 0
           i=0
@@ -155,7 +166,13 @@ pre-commit:
             printf "%s\n" "warning: ubs not found; skipping ubs-staged hook" >&2
             exit 0
           fi
-          mkdir -p .beads && ubs --staged --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
+          # `--fail-on-error` does not exist in ubs 5.3.4 (only `--fail-on-warning`
+          # is a real flag; see `ubs --help`), so this previously ran the scan and
+          # then discarded the flag entirely, always exiting 0 regardless of
+          # findings -- a gate that can never go red. `--staged` takes no value,
+          # so the bogus flag was silently swallowed rather than mis-parsed as a
+          # filename (contrast the `--files`-form invocation below).
+          mkdir -p .beads && ubs --staged --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl
         '
 
     python-ruff-format:
@@ -374,7 +391,17 @@ pre-push:
           # Loud by design: a scan of nothing must never again look like a pass.
           printf "%s\n" "ubs-diff: scanning $(printf "%s\n" "$files" | wc -l | tr -d " ") changed file(s) vs $base"
           mkdir -p .beads
-          ubs --files "$(printf "%s\n" "$files" | paste -sd, -)" --fail-on-error --beads-jsonl .beads/ubs-findings.jsonl
+          # `--fail-on-error` is not a real ubs flag (`--fail-on-warning` is; see
+          # `ubs --help`) -- AND, worse, `--files VALUE` followed by more tokens
+          # parses every trailing token as another positional file to scan. So
+          # `ubs` never ran a real scan here: it exited 2 with
+          # `file not found: --fail-on-error` on every push, unconditionally --
+          # a false red that blocked every push regardless of actual findings.
+          # Reproduced directly: `ubs --files a.ts --fail-on-error ...` exits 2
+          # on the bogus filename; `ubs --fail-on-warning --files a.ts ...`
+          # (flags before --files) scans normally. Real flags go BEFORE --files
+          # so nothing trails it.
+          ubs --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl --files "$(printf "%s\n" "$files" | paste -sd, -)"
         '
 
 # After a checkout or merge the tracked .beads/issues.jsonl can be ahead of

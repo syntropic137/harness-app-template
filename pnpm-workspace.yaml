@@ -4,7 +4,11 @@ packages:
   - harness/*
 
 overrides:
-  esbuild: 0.27.7
+  esbuild: 0.28.2 # GHSA advisory: arbitrary file read via the dev server on
+    # Windows, vulnerable >=0.27.3 <0.28.1. The previous pin here was 0.27.7,
+    # which is INSIDE that range -- the override existed but had gone stale
+    # against a later advisory. 0.28.2 (38d old at pin time) clears it and is
+    # far enough from publication for the minimumReleaseAge policy below.
   # Security patches (dep-audit, GHSA advisories below). Pinned to specific
   # already-established versions, not open ranges: pnpm's supply-chain policy
   # rejects any resolved version published within the last 24h, and an
@@ -39,9 +43,18 @@ overrides:
   "@opentelemetry/core": 2.9.0 # peer of propagator-jaeger above; without
     # pinning it too, it naturally resolves to the newest release and trips
     # the same minimumReleaseAge policy on its own.
-  sharp: 0.35.3 # GHSA-f88m-g3jw-g9cj; same reasoning as propagator-jaeger
+  sharp: 0.35.4 # GHSA-f88m-g3jw-g9cj; same reasoning as propagator-jaeger
     # above (bare key, exact pin) -- pinned rather than an open ">=" range
     # to avoid floating onto a too-recent release.
+    # BUMPED 0.35.3 -> 0.35.4: libheif advisories GHSA-g89c-p67h-r497 and
+    # GHSA-2jg2-4ch7-h545 land on <0.35.4, so the pin that fixed the older
+    # advisory became the vulnerable version itself. A pin is a snapshot of
+    # one advisory's floor, not a standing guarantee -- it needs re-checking
+    # whenever dep-audit reports the same package again.
+  baseline-browser-mapping: 2.11.23 # process termination on invalid input
+    # (DoS), vulnerable >=2.0.0 <2.11.0. Reaches us via ws_apps/docs -> next.
+    # 2.11.23 is 4 days old; 2.11.24 exists but was published ~1 day before
+    # pinning, which is exactly what minimumReleaseAge rejects.
 
 allowBuilds:
   esbuild: true
