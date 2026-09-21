@@ -4,6 +4,18 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      template_checks:
+        description: Run template publishing checks in a consumer repository
+        type: boolean
+        default: false
+  schedule:
+    - cron: '0 8 * * 1'
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
 
 # Least-privilege default — limits blast radius if any step is compromised.
 # Every job here only reads the repo (test / lint / coverage / audit); none
@@ -13,6 +25,38 @@ permissions:
   contents: read
 
 jobs:
+  template-changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      required: ${{ steps.scope.outputs.required }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - name: Select template integration checks
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # Unknown comparisons and scheduled/manual runs fail safe to full checks.
+          required=true
+          if [[ "$EVENT_NAME" == pull_request || "$EVENT_NAME" == push ]] &&
+             git diff --name-only --no-renames -z "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/template-changes"; then
+            required=false
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                harness/*|scripts/*|.github/*|.claude/hooks/*|.cargo/*|.apss/*|justfile|lefthook.yml|turbo.json|harness.manifest.json|AGENTS.md|CLAUDE.md|GEMINI.md|.gitignore|.npmrc|.gitleaks.toml|biome.json|biome.jsonc|pnpm-workspace.yaml|pnpm-lock.yaml|uv.lock|rust-toolchain*|*Cargo.toml|*Cargo.lock|*package.json|*pyproject.toml|*tsconfig*.json|*vite.config.*|*vitest.config.*|*svelte.config.*|*tauri.conf.json)
+                  required=true
+                  ;;
+              esac
+            done < "$RUNNER_TEMP/template-changes"
+          fi
+          echo "required=$required" >> "$GITHUB_OUTPUT"
+          echo "Template integration checks required: $required"
+
   workspace-qa:
     name: workspace qa (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -386,6 +430,12 @@ jobs:
             ./
 
   scaffolder-fork-check:
+    needs: template-changes
+    # Consumer apps do not publish templates; opt in via variable/manual input.
+    if: >-
+      needs.template-changes.outputs.required == 'true' &&
+      (github.event.repository.is_template || vars.RUN_TEMPLATE_CHECKS == 'true' || inputs.template_checks)
+    timeout-minutes: 20
     # End-to-end correctness oracle for the create-harness-app scaffolder
     # (harness/scaffolder/). Runs the scaffolder against this checkout
     # into a tmpdir (the canonical template tree, copied + stripped per
@@ -416,6 +466,25 @@ jobs:
       - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: just
+      # https://v2.tauri.app/start/prerequisites/#linux
+      - name: Set stable Cargo artifact directory
+        run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/template-cargo-target" >> "$GITHUB_ENV"
+      # Keep generated workspaces separate, but reuse their Cargo dependency builds.
+      - name: Cache template Cargo artifacts
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ runner.temp }}/template-cargo-target
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-v1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-v1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}-
+      - name: Install Tauri Linux build dependencies
+        if: hashFiles('**/tauri.conf.json') != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev
       - name: Install gitleaks (pinned + checksum-verified)
         run: bash .github/scripts/install-gitleaks.sh
       - name: Cache APSS binary
@@ -463,6 +532,12 @@ jobs:
         run: just fitness --quick --format=summary
 
   fork-check:
+    needs: template-changes
+    # Consumer apps do not publish templates; opt in via variable/manual input.
+    if: >-
+      needs.template-changes.outputs.required == 'true' &&
+      (github.event.repository.is_template || vars.RUN_TEMPLATE_CHECKS == 'true' || inputs.template_checks)
+    timeout-minutes: 20
     # End-to-end fork-readiness check. Snapshots HEAD into a clean temp
     # workspace, runs the documented `just init <name>` + `just bootstrap`
     # consumer flow, then executes the full gate suite (qa, sensors gate,
@@ -494,6 +569,25 @@ jobs:
       # forked checkout needs gitleaks on PATH for `pnpm qa` to pass.
       # Direct binary install (taiki-e/install-action does not support
       # gitleaks); see .github/scripts/install-gitleaks.sh.
+      # https://v2.tauri.app/start/prerequisites/#linux
+      - name: Set stable Cargo artifact directory
+        run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/template-cargo-target" >> "$GITHUB_ENV"
+      # Keep generated workspaces separate, but reuse their Cargo dependency builds.
+      - name: Cache template Cargo artifacts
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ runner.temp }}/template-cargo-target
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-v1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-cargo-v1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}-
+      - name: Install Tauri Linux build dependencies
+        if: hashFiles('**/tauri.conf.json') != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev
       - name: Install gitleaks (pinned + checksum-verified)
         run: bash .github/scripts/install-gitleaks.sh
       - name: Cache APSS binary

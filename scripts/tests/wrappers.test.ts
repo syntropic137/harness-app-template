@@ -51,16 +51,16 @@ describe('thin script wrappers', () => {
     ]);
   });
 
-  test('qa runs the full quality sweep', async () => {
+  test('qa runs fitness and secrets before tests without dropping checks', async () => {
     const main = await loadMain('qa');
     main(['--filter=...']);
     expect(calls).toEqual([
       ['pnpm', ['turbo', 'run', 'typecheck', '--filter=...']],
       ['pnpm', ['turbo', 'run', 'lint', '--filter=...']],
-      ['pnpm', ['turbo', 'run', 'test', '--concurrency=1', '--filter=...']],
-      ['pnpm', ['exec', 'vitest', 'run', 'scripts/tests', '--coverage']],
       ['harness/sensors/bin/sensors', ['gate', '--profile=local']],
       ['sh', ['-eu', '-c', expect.stringContaining('gitleaks detect --redact --no-banner')]],
+      ['pnpm', ['turbo', 'run', 'test', '--concurrency=1', '--filter=...']],
+      ['pnpm', ['exec', 'vitest', 'run', 'scripts/tests', '--coverage']],
     ]);
   });
 
