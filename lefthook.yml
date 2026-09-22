@@ -172,7 +172,8 @@ pre-commit:
           # findings -- a gate that can never go red. `--staged` takes no value,
           # so the bogus flag was silently swallowed rather than mis-parsed as a
           # filename (contrast the `--files`-form invocation below).
-          mkdir -p .beads && ubs --staged --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl
+          # Config/docs-only commits have no supported source; source findings still fail.
+          mkdir -p .beads && UBS_ALLOW_NO_SCAN=1 ubs --staged --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl
         '
 
     python-ruff-format:
