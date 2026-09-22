@@ -19,7 +19,6 @@ gitleaks detect --redact --no-banner
 export function main(argv: string[] = []): void {
   typecheckMain(argv);
   lintMain(argv);
-  testMain(argv);
   // Profile (ADR-0028): `just qa` runs the LEAN `local` profile, matching the
   // lefthook pre-push `sensors-gate` hook. A bare checkout / fresh fork /
   // scaffolded project has none of the instrumented adapters installed
@@ -32,6 +31,9 @@ export function main(argv: string[] = []): void {
   // heavy toolchain.
   runInherit('harness/sensors/bin/sensors', ['gate', '--profile=local']);
   runInherit('sh', ['-eu', '-c', SECRET_SCAN_SCRIPT]);
+  // Fail architecture/security before spending time on the full test suite.
+  // Typecheck still runs first so dependency build output is available.
+  testMain(argv);
 }
 
 /* v8 ignore next 3 */

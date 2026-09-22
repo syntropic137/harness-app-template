@@ -222,12 +222,12 @@ export const FITNESS_METRICS = {
       id: 'sentrux-quality-signal',
       name: 'Sentrux Composite Quality Signal',
       objective:
-        'Geometric mean of sentrux 5 root-cause sub-scores (modularity, acyclicity, depth, equality, redundancy). Direction is min (larger-is-better). Sentrux is the 2nd architectural lens alongside APSS topology per ADR-0017; the metric ratchets up as the project improves so the floor only ever tightens.',
+        'Geometric mean of sentrux 5 root-cause sub-scores (modularity, acyclicity, depth, equality, redundancy). Direction is min (larger-is-better). Sentrux is the 2nd architectural lens alongside APSS topology per ADR-0017; the composite is observational because the mix of scanned files can move it without a concrete defect (ADR-0029).',
       source: '.sentrux/baseline.json quality_signal (via harness/sensors/sentrux_scan.mjs)',
       adapter: 'sentrux',
       direction: 'min',
       default_threshold: 0,
-      fail_on_regression: true,
+      fail_on_regression: false,
       value: (_report, options) => sentruxMetricValue(options, 'quality_signal'),
     },
     {
@@ -1283,7 +1283,7 @@ function opWord(op) {
     return '>=';
   }
   if (op === 'equals') {
-    return '==';
+    return '=='; // ubs:ignore — literal display label, not a loose equality expression
   }
   return '<=';
 }
@@ -1947,7 +1947,7 @@ export function ratchetBaseline(baseline, currentReport, options = {}) {
 function atomicWriteFile(path, content) {
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true });
-  const tmp = `${path}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const tmp = `${path}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`; // ubs:ignore — temp-file suffix, not a security token
   writeFileSync(tmp, content);
   try {
     renameSync(tmp, path);

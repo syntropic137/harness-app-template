@@ -61,7 +61,7 @@ function makeTempRoot(label) {
 }
 
 function cloneJson(value) {
-  return JSON.parse(JSON.stringify(value));
+  return JSON.parse(JSON.stringify(value)); // ubs:ignore — round-trip test fixture; invalid input must throw
 }
 
 function relaxationReferenceBaseline() {
@@ -453,7 +453,7 @@ test('lens=apss-topology: gate.mjs FAILS on coupling regression, PASSES on clean
 // Lens 4 - sentrux (gate.mjs main, --sentrux=<path>, stub IO).
 // Two metric directions exercised: cycle_count (direction:max — a
 // brand-new circular dependency is a regression) AND quality_signal
-// (direction:min — dropping composite quality is a regression). The
+// (observational — file-mix changes do not establish a defect). The
 // per-metric ratchet unit tests in sentrux.test.mjs check each metric
 // in isolation; here we drive the FULL gate.mjs main() so the
 // envelope-file→fitness-options→compareBaseline→exit-code wiring is
@@ -526,9 +526,8 @@ test('lens=sentrux: gate.mjs FAILS on new cycle regression, PASSES on clean', as
   assert.equal(cleanCode, 0, 'sentrux clean envelope must pass');
   assert.match(cleanIo.stdout(), /VERDICT: PASS sensors gate/);
 
-  // (c) Quality signal drop exercises the OTHER direction (min) - same
-  // gate path, different metric class. Floor at 0.8; current at 0.4 is
-  // a regression because larger is better for quality_signal.
+  // (c) Composite quality is observable but does not hard-gate (ADR-0029).
+  // Concrete cycle regressions above still fail through the same adapter.
   const qualSeed = sentruxEnvelope({ cycle_count: 0, quality_signal: 0.8 });
   const qualBaseline = extractApssFitnessBaseline(emptyReport(), { sentrux: qualSeed });
   const qualBaselineJson = `${JSON.stringify(qualBaseline, null, 2)}\n`;
@@ -551,8 +550,8 @@ test('lens=sentrux: gate.mjs FAILS on new cycle regression, PASSES on clean', as
     ],
     qualIo.io,
   );
-  assert.equal(qualCode, 1, 'quality_signal drop must fail (direction:min)');
-  assert.match(qualIo.stdout(), /sentrux-quality-signal/);
+  assert.equal(qualCode, 0, 'composite quality alone must not fail');
+  assert.match(qualIo.stdout(), /VERDICT: PASS sensors gate/);
 
   assert.ok(regMs < 2000, `sentrux gate should fail FAST; took ${regMs} ms`);
 
@@ -560,7 +559,7 @@ test('lens=sentrux: gate.mjs FAILS on new cycle regression, PASSES on clean', as
     lens: 'sentrux',
     failsOnRegression: true,
     passesOnClean: true,
-    failureFingerprint: 'sentrux-cycle-count 2>0 AND sentrux-quality-signal 0.4<0.8',
+    failureFingerprint: 'sentrux-cycle-count 2>0; composite quality remains observational',
     durationMs: { regression: regMs },
   });
 });

@@ -129,9 +129,9 @@ from 5 back toward 15 fails. Coupling headroom (fan-out 2 vs 20) is
 incidental; complexity headroom (cognitive 5 vs 15) is a real, defensible
 gain worth pinning. The two cannot share one default, so `ratchet_floor` is
 opt-in and wired only where headroom is genuinely incidental — the MD01
-coupling maxima (§3). The min-direction (larger-is-better) metrics never
-clamp: a higher quality signal is always a genuine improvement, never
-incidental headroom.
+coupling maxima (§3). Direction alone does not establish size-invariance: a larger-is-better
+composite can also move with the mix of files. Such a metric must pass
+the admission test before it can enforce a floor.
 
 ### 3. Applying the rule to MD01 (Modularity and Coupling)
 
@@ -219,3 +219,14 @@ kept; the wrong-shaped signal is not hard-gated.
 - `docs/sensors/dimensions-reference.md` — MD01 section + "adding a new dimension" recipe (to carry the §1 admission test).
 - Upstream: [syntropic137/harness-app-template#57](https://github.com/syntropic137/harness-app-template/issues/57) (extends #56) — the coupling-gate reliability issue this ADR answers.
 - Downstream evidence: [NeuralEmpowerment/dream-ship_v0#17](https://github.com/NeuralEmpowerment/dream-ship_v0/issues/17) and research docs in dream-ship PR #20 (design / mechanics / recurrence-audit / template-ladder lanes).
+
+## Follow-up: template file-mix changes (2026-09-21)
+
+A downstream scaffold passed its tests, then failed on composite quality
+0.7297397467043513 versus an inherited floor of 0.729747682352867 after
+removing template-only artifacts. Concrete Sentrux counts were unchanged.
+Apply this ADR's admission rule to sentrux-quality-signal: keep its
+measurement and recorded value, but make it observational and stop
+ratcheting incidental composite headroom. Concrete defect gates and
+numeric baselines remain unchanged. Regression tests reproduce these
+measurements and verify that a new cycle still fails.

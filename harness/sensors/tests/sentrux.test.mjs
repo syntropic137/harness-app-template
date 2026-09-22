@@ -82,16 +82,17 @@ test('sentrux: god_file_count tightens (direction=max) on improvement', () => {
   assert.equal(t.next, 1);
 });
 
-test('sentrux: quality_signal tightens (direction=min — larger is better)', () => {
+test('sentrux: composite quality remains observable without ratcheting incidental headroom', () => {
   const baseline = baselineWithSentrux({ quality_signal: 0.5 });
   const { tightenings, changed, next } = ratchetBaseline(baseline, emptyReport(), {
     sentrux: envelope({ quality_signal: 0.82 }),
   });
-  assert.equal(changed, true);
-  assert.equal(next.dimensions.MT01.metrics['sentrux-quality-signal'].baseline, 0.82);
-  const t = tightenings.find((x) => x.metric === 'sentrux-quality-signal');
-  assert.ok(t, 'expected tightening entry for sentrux-quality-signal');
-  assert.equal(t.direction, 'min');
+  assert.equal(changed, false);
+  assert.equal(next.dimensions.MT01.metrics['sentrux-quality-signal'].baseline, 0.5);
+  assert.equal(
+    tightenings.some((x) => x.metric === 'sentrux-quality-signal'),
+    false,
+  );
 });
 
 test('sentrux: a worsening coupling_score no longer fails the gate (removed per ADR-0029)', () => {
@@ -123,16 +124,22 @@ test('sentrux: cycle_count is a regression when sentrux finds a new cycle', () =
   );
 });
 
-test('sentrux: quality_signal dropping is a regression (direction=min)', () => {
-  const baseline = baselineWithSentrux({ quality_signal: 0.8 });
-  const cmp = compareBaseline(baseline, emptyReport(), {
-    sentrux: envelope({ quality_signal: 0.4 }),
-  });
-  assert.equal(cmp.ok, false);
-  assert.ok(
-    cmp.regressions.some((r) => r.dimension === 'MT01' && r.metric === 'sentrux-quality-signal'),
-    'expected MT01 sentrux-quality-signal regression to be flagged',
+test('sentrux: generated-tree composite drift is observational, but new cycles still fail', () => {
+  const baseline = baselineWithSentrux({ quality_signal: 0.729747682352867, cycle_count: 0 });
+  const sentrux = envelope({ quality_signal: 0.7297397467043513, cycle_count: 0 });
+  const cmp = compareBaseline(baseline, emptyReport(), { sentrux });
+  assert.equal(cmp.ok, true);
+  assert.equal(cmp.regressions.length, 0);
+  const measured = extractApssFitnessBaseline(emptyReport(), { sentrux });
+  assert.equal(
+    measured.dimensions.MT01.metrics['sentrux-quality-signal'].baseline,
+    0.7297397467043513,
   );
+  const defects = compareBaseline(baseline, emptyReport(), {
+    sentrux: envelope({ quality_signal: 0.7297397467043513, cycle_count: 1 }),
+  });
+  assert.equal(defects.ok, false);
+  assert.ok(defects.regressions.some((r) => r.metric === 'sentrux-cycle-count'));
 });
 
 test('sentrux: absent envelope (available=false) degrades to no-reading, not a false zero', () => {
@@ -182,7 +189,7 @@ test('sentrux: main() with --sentrux flag — tightens baseline.json on improvem
 
   assert.equal(code, 0, 'sentrux improvement should exit 0');
   assert.equal(writes.length, 1, 'expected one baseline write for the tightened floor');
-  const written = JSON.parse(writes[0].content);
+  const written = JSON.parse(writes[0].content); // ubs:ignore — invalid gate output must fail this test
   assert.equal(written.dimensions.MT01.metrics['sentrux-god-file-count'].baseline, 0);
   assert.match(stdout(), /VERDICT: PASS sensors gate/);
   assert.match(stdout(), /RATCHET: floor tightened/);
