@@ -291,30 +291,35 @@ interface ApplyResult {
   forced: string[];
 }
 
+type PlanAction = 'upstream' | 'write-merged' | 'conflict' | 'none';
+
+function actionFor(plan: FilePlan, force: boolean): PlanAction {
+  if (plan.category === 'fast-forward') return 'upstream';
+  if (plan.category === 'merge-clean') return 'write-merged';
+  if (force && FORCEABLE.has(plan.category)) return 'upstream';
+  return plan.category === 'conflict' ? 'conflict' : 'none';
+}
+
+/** Clean merges are written and staged; text conflicts are written with markers, unstaged. */
+function writeMerged(cwd: string, plan: FilePlan, action: PlanAction): void {
+  if (!plan.merged || (action !== 'write-merged' && action !== 'conflict')) return;
+  writeWorktreeFile(cwd, plan.path, plan.merged);
+  if (action === 'write-merged') git(['add', '--', plan.path], { cwd });
+}
+
 /** Stage every non-conflicting outcome; write conflicts to the working tree unstaged. */
 function applyPlan(cwd: string, plans: FilePlan[], target: string, force: boolean): ApplyResult {
-  const takeTheirs: string[] = [];
-  const remove: string[] = [];
-  const upstreamSide = (plan: FilePlan) =>
-    (plan.theirsDeleted ? remove : takeTheirs).push(plan.path);
-  const result: ApplyResult = { conflicts: [], forced: [] };
-  for (const plan of plans) {
-    if (plan.category === 'fast-forward') {
-      upstreamSide(plan);
-    } else if (plan.category === 'merge-clean') {
-      writeWorktreeFile(cwd, plan.path, plan.merged as Buffer);
-      git(['add', '--', plan.path], { cwd });
-    } else if (force && FORCEABLE.has(plan.category)) {
-      upstreamSide(plan);
-      result.forced.push(plan.path);
-    } else if (plan.category === 'conflict') {
-      if (plan.merged) writeWorktreeFile(cwd, plan.path, plan.merged);
-      result.conflicts.push(plan);
-    }
-  }
-  if (takeTheirs.length > 0) git(['checkout', target, '--', ...takeTheirs], { cwd });
+  const actions = plans.map((plan) => ({ plan, action: actionFor(plan, force) }));
+  for (const { plan, action } of actions) writeMerged(cwd, plan, action);
+  const upstream = actions.filter((a) => a.action === 'upstream').map((a) => a.plan);
+  const checkout = upstream.filter((plan) => !plan.theirsDeleted).map((plan) => plan.path);
+  const remove = upstream.filter((plan) => plan.theirsDeleted).map((plan) => plan.path);
+  if (checkout.length > 0) git(['checkout', target, '--', ...checkout], { cwd });
   if (remove.length > 0) git(['rm', '-q', '--', ...remove], { cwd });
-  return result;
+  return {
+    conflicts: actions.filter((a) => a.action === 'conflict').map((a) => a.plan),
+    forced: upstream.filter((plan) => plan.category !== 'fast-forward').map((plan) => plan.path),
+  };
 }
 
 function syncCommitArgs(upstreamSha: string): string[] {
