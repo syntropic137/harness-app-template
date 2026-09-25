@@ -32,7 +32,7 @@ The risky alternative is `git merge upstream/main`. That works for a vanilla for
 | `kept-deleted` | you deleted it, upstream changed it | stays deleted, reported; does not block the update |
 | `kept-modified` | upstream deleted it, you changed it | stays (yours), reported; does not block the update |
 
-With no conflicts the result is committed as `update: harness sync from upstream@<sha>` with a `Harness-Upstream: <full-sha>` trailer. On conflict, every non-conflicting change is staged; resolve the listed files, `git add` them, and commit with the message the error prints (keep the trailer so the next update merges from this point).
+With no conflicts the result is committed as `update: harness sync from upstream@<sha>` with a `Harness-Upstream: <full-sha>` trailer. The commit is path-limited to the harness files the update touched, so anything else you had staged stays staged and out of it. On conflict, every non-conflicting change is staged; resolve the listed files, `git add` them, and run the path-limited `git commit` the error prints (keep the trailer so the next update merges from this point).
 
 So your committed customizations to harness files (a tweaked `.claude/skills/*/SKILL.md`, a hardened `lefthook.yml` job) survive updates unless upstream changed the same lines. `ws_apps/`, `ws_packages/`, and your other consumer-owned trees are never part of the merge.
 
@@ -93,7 +93,7 @@ Force the apply path even without a TTY. Use in trusted automation:
 
 `--force` means **upstream wins wherever the merge could not decide**: every `conflict`, `kept-deleted` and `kept-modified` file takes the upstream side (the old wholesale-overwrite behaviour, now limited to files that actually conflict). Clean merges and `keep-local` files are unaffected.
 
-It also covers *uncommitted* edits: without `--force`, dirty harness-owned paths refuse the update; with it, `update.ts` stash-pushes them, applies, then stash-pops. If that pop conflicts, the stash is kept and the output says so. Consumer-owned paths are never stashed (they're never touched).
+It also covers *uncommitted* edits: without `--force`, dirty harness-owned paths refuse the update; with it, `update.ts` stash-pushes them, applies, then stash-pops. If that pop conflicts, the sync commit stands, the stash is kept, and the command exits non-zero naming the conflicted files and the recovery steps. Consumer-owned paths are never stashed (they're never touched).
 
 ### `just update -- --strategy=preview` / `--strategy=merge`
 
@@ -183,8 +183,8 @@ The thresholds themselves stay at 100 percent and remain harness-owned; the leve
 | `no `upstream` remote configured` | You didn't run `git remote add upstream …` in Get Started step 3 | Run `git remote add upstream https://github.com/syntropic137/harness-app-template` |
 | `.harness-provenance.json is immutable after init; revert it before updating` | You edited the provenance file | `git checkout HEAD -- .harness-provenance.json` |
 | `dirty harness-owned paths would be overwritten: …` | You have uncommitted edits to harness-owned files | Commit them, stash them, or rerun with `--force` (stashes + pops automatically) |
-| `just update: N harness-owned file(s) conflict; NOTHING was committed.` | You and upstream changed the same lines (or the same binary/symlink) | Resolve the listed files, `git add`, commit with the printed message; or `git reset --hard HEAD` and rerun with `--force` to take upstream for those files |
-| `no harness-owned paths found upstream; nothing to update` | The upstream `<ref>` doesn't carry any files matching the harness path list (extremely rare; usually means `upstream` is pointed at the wrong repo) | Verify `git remote -v` shows the canonical CHA repo |
+| `just update: N harness-owned file(s) conflict; NOTHING was committed.` | You and upstream changed the same lines (or the same binary/symlink) | Resolve the listed files, `git add`, commit with the printed message; or run the printed path-scoped `git restore --source=HEAD --staged --worktree -- <paths>` (touches only this update's files) and rerun with `--force` to take upstream for those files |
+| `no harness-owned paths found upstream; nothing to update` | Neither your fork nor upstream `<ref>` carries any file matching the harness path list (if upstream deleted them all, that is a normal update instead) (extremely rare; usually means `upstream` is pointed at the wrong repo) | Verify `git remote -v` shows the canonical CHA repo |
 
 The script exits 0 with `already up to date with upstream <sha>` when your template base matches upstream — no commit is created.
 

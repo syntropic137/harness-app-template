@@ -5,7 +5,6 @@ import { git, shortSha } from './lib/git';
 import {
   describePlan,
   type FilePlan,
-  listTree,
   type MergeCategory,
   pathsIn,
   planMerge,
@@ -269,17 +268,31 @@ function stashPreimage(cwd: string, dirty: string[], options: UpdateOptions): bo
   return !stashOutput.includes('No local changes to save');
 }
 
-/** Pop the --force pre-image stash; a conflicting pop keeps the stash and says so. */
-function popPreimage(cwd: string, stashed: boolean): string[] {
-  if (!stashed) return [];
+/**
+ * Pop the --force pre-image stash. A conflicting pop is a FAILURE, not a
+ * warning: the tree now holds conflict markers and the stash is kept, so the
+ * command must exit non-zero and say how to recover.
+ */
+function popPreimage(cwd: string, stashed: boolean): void {
+  if (!stashed) return;
   try {
     git(['stash', 'pop'], { cwd });
-    return [];
   } catch {
-    return [
-      'warning: restoring your uncommitted harness edits (`git stash pop`) conflicted.',
-      'They are still in `git stash list`; resolve the conflicts shown by `git status`.',
-    ];
+    const conflicted = git(['diff', '--name-only', '--diff-filter=U'], { cwd, allowFailure: true })
+      .split('\n')
+      .filter(Boolean);
+    throw new Error(
+      [
+        'just update: the harness sync WAS committed, but restoring your uncommitted',
+        'harness edits (`git stash pop`) conflicted in:',
+        ...conflicted.map((path) => `  ${path}`),
+        '',
+        'Your edits are still in the stash (`git stash list`). To finish:',
+        '  1. resolve the <<<<<<< / >>>>>>> markers in each file above',
+        '  2. git restore --staged -- <path>...   (keep them as uncommitted edits)',
+        '  3. git stash drop',
+      ].join('\n'),
+    );
   }
 }
 
@@ -331,10 +344,15 @@ function syncCommitArgs(upstreamSha: string): string[] {
   ];
 }
 
-function conflictError(conflicts: FilePlan[], target: string, upstreamSha: string): Error {
-  const commit = syncCommitArgs(upstreamSha)
+function conflictError(
+  conflicts: FilePlan[],
+  touched: string[],
+  context: { target: string; upstreamSha: string },
+): Error {
+  const commit = syncCommitArgs(context.upstreamSha)
     .map((arg) => (arg === '-m' ? arg : `"${arg}"`))
     .join(' ');
+  const paths = touched.join(' ');
   return new Error(
     [
       `just update: ${conflicts.length} harness-owned file(s) conflict; NOTHING was committed.`,
@@ -342,12 +360,14 @@ function conflictError(conflicts: FilePlan[], target: string, upstreamSha: strin
       '',
       'Every non-conflicting change is already staged. To finish:',
       '  1. resolve each file above: remove the <<<<<<< / ======= / >>>>>>> markers,',
-      `     or take a side: \`git checkout ${target} -- <path>\` / \`git checkout HEAD -- <path>\``,
+      `     or take a side: \`git checkout ${context.target} -- <path>\` / \`git checkout HEAD -- <path>\``,
       '  2. git add <path>...',
-      `  3. git commit ${commit}`,
-      '     (the Harness-Upstream trailer makes the next update merge from this point)',
-      'Or discard your side of every conflict: `git reset --hard HEAD` then',
-      '`just update -- --write --force` (upstream wins for conflicted files only).',
+      `  3. git commit ${commit} -- ${paths}`,
+      '     (path-limited so nothing else you staged is swept in; the Harness-Upstream',
+      '     trailer makes the next update merge from this point)',
+      'Or undo this update (touches only the paths above, nothing else) with',
+      `\`git restore --source=HEAD --staged --worktree -- ${paths}\``,
+      'then `just update -- --write --force` (upstream wins for conflicted files only).',
     ].join('\n'),
   );
 }
@@ -370,6 +390,11 @@ function outcomeLines(plans: FilePlan[], forced: string[]): string[] {
   return lines;
 }
 
+/** Harness paths this run staged or left conflicted (what a commit or undo must cover). */
+function touchedPaths(plans: FilePlan[], force: boolean): string[] {
+  return plans.filter((plan) => actionFor(plan, force) !== 'none').map((plan) => plan.path);
+}
+
 function applyUpdate(
   cwd: string,
   plans: FilePlan[],
@@ -377,30 +402,29 @@ function applyUpdate(
   dirty: string[],
   options: UpdateOptions,
 ): string {
-  const { target, ref, upstreamSha } = context;
+  const { ref, upstreamSha } = context;
+  const force = options.force === true;
   const stashed = stashPreimage(cwd, dirty, options);
-  const { conflicts, forced } = applyPlan(cwd, plans, target, options.force === true);
+  const { conflicts, forced } = applyPlan(cwd, plans, context.target, force);
+  const touched = touchedPaths(plans, force);
   if (conflicts.length > 0) {
-    throw conflictError(conflicts, target, upstreamSha);
+    throw conflictError(conflicts, touched, context);
   }
-  const refreshed = git(['diff', '--name-only', '--cached'], { cwd, allowFailure: true })
-    .split('\n')
-    .filter(Boolean);
   const outcome = outcomeLines(plans, forced);
-  if (refreshed.length === 0) {
-    const popped = popPreimage(cwd, stashed);
-    return [
-      `already up to date with upstream ${shortSha(upstreamSha)} (${ref})`,
-      ...outcome,
-      ...popped,
-    ].join('\n');
+  if (touched.length === 0) {
+    // Nothing was applied, so the stash pops onto its own base and cannot conflict.
+    if (stashed) git(['stash', 'pop'], { cwd });
+    return [`already up to date with upstream ${shortSha(upstreamSha)} (${ref})`, ...outcome].join(
+      '\n',
+    );
   }
-  git(['commit', ...syncCommitArgs(upstreamSha)], { cwd });
-  const popped = popPreimage(cwd, stashed);
+  // Path-limited: anything the consumer had staged elsewhere stays staged
+  // and out of the sync commit.
+  git(['commit', ...syncCommitArgs(upstreamSha), '--', ...touched], { cwd });
+  popPreimage(cwd, stashed);
   return [
-    `updated: ${refreshed.length} harness file(s) refreshed; ws_apps/ws_packages untouched`,
+    `updated: ${touched.length} harness file(s) refreshed; ws_apps/ws_packages untouched`,
     ...outcome,
-    ...popped,
   ].join('\n');
 }
 
@@ -420,15 +444,16 @@ export function updateProject(options: UpdateOptions = {}): string {
   if (templateBase === upstreamSha || base === upstreamSha) {
     return `already up to date with upstream ${shortSha(upstreamSha)} (${ref})`;
   }
-  if (listTree(cwd, target, HARNESS_OWNED_PATHS).size === 0) {
-    return 'no harness-owned paths found upstream; nothing to update';
-  }
-
   const plans = planMerge(
     cwd,
     { base, ours: 'HEAD', theirs: target, theirsLabel: target },
     HARNESS_OWNED_PATHS,
   );
+  // Only when NO side has any harness path. Upstream deleting every harness
+  // file is still an update, and must go through the plan like any deletion.
+  if (plans.length === 0) {
+    return 'no harness-owned paths found upstream; nothing to update';
+  }
   const summaryLines = [...buildSummaryLines(cwd, templateBase, target), ...describePlan(plans)];
 
   if (options.check) {
