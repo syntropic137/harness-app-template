@@ -72,7 +72,8 @@ pre-commit:
             fi
           }
           _dest="$(git rev-parse --show-toplevel)/.beads/issues.jsonl"
-          _tmp=$(mktemp "${TMPDIR:-/tmp}/beads-export.XXXXXX")
+          mkdir -p "${_dest%/*}"
+          _tmp=$(mktemp "${_dest%/*}/.issues.jsonl.export.XXXXXX")
           cleanup() { rm -f "$_tmp"; }
           trap cleanup EXIT
           # `bd hooks run pre-commit` would also `git add` the export itself.
@@ -99,23 +100,33 @@ pre-commit:
               esac
               ;;
           esac
-          if ! grep -q . "$_tmp"; then
-            _tracked=0
-            for _rev in ":.beads/issues.jsonl" "HEAD:.beads/issues.jsonl"; do
-              if git cat-file -e "$_rev" 2>/dev/null && git cat-file -p "$_rev" | grep -q .; then
-                _tracked=1
-              fi
-            done
-            if [ "$_tracked" -eq 1 ]; then
+          # Tracked size: the index version (what this commit will record),
+          # else HEAD. An empty export may only replace an empty tracked file.
+          if [ ! -s "$_tmp" ]; then
+            _p=.beads/issues.jsonl
+            if git cat-file -e ":$_p" 2>/dev/null; then
+              _tracked=$(git cat-file -s ":$_p")
+            elif git cat-file -e "HEAD:$_p" 2>/dev/null; then
+              _tracked=$(git cat-file -s "HEAD:$_p")
+            else
+              _tracked=0
+            fi
+            if [ "$_tracked" -gt 0 ]; then
               printf "%s\n" \
                 "beads: REFUSING to export - bd returned 0 issues but the tracked .beads/issues.jsonl has content." \
                 "beads: the bd database this checkout resolves to is empty or uninitialised (in a linked worktree that is the MAIN checkout database)." \
-                "beads: nothing was written. Repair the database (see bd count, bd import) or, if the store really is meant to be empty, delete the file in a commit of its own." >&2
+                "beads: nothing was written. Repair the database (check bd count), or if the store really is meant to be empty, truncate the file and git add it yourself." >&2
               exit 1
             fi
           fi
-          cmp -s "$_tmp" "$_dest" 2>/dev/null && exit 0
-          cat "$_tmp" > "$_dest"
+          # Replace atomically (temp file in the same directory, then rename)
+          # so a failed copy can never leave the tracked file truncated. Skip
+          # the write when unchanged, but still fall through to the staging
+          # check: the working file may match while the index is stale.
+          if ! cmp -s "$_tmp" "$_dest" 2>/dev/null; then
+            chmod 644 "$_tmp"
+            mv -f "$_tmp" "$_dest"
+          fi
           git diff --quiet -- .beads/issues.jsonl && exit 0
           i=0
           until git add .beads/issues.jsonl 2>/dev/null; do

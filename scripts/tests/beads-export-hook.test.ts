@@ -173,6 +173,38 @@ describe('beads-export pre-commit hook', () => {
     expect(staged(fx.main)).toBe('');
   });
 
+  it('stages the export even when the working file already matches it', () => {
+    const fx = makeFixture();
+    const updated = `${TRACKED}{"id":"t-3","title":"three"}\n`;
+    writeFileSync(join(fx.main, '.beads', 'fake-db'), updated);
+    writeFileSync(jsonl(fx.worktree), updated);
+
+    const r = runHook(fx, fx.worktree);
+
+    expect(r.status, `stdout: ${r.stdout}\nstderr: ${r.stderr}`).toBe(0);
+    expect(staged(fx.worktree)).toBe('.beads/issues.jsonl');
+  });
+
+  it('allows an empty export once the user has staged an empty file', () => {
+    const fx = makeFixture();
+    writeFileSync(join(fx.main, '.beads', 'fake-db'), '');
+    writeFileSync(jsonl(fx.main), '');
+    git(fx.main, ['add', '.beads/issues.jsonl']);
+
+    const r = runHook(fx, fx.main);
+
+    expect(r.status, `stdout: ${r.stdout}\nstderr: ${r.stderr}`).toBe(0);
+  });
+
+  it('leaves no temp files behind', () => {
+    const fx = makeFixture();
+    writeFileSync(join(fx.main, '.beads', 'fake-db'), '');
+
+    runHook(fx, fx.worktree);
+
+    expect(git(fx.worktree, ['status', '--porcelain', '--untracked-files=all']).trim()).toBe('');
+  });
+
   it('still tolerates a fresh clone with no beads database (#78)', () => {
     const fx = makeFixture();
 
