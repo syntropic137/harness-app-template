@@ -6,6 +6,7 @@ import {
   describePlan,
   type FilePlan,
   listTree,
+  type MergeCategory,
   pathsIn,
   planMerge,
   writeWorktreeFile,
@@ -32,12 +33,13 @@ import {
  *   - changed on both sides          -> `git merge-file`; clean merges apply,
  *     conflicts leave standard markers in the working tree, nothing is
  *     committed, and the command exits non-zero naming each file
- *   - binary / symlink changed on both sides, or deleted upstream but
- *     modified locally               -> conflict (local copy kept)
+ *   - binary / symlink changed on both sides -> conflict (local copy kept)
  *   - deleted locally, changed upstream -> stays deleted, reported
+ *   - deleted upstream, modified locally -> stays (yours), reported; does
+ *     NOT block the rest of the update
  *
- * `--force` means "upstream wins where we could not merge": every conflict
- * and kept-deleted file takes the upstream side (the pre-merge wholesale
+ * `--force` means "upstream wins where we could not merge": every conflict,
+ * kept-deleted and kept-modified file takes the upstream side (the pre-merge wholesale
  * overwrite, now limited to the files that actually conflict). It also still
  * stashes dirty harness-owned edits before applying and pops them after.
  * With no conflicts the result is committed as
@@ -281,6 +283,9 @@ function popPreimage(cwd: string, stashed: boolean): string[] {
   }
 }
 
+/** Categories where the merge could not decide and --force takes upstream. */
+const FORCEABLE = new Set<MergeCategory>(['conflict', 'kept-deleted', 'kept-modified']);
+
 interface ApplyResult {
   conflicts: FilePlan[];
   forced: string[];
@@ -299,7 +304,7 @@ function applyPlan(cwd: string, plans: FilePlan[], target: string, force: boolea
     } else if (plan.category === 'merge-clean') {
       writeWorktreeFile(cwd, plan.path, plan.merged as Buffer);
       git(['add', '--', plan.path], { cwd });
-    } else if (force && (plan.category === 'conflict' || plan.category === 'kept-deleted')) {
+    } else if (force && FORCEABLE.has(plan.category)) {
       upstreamSide(plan);
       result.forced.push(plan.path);
     } else if (plan.category === 'conflict') {
@@ -347,10 +352,14 @@ function outcomeLines(plans: FilePlan[], forced: string[]): string[] {
   const kept = pathsIn(plans, 'keep-local');
   const merged = pathsIn(plans, 'merge-clean');
   const keptDeleted = forced.length > 0 ? [] : pathsIn(plans, 'kept-deleted');
+  const keptModified = forced.length > 0 ? [] : pathsIn(plans, 'kept-modified');
   if (kept.length > 0) lines.push(`kept local: ${kept.join(', ')}`);
   if (merged.length > 0) lines.push(`merged cleanly: ${merged.join(', ')}`);
   if (keptDeleted.length > 0) {
     lines.push(`kept deleted (changed upstream; --force restores): ${keptDeleted.join(', ')}`);
+  }
+  if (keptModified.length > 0) {
+    lines.push(`kept yours (deleted upstream; --force deletes): ${keptModified.join(', ')}`);
   }
   if (forced.length > 0) lines.push(`--force took upstream for: ${forced.join(', ')}`);
   return lines;
@@ -434,14 +443,15 @@ const USAGE = `usage: bun run scripts/update.ts [--check] [--strategy=preview|me
     fast-forward   unchanged locally        -> take upstream (adds and deletes too)
     keep-local     unchanged upstream       -> keep yours
     merge-clean    changed on both sides    -> merged and committed
-    conflict       overlapping / binary / deleted upstream but modified locally
+    conflict       overlapping edits, or binary/symlink changed on both sides
                    -> markers left in the working tree, NOTHING committed, exit 1
     kept-deleted   you deleted it, upstream changed it -> stays deleted
+    kept-modified  upstream deleted it, you changed it -> stays (yours)
 
   --check      print the summary + per-file plan and exit non-zero if updates exist
   --strategy   preview (print the plan, change nothing) or merge (apply)
   --write      shorthand for --strategy=merge
-  --force      upstream wins for every conflict and kept-deleted file (the pre-merge
+  --force      upstream wins for every conflict, kept-deleted and kept-modified file (the pre-merge
                overwrite behaviour), and dirty harness edits are stashed and re-applied`;
 
 const FLAG_HANDLERS: Record<string, (options: UpdateOptions) => void> = {

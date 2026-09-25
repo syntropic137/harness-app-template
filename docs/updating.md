@@ -28,8 +28,9 @@ The risky alternative is `git merge upstream/main`. That works for a vanilla for
 | `fast-forward` | you never changed the file | take upstream (including upstream adds and deletes) |
 | `keep-local` | upstream never changed the file | keep yours |
 | `merge-clean` | both changed, `git merge-file` merges cleanly | merged result applied |
-| `conflict` | overlapping edits; binary or symlink changed on both sides; deleted upstream but modified locally | standard `<<<<<<<` markers left in the working tree (binary/deleted cases keep your copy), **nothing committed**, exit 1 listing each file |
-| `kept-deleted` | you deleted it, upstream changed it | stays deleted, reported |
+| `conflict` | overlapping edits; binary or symlink changed on both sides | standard `<<<<<<<` markers left in the working tree (binary/symlink keep your copy), **nothing committed**, exit 1 listing each file |
+| `kept-deleted` | you deleted it, upstream changed it | stays deleted, reported; does not block the update |
+| `kept-modified` | upstream deleted it, you changed it | stays (yours), reported; does not block the update |
 
 With no conflicts the result is committed as `update: harness sync from upstream@<sha>` with a `Harness-Upstream: <full-sha>` trailer. On conflict, every non-conflicting change is staged; resolve the listed files, `git add` them, and commit with the message the error prints (keep the trailer so the next update merges from this point).
 
@@ -90,7 +91,7 @@ Force the apply path even without a TTY. Use in trusted automation:
 
 ### `just update -- --force`
 
-`--force` means **upstream wins wherever the merge could not decide**: every `conflict` and `kept-deleted` file takes the upstream side (the old wholesale-overwrite behaviour, now limited to files that actually conflict). Clean merges and `keep-local` files are unaffected.
+`--force` means **upstream wins wherever the merge could not decide**: every `conflict`, `kept-deleted` and `kept-modified` file takes the upstream side (the old wholesale-overwrite behaviour, now limited to files that actually conflict). Clean merges and `keep-local` files are unaffected.
 
 It also covers *uncommitted* edits: without `--force`, dirty harness-owned paths refuse the update; with it, `update.ts` stash-pushes them, applies, then stash-pops. If that pop conflicts, the stash is kept and the output says so. Consumer-owned paths are never stashed (they're never touched).
 
@@ -182,7 +183,7 @@ The thresholds themselves stay at 100 percent and remain harness-owned; the leve
 | `no `upstream` remote configured` | You didn't run `git remote add upstream …` in Get Started step 3 | Run `git remote add upstream https://github.com/syntropic137/harness-app-template` |
 | `.harness-provenance.json is immutable after init; revert it before updating` | You edited the provenance file | `git checkout HEAD -- .harness-provenance.json` |
 | `dirty harness-owned paths would be overwritten: …` | You have uncommitted edits to harness-owned files | Commit them, stash them, or rerun with `--force` (stashes + pops automatically) |
-| `just update: N harness-owned file(s) conflict; NOTHING was committed.` | You and upstream changed the same lines (or a binary/symlink, or upstream deleted a file you edited) | Resolve the listed files, `git add`, commit with the printed message; or `git reset --hard HEAD` and rerun with `--force` to take upstream for those files |
+| `just update: N harness-owned file(s) conflict; NOTHING was committed.` | You and upstream changed the same lines (or the same binary/symlink) | Resolve the listed files, `git add`, commit with the printed message; or `git reset --hard HEAD` and rerun with `--force` to take upstream for those files |
 | `no harness-owned paths found upstream; nothing to update` | The upstream `<ref>` doesn't carry any files matching the harness path list (extremely rare; usually means `upstream` is pointed at the wrong repo) | Verify `git remote -v` shows the canonical CHA repo |
 
 The script exits 0 with `already up to date with upstream <sha>` when your template base matches upstream — no commit is created.

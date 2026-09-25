@@ -203,43 +203,67 @@ describe('updateProject', () => {
     }
   });
 
-  test('three-way: adds and deletes on each side', () => {
+  function setupAddsAndDeletes(root: string): string {
+    const { canonical, fork } = setupCanonicalAndFork(root, 'v1\n', {
+      'harness/drop-clean.txt': 'x\n',
+      'harness/drop-edited.txt': 'x\n',
+      'harness/local-gone.txt': 'x\n',
+    });
+    write(join(fork, 'harness/drop-edited.txt'), 'consumer edit\n');
+    rmSync(join(fork, 'harness/local-gone.txt'));
+    commitAll(fork, 'consumer edits and deletes');
+    rmSync(join(canonical, 'harness/drop-clean.txt'));
+    rmSync(join(canonical, 'harness/drop-edited.txt'));
+    write(join(canonical, 'harness/local-gone.txt'), 'upstream improved\n');
+    write(join(canonical, 'harness/added.txt'), 'brand new\n');
+    commitAll(canonical, 'template adds, deletes, edits');
+    return fork;
+  }
+
+  // Regression for the #78 guard's false refusal (found reviewing the
+  // dream-ship port): upstream DELETING a harness file the consumer edited
+  // must not block the update. The edit is kept and reported.
+  test('three-way: adds and deletes on each side, none of which block the update', () => {
     const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-adddel-'));
     try {
-      const { canonical, fork } = setupCanonicalAndFork(root, 'v1\n', {
-        'harness/drop-clean.txt': 'x\n',
-        'harness/drop-edited.txt': 'x\n',
-        'harness/local-gone.txt': 'x\n',
-      });
-      write(join(fork, 'harness/drop-edited.txt'), 'consumer edit\n');
-      rmSync(join(fork, 'harness/local-gone.txt'));
-      commitAll(fork, 'consumer edits and deletes');
-      rmSync(join(canonical, 'harness/drop-clean.txt'));
-      rmSync(join(canonical, 'harness/drop-edited.txt'));
-      write(join(canonical, 'harness/local-gone.txt'), 'upstream improved\n');
-      write(join(canonical, 'harness/added.txt'), 'brand new\n');
-      commitAll(canonical, 'template adds, deletes, edits');
-
+      const fork = setupAddsAndDeletes(root);
       const preview = updateProject({ cwd: fork, strategy: 'preview' });
       expect(preview).toContain('fast-forward (take upstream): 2');
-      expect(preview).toContain('conflict (needs manual resolution): 1');
-      expect(preview).toContain('harness/drop-edited.txt (deleted upstream, modified locally)');
-      expect(preview).toContain('kept-deleted (deleted locally, changed upstream): 1');
-
-      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
-        /drop-edited\.txt \(deleted upstream, modified locally\)/,
+      expect(preview).toContain(
+        'kept-modified (deleted upstream, modified locally): 1\n  harness/drop-edited.txt',
       );
-      expect(existsSync(join(fork, 'harness/added.txt'))).toBe(true);
+      expect(preview).toContain(
+        'kept-deleted (deleted locally, changed upstream): 1\n  harness/local-gone.txt',
+      );
+      expect(preview).not.toContain('conflict');
+
+      const result = updateProject({ cwd: fork, strategy: 'merge' });
+      expect(result).toContain('harness file(s) refreshed');
+      expect(result).toContain(
+        'kept yours (deleted upstream; --force deletes): harness/drop-edited.txt',
+      );
+      expect(result).toContain(
+        'kept deleted (changed upstream; --force restores): harness/local-gone.txt',
+      );
+      expect(readFileSync(join(fork, 'harness/added.txt'), 'utf8')).toBe('brand new\n');
       expect(existsSync(join(fork, 'harness/drop-clean.txt'))).toBe(false);
       expect(readFileSync(join(fork, 'harness/drop-edited.txt'), 'utf8')).toBe('consumer edit\n');
       expect(existsSync(join(fork, 'harness/local-gone.txt'))).toBe(false);
+      expect(run(fork, ['status', '--porcelain'])).toBe('');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
-      // Resolve by keeping ours and dropping the rest, then --force the next run.
-      run(fork, ['reset', '-q', '--hard', 'HEAD']);
+  test('three-way: --force deletes upstream-deleted edits and restores local deletions', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-adddel-force-'));
+    try {
+      const fork = setupAddsAndDeletes(root);
       const forced = updateProject({ cwd: fork, strategy: 'merge', force: true });
       expect(forced).toContain(
         '--force took upstream for: harness/drop-edited.txt, harness/local-gone.txt',
       );
+      expect(forced).not.toContain('kept yours');
       expect(existsSync(join(fork, 'harness/drop-edited.txt'))).toBe(false);
       expect(readFileSync(join(fork, 'harness/local-gone.txt'), 'utf8')).toBe(
         'upstream improved\n',

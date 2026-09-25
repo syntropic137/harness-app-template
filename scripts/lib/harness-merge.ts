@@ -15,9 +15,9 @@ import { git, withoutLocalGitEnv } from './git';
  *   keep-local    theirs same as base                 -> keep ours
  *   merge-clean   both changed, text merge clean      -> write merged result
  *   conflict      both changed, text merge conflicts,
- *                 binary/symlink changed on both sides,
- *                 or deleted upstream + modified locally
+ *                 or binary/symlink changed on both sides
  *   kept-deleted  deleted locally, changed upstream   -> stays deleted (reported)
+ *   kept-modified deleted upstream, modified locally  -> stays, yours (reported)
  *
  * Blob identity is `mode + oid`, so a mode-only change counts as a change.
  */
@@ -28,7 +28,8 @@ export type MergeCategory =
   | 'keep-local'
   | 'merge-clean'
   | 'conflict'
-  | 'kept-deleted';
+  | 'kept-deleted'
+  | 'kept-modified';
 
 export interface FilePlan {
   path: string;
@@ -93,13 +94,9 @@ export function classify(sides: Sides): Omit<FilePlan, 'path'> | undefined {
   if (same(ours, theirs)) return { category: 'in-sync' };
   if (same(ours, base)) return { category: 'fast-forward', theirsDeleted: !theirs };
   if (same(theirs, base)) return { category: 'keep-local' };
-  if (!theirs) {
-    return {
-      category: 'conflict',
-      reason: 'deleted upstream, modified locally',
-      theirsDeleted: true,
-    };
-  }
+  // Deleting a file you customized is not something to guess at, but it is
+  // also not a reason to block every other file: keep yours and report it.
+  if (!theirs) return { category: 'kept-modified', theirsDeleted: true };
   if (!ours) return { category: 'kept-deleted' };
   return undefined;
 }
@@ -188,6 +185,7 @@ const PREVIEW_LABELS: [MergeCategory, string][] = [
   ['merge-clean', 'merge-clean (both changed, merges cleanly)'],
   ['conflict', 'conflict (needs manual resolution)'],
   ['kept-deleted', 'kept-deleted (deleted locally, changed upstream)'],
+  ['kept-modified', 'kept-modified (deleted upstream, modified locally)'],
 ];
 
 /** Human-readable per-category listing; in-sync files are omitted. */
