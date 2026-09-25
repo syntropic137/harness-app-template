@@ -25,7 +25,9 @@ import {
  * which would drag consumer code into the merge). See
  * `scripts/lib/harness-merge.ts`. base = the upstream commit last synced to
  * (the `Harness-Upstream:` trailer of the previous sync commit), falling back
- * to `git merge-base HEAD upstream/<ref>`; ours = HEAD; theirs = upstream.
+ * to `git merge-base HEAD upstream/<ref>`, or for a fresh-mode scaffold with no
+ * shared history to `.harness-provenance.json` canonical_commit; ours = HEAD;
+ * theirs = upstream.
  *
  *   - unchanged locally since base   -> take upstream (adds and deletes too)
  *   - unchanged upstream since base  -> keep local
@@ -126,9 +128,9 @@ interface HarnessProvenance {
 
 /**
  * Read git-native provenance. Missing file = `null` (legal — older
- * consumers may not have it). Update succeeds either way; the
- * provenance file is informational, not load-bearing on the merge
- * mechanic.
+ * consumers may not have it). With shared upstream history it is
+ * informational; without it, `canonical_commit` is the merge base
+ * (see `resolveTemplateBase`).
  */
 function readProvenance(cwd: string): HarnessProvenance | null {
   const path = join(cwd, '.harness-provenance.json');
@@ -226,6 +228,53 @@ export function syncBase(cwd: string, templateBase: string, target: string): str
     return candidate;
   }
   return templateBase;
+}
+
+/**
+ * The template commit this consumer's history started from. A `clone`-mode
+ * consumer shares history with upstream, so `git merge-base` answers. A
+ * `fresh`-mode consumer has its own root commit and NO shared history, so
+ * merge-base exits 1; for those the recorded `.harness-provenance.json`
+ * `canonical_commit` is the base when it is an upstream commit. `just init`
+ * records the consumer's own HEAD there, which for a GitHub "Use this template"
+ * repo is a squashed root commit with the template's exact tree, so a
+ * canonical_commit that is not upstream falls back to the upstream commit
+ * with the same tree.
+ */
+function resolveTemplateBase(cwd: string, target: string): string {
+  const mergeBase = git(['merge-base', 'HEAD', target], { cwd, allowFailure: true });
+  if (mergeBase) return mergeBase;
+  const recorded = readProvenance(cwd)?.canonical_commit;
+  const commit = recorded
+    ? git(['rev-parse', '--verify', '--quiet', `${recorded}^{commit}`], {
+        cwd,
+        allowFailure: true,
+      })
+    : '';
+  if (commit && git(['merge-base', commit, target], { cwd, allowFailure: true }) === commit) {
+    return commit;
+  }
+  const sameTree = commit ? upstreamCommitWithSameTree(cwd, commit, target) : '';
+  if (sameTree) return sameTree;
+  throw new Error(
+    [
+      `no common history with ${target}, and no usable .harness-provenance.json canonical_commit`,
+      recorded
+        ? `  canonical_commit ${recorded} is not an ancestor of ${target}, and no ${target} commit has its tree (fetched?)`
+        : '  .harness-provenance.json is missing or has no canonical_commit',
+      `Set canonical_commit in .harness-provenance.json to the ${target} commit this project was scaffolded from (see \`git log ${target}\`), commit it, then re-run.`,
+    ].join('\n'),
+  );
+}
+
+/** The newest `target` commit whose tree is byte-identical to `commit`'s, or ''. */
+function upstreamCommitWithSameTree(cwd: string, commit: string, target: string): string {
+  const tree = git(['rev-parse', `${commit}^{tree}`], { cwd });
+  for (const line of git(['log', '--format=%H %T', target], { cwd }).split('\n')) {
+    const [sha, candidateTree] = line.split(' ');
+    if (candidateTree === tree) return sha;
+  }
+  return '';
 }
 
 function buildSummaryLines(cwd: string, templateBase: string, target: string): string[] {
@@ -437,7 +486,7 @@ export function updateProject(options: UpdateOptions = {}): string {
   const dirty = assertUpdatable(cwd, options);
 
   git(['fetch', 'upstream', ref], { cwd });
-  const templateBase = git(['merge-base', 'HEAD', target], { cwd });
+  const templateBase = resolveTemplateBase(cwd, target);
   const upstreamSha = git(['rev-parse', target], { cwd });
   const base = syncBase(cwd, templateBase, target);
 
@@ -469,7 +518,8 @@ export function updateProject(options: UpdateOptions = {}): string {
 const USAGE = `usage: bun run scripts/update.ts [--check] [--strategy=preview|merge] [--write] [--force]
 
   Three-way merges harness-owned paths from upstream (base = last synced upstream
-  commit, falling back to \`git merge-base HEAD upstream/<ref>\`):
+  commit, falling back to \`git merge-base HEAD upstream/<ref>\`, or to
+  .harness-provenance.json canonical_commit when there is no shared history):
     fast-forward   unchanged locally        -> take upstream (adds and deletes too)
     keep-local     unchanged upstream       -> keep yours
     merge-clean    changed on both sides    -> merged and committed
