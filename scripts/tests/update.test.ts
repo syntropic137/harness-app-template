@@ -137,6 +137,69 @@ describe('updateProject', () => {
     }
   });
 
+  // `just init` records the consumer's own HEAD as canonical_commit. For a GitHub
+  // "Use this template" repo that is a squashed root commit, not an upstream
+  // commit, but its tree is exactly the template's tree at that point.
+  function setupUseThisTemplateFork(root: string, exactTree: boolean) {
+    const canonical = join(root, 'canonical');
+    const fork = join(root, 'fork');
+    mkdirSync(canonical);
+    initRepo(canonical);
+    write(join(canonical, 'harness/file.txt'), 'line1\nline2\nline3\nline4\nline5\n');
+    commitAll(canonical, 'initial template');
+    write(join(canonical, 'harness/other.txt'), 'v1\n');
+    commitAll(canonical, 'template adds other');
+
+    mkdirSync(fork);
+    initRepo(fork);
+    write(join(fork, 'harness/file.txt'), 'line1\nline2\nline3\nline4\nline5\n');
+    write(join(fork, 'harness/other.txt'), exactTree ? 'v1\n' : 'diverged\n');
+    const squashedRoot = commitAll(fork, 'Initial commit');
+    write(
+      join(fork, '.harness-provenance.json'),
+      `${JSON.stringify({ canonical_commit: squashedRoot, forked_at: '2026-05-30' })}\n`,
+    );
+    write(join(fork, 'ws_apps/app.txt'), 'consumer\n');
+    commitAll(fork, 'just init');
+    run(fork, ['remote', 'add', 'upstream', canonical]);
+    return { canonical, fork, squashedRoot };
+  }
+
+  test('"Use this template" scaffold resolves its squashed root to the upstream commit with the same tree', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-template-root-'));
+    try {
+      const { canonical, fork } = setupUseThisTemplateFork(root, true);
+      write(join(fork, 'harness/file.txt'), 'LOCAL1\nline2\nline3\nline4\nline5\n');
+      commitAll(fork, 'consumer edits line1');
+      write(join(canonical, 'harness/file.txt'), 'line1\nline2\nline3\nline4\nUPSTREAM5\n');
+      commitAll(canonical, 'template edits line5');
+
+      updateProject({ cwd: fork, strategy: 'merge' });
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe(
+        'LOCAL1\nline2\nline3\nline4\nUPSTREAM5\n',
+      );
+      expect(readFileSync(join(fork, 'ws_apps/app.txt'), 'utf8')).toBe('consumer\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('"Use this template" scaffold whose root tree matches no upstream commit fails naming it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-template-root-nomatch-'));
+    try {
+      const { canonical, fork, squashedRoot } = setupUseThisTemplateFork(root, false);
+      write(join(canonical, 'harness/file.txt'), 'changed\n');
+      commitAll(canonical, 'template change');
+      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
+        new RegExp(
+          `canonical_commit ${squashedRoot} is not an ancestor.*no .* commit has its tree`,
+        ),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('fresh scaffold without provenance fails with an actionable error', () => {
     const root = mkdtempSync(join(tmpdir(), 'cha-update-fresh-noprov-'));
     try {

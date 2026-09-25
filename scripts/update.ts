@@ -235,7 +235,11 @@ export function syncBase(cwd: string, templateBase: string, target: string): str
  * consumer shares history with upstream, so `git merge-base` answers. A
  * `fresh`-mode consumer has its own root commit and NO shared history, so
  * merge-base exits 1; for those the recorded `.harness-provenance.json`
- * `canonical_commit` is the base, provided it is an upstream commit.
+ * `canonical_commit` is the base when it is an upstream commit. `just init`
+ * records the consumer's own HEAD there, which for a GitHub "Use this template"
+ * repo is a squashed root commit with the template's exact tree, so a
+ * canonical_commit that is not upstream falls back to the upstream commit
+ * with the same tree.
  */
 function resolveTemplateBase(cwd: string, target: string): string {
   const mergeBase = git(['merge-base', 'HEAD', target], { cwd, allowFailure: true });
@@ -250,15 +254,27 @@ function resolveTemplateBase(cwd: string, target: string): string {
   if (commit && git(['merge-base', commit, target], { cwd, allowFailure: true }) === commit) {
     return commit;
   }
+  const sameTree = commit ? upstreamCommitWithSameTree(cwd, commit, target) : '';
+  if (sameTree) return sameTree;
   throw new Error(
     [
       `no common history with ${target}, and no usable .harness-provenance.json canonical_commit`,
       recorded
-        ? `  canonical_commit ${recorded} is not an ancestor of ${target} (fetched?)`
+        ? `  canonical_commit ${recorded} is not an ancestor of ${target}, and no ${target} commit has its tree (fetched?)`
         : '  .harness-provenance.json is missing or has no canonical_commit',
       'Record the template commit this project was scaffolded from as canonical_commit, then re-run.',
     ].join('\n'),
   );
+}
+
+/** The newest `target` commit whose tree is byte-identical to `commit`'s, or ''. */
+function upstreamCommitWithSameTree(cwd: string, commit: string, target: string): string {
+  const tree = git(['rev-parse', `${commit}^{tree}`], { cwd });
+  for (const line of git(['log', '--format=%H %T', target], { cwd }).split('\n')) {
+    const [sha, candidateTree] = line.split(' ');
+    if (candidateTree === tree) return sha;
+  }
+  return '';
 }
 
 function buildSummaryLines(cwd: string, templateBase: string, target: string): string[] {

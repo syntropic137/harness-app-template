@@ -134,12 +134,12 @@ conflict (needs manual resolution): 1
 {
   "schemaVersion": "1.0",
   "canonical_repo": "https://github.com/syntropic137/harness-app-template",
-  "canonical_commit": "<sha>",                  // upstream commit you forked from
+  "canonical_commit": "<sha>",                  // HEAD at init: the commit you started from
   "forked_at": "2026-05-12T08:21:00.000Z"        // UTC, ISO 8601
 }
 ```
 
-The file is **immutable after init** — `just update` refuses to run if you've modified `.harness-provenance.json` (revert with `git checkout HEAD -- .harness-provenance.json` first). It's informational to `just update` (used in the preview line), not load-bearing on the merge mechanic. Missing file = legal — older consumers may not have one; the update path still works.
+The file is **immutable after init** — `just update` refuses to run if you've modified `.harness-provenance.json` (revert with `git checkout HEAD -- .harness-provenance.json` first). When your history shares commits with upstream (a clone or fork), `just update` finds the merge base with `git merge-base` and the file is informational. When it does not (a `fresh` scaffold or a GitHub "Use this template" repo, which starts from a squashed root commit), `canonical_commit` is the merge base: used directly if it is an upstream commit, otherwise resolved to the upstream commit with the identical tree (what `just init` records for a "Use this template" repo). Missing file = legal only with shared history; without it, a fresh scaffold's `just update` stops and asks you to record `canonical_commit`.
 
 If you want to re-stamp the file (e.g. you wiped it by accident), `git checkout` is the right answer rather than re-running `just init` — `init` is idempotent for the rename set, but it resets seed example names which you've probably edited.
 
