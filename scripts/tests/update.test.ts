@@ -12,19 +12,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { chdir, cwd as processCwd } from 'node:process';
 import { describe, expect, test } from 'vitest';
-import { withoutLocalGitEnv } from '../lib/git';
 import { parseCli, updateProject } from '../update';
+import { fixtureGit, hermeticGitEnv } from './helpers/git-env';
 
 function run(cwd: string, args: string[]): string {
-  // `-c core.hooksPath=/dev/null` silences any host-installed hooks
-  // (e.g. apss's managed global pre-commit) so temp git repos created
-  // by these tests can commit without inheriting unrelated host
-  // validation against a directory that has no project structure.
-  return execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
-    cwd,
-    env: withoutLocalGitEnv(),
-    encoding: 'utf8',
-  }).trim();
+  return fixtureGit(args, { cwd }).trim();
 }
 
 function write(path: string, content: string): void {
@@ -64,7 +56,7 @@ function setupCanonicalAndFork(
   write(join(canonical, 'ws_apps/app.txt'), 'seed\n');
   commitAll(canonical, 'initial template');
 
-  execFileSync('git', ['clone', canonical, fork], { env: withoutLocalGitEnv(), stdio: 'ignore' });
+  fixtureGit(['clone', canonical, fork]);
   run(fork, ['config', 'user.email', 'test@example.invalid']);
   run(fork, ['config', 'user.name', 'Template Test']);
   run(fork, ['config', 'commit.gpgsign', 'false']);
@@ -161,7 +153,7 @@ describe('updateProject', () => {
       write(join(fork, 'ws_apps/app.txt'), 'unrelated in-flight edit\n');
       const discard = message.match(/`(git restore [^`]+)`/)?.[1] ?? '';
       expect(discard).toContain('harness/file.txt');
-      execFileSync('sh', ['-c', discard], { cwd: fork, env: withoutLocalGitEnv() });
+      execFileSync('sh', ['-c', discard], { cwd: fork, env: hermeticGitEnv() });
       expect(run(fork, ['status', '--porcelain'])).toBe('M ws_apps/app.txt');
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -682,10 +674,7 @@ describe('updateProject', () => {
       write(join(canonical, 'docs-consumer/readme.md'), 'v1\n');
       commitAll(canonical, 'initial non-harness template');
 
-      execFileSync('git', ['clone', canonical, fork], {
-        env: withoutLocalGitEnv(),
-        stdio: 'ignore',
-      });
+      fixtureGit(['clone', canonical, fork]);
       run(fork, ['config', 'user.email', 'test@example.invalid']);
       run(fork, ['config', 'user.name', 'Template Test']);
       run(fork, ['config', 'commit.gpgsign', 'false']);
