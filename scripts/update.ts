@@ -25,7 +25,9 @@ import {
  * which would drag consumer code into the merge). See
  * `scripts/lib/harness-merge.ts`. base = the upstream commit last synced to
  * (the `Harness-Upstream:` trailer of the previous sync commit), falling back
- * to `git merge-base HEAD upstream/<ref>`; ours = HEAD; theirs = upstream.
+ * to `git merge-base HEAD upstream/<ref>`, or for a fresh-mode scaffold with no
+ * shared history to `.harness-provenance.json` canonical_commit; ours = HEAD;
+ * theirs = upstream.
  *
  *   - unchanged locally since base   -> take upstream (adds and deletes too)
  *   - unchanged upstream since base  -> keep local
@@ -226,6 +228,37 @@ export function syncBase(cwd: string, templateBase: string, target: string): str
     return candidate;
   }
   return templateBase;
+}
+
+/**
+ * The template commit this consumer's history started from. A `clone`-mode
+ * consumer shares history with upstream, so `git merge-base` answers. A
+ * `fresh`-mode consumer has its own root commit and NO shared history, so
+ * merge-base exits 1; for those the recorded `.harness-provenance.json`
+ * `canonical_commit` is the base, provided it is an upstream commit.
+ */
+function resolveTemplateBase(cwd: string, target: string): string {
+  const mergeBase = git(['merge-base', 'HEAD', target], { cwd, allowFailure: true });
+  if (mergeBase) return mergeBase;
+  const recorded = readProvenance(cwd)?.canonical_commit;
+  const commit = recorded
+    ? git(['rev-parse', '--verify', '--quiet', `${recorded}^{commit}`], {
+        cwd,
+        allowFailure: true,
+      })
+    : '';
+  if (commit && git(['merge-base', commit, target], { cwd, allowFailure: true }) === commit) {
+    return commit;
+  }
+  throw new Error(
+    [
+      `no common history with ${target}, and no usable .harness-provenance.json canonical_commit`,
+      recorded
+        ? `  canonical_commit ${recorded} is not an ancestor of ${target} (fetched?)`
+        : '  .harness-provenance.json is missing or has no canonical_commit',
+      'Record the template commit this project was scaffolded from as canonical_commit, then re-run.',
+    ].join('\n'),
+  );
 }
 
 function buildSummaryLines(cwd: string, templateBase: string, target: string): string[] {
@@ -437,7 +470,7 @@ export function updateProject(options: UpdateOptions = {}): string {
   const dirty = assertUpdatable(cwd, options);
 
   git(['fetch', 'upstream', ref], { cwd });
-  const templateBase = git(['merge-base', 'HEAD', target], { cwd });
+  const templateBase = resolveTemplateBase(cwd, target);
   const upstreamSha = git(['rev-parse', target], { cwd });
   const base = syncBase(cwd, templateBase, target);
 
@@ -469,7 +502,8 @@ export function updateProject(options: UpdateOptions = {}): string {
 const USAGE = `usage: bun run scripts/update.ts [--check] [--strategy=preview|merge] [--write] [--force]
 
   Three-way merges harness-owned paths from upstream (base = last synced upstream
-  commit, falling back to \`git merge-base HEAD upstream/<ref>\`):
+  commit, falling back to \`git merge-base HEAD upstream/<ref>\`, or to
+  .harness-provenance.json canonical_commit when there is no shared history):
     fast-forward   unchanged locally        -> take upstream (adds and deletes too)
     keep-local     unchanged upstream       -> keep yours
     merge-clean    changed on both sides    -> merged and committed

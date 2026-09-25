@@ -72,7 +72,100 @@ function setupCanonicalAndFork(
   return { canonical, fork };
 }
 
+/** A consumer scaffolded in `fresh` mode: its own root commit, NO shared history
+ *  with the template, only `.harness-provenance.json` naming the template commit
+ *  it was copied from. `git merge-base HEAD upstream/main` fails for these. */
+function setupCanonicalAndFreshFork(
+  root: string,
+  provenance: boolean | string,
+): { canonical: string; fork: string; forkedFrom: string } {
+  const canonical = join(root, 'canonical');
+  const fork = join(root, 'fork');
+  mkdirSync(canonical);
+  initRepo(canonical);
+  write(join(canonical, 'harness/file.txt'), 'line1\nline2\nline3\nline4\nline5\n');
+  const forkedFrom = commitAll(canonical, 'initial template');
+
+  mkdirSync(fork);
+  initRepo(fork);
+  write(join(fork, 'harness/file.txt'), 'line1\nline2\nline3\nline4\nline5\n');
+  write(join(fork, 'ws_apps/app.txt'), 'consumer\n');
+  if (provenance) {
+    write(
+      join(fork, '.harness-provenance.json'),
+      `${JSON.stringify({
+        canonical_commit: typeof provenance === 'string' ? provenance : forkedFrom,
+        forked_at: '2026-05-30',
+      })}\n`,
+    );
+  }
+  commitAll(fork, 'fresh scaffold');
+  run(fork, ['remote', 'add', 'upstream', canonical]);
+  return { canonical, fork, forkedFrom };
+}
+
 describe('updateProject', () => {
+  // dream-ship_v0 is a `fresh` scaffold: unrelated history, so merge-base exits
+  // 1 and `just update` aborted before planning, on every version of this
+  // script. The provenance commit is the true base.
+  test('fresh scaffold (no shared history) merges against the provenance commit', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-fresh-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFreshFork(root, true);
+      write(join(fork, 'harness/file.txt'), 'LOCAL1\nline2\nline3\nline4\nline5\n');
+      commitAll(fork, 'consumer edits line1');
+      write(join(canonical, 'harness/file.txt'), 'line1\nline2\nline3\nline4\nUPSTREAM5\n');
+      commitAll(canonical, 'template edits line3');
+
+      updateProject({ cwd: fork, strategy: 'merge' });
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe(
+        'LOCAL1\nline2\nline3\nline4\nUPSTREAM5\n',
+      );
+      expect(readFileSync(join(fork, 'ws_apps/app.txt'), 'utf8')).toBe('consumer\n');
+
+      // Second update: base is now the recorded sync, not the provenance commit,
+      // so the already-taken UPSTREAM5 change is not re-merged. Edits stay one
+      // line apart: git merge-file conflicts on ADJACENT hunks by design.
+      write(join(canonical, 'harness/file.txt'), 'line1\nline2\nUPSTREAM3\nline4\nUPSTREAM5\n');
+      commitAll(canonical, 'template edits line2');
+      updateProject({ cwd: fork, strategy: 'merge' });
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe(
+        'LOCAL1\nline2\nUPSTREAM3\nline4\nUPSTREAM5\n',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('fresh scaffold without provenance fails with an actionable error', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-fresh-noprov-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFreshFork(root, false);
+      write(join(canonical, 'harness/file.txt'), 'changed\n');
+      commitAll(canonical, 'template change');
+      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
+        /no common history.*canonical_commit/s,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('fresh scaffold whose canonical_commit is unknown upstream fails naming it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-fresh-badprov-'));
+    try {
+      const bogus = 'deadbeef'.repeat(5);
+      const { canonical, fork } = setupCanonicalAndFreshFork(root, bogus);
+      write(join(canonical, 'harness/file.txt'), 'changed\n');
+      commitAll(canonical, 'template change');
+      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
+        new RegExp(`canonical_commit ${bogus} is not an ancestor`),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('parses CLI update flags', () => {
     expect(parseCli(['--check', '--write', '--force', '--strategy=preview'])).toEqual({
       check: true,
