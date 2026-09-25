@@ -2,6 +2,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isMainEntry } from './lib/entrypoint';
 import { git, shortSha } from './lib/git';
+import {
+  describePlan,
+  type FilePlan,
+  listTree,
+  pathsIn,
+  planMerge,
+  writeWorktreeFile,
+} from './lib/harness-merge';
 
 /**
  * Consumer self-update: pulls harness-owned surfaces from the
@@ -12,9 +20,28 @@ import { git, shortSha } from './lib/git';
  * template is a standalone repo that was extracted from the lab once
  * and then evolves on its own. See `docs/adrs/ADR-0015-cha-sync-source-of-truth.md`.
  *
- * Mechanic: `git fetch upstream <ref>` then `git checkout upstream/<ref> --
- * <harness-paths>` (path-scoped — NEVER `git merge upstream/<ref>`, which
- * would clobber consumer code).
+ * Mechanic: `git fetch upstream <ref>`, then a PER-FILE three-way merge of
+ * the harness-owned paths (path-scoped; NEVER `git merge upstream/<ref>`,
+ * which would drag consumer code into the merge). See
+ * `scripts/lib/harness-merge.ts`. base = the upstream commit last synced to
+ * (the `Harness-Upstream:` trailer of the previous sync commit), falling back
+ * to `git merge-base HEAD upstream/<ref>`; ours = HEAD; theirs = upstream.
+ *
+ *   - unchanged locally since base   -> take upstream (adds and deletes too)
+ *   - unchanged upstream since base  -> keep local
+ *   - changed on both sides          -> `git merge-file`; clean merges apply,
+ *     conflicts leave standard markers in the working tree, nothing is
+ *     committed, and the command exits non-zero naming each file
+ *   - binary / symlink changed on both sides, or deleted upstream but
+ *     modified locally               -> conflict (local copy kept)
+ *   - deleted locally, changed upstream -> stays deleted, reported
+ *
+ * `--force` means "upstream wins where we could not merge": every conflict
+ * and kept-deleted file takes the upstream side (the pre-merge wholesale
+ * overwrite, now limited to the files that actually conflict). It also still
+ * stashes dirty harness-owned edits before applying and pops them after.
+ * With no conflicts the result is committed as
+ * `update: harness sync from upstream@<sha>` plus a `Harness-Upstream:` trailer.
  */
 
 export interface UpdateOptions {
@@ -25,9 +52,10 @@ export interface UpdateOptions {
 }
 
 /**
- * Paths owned by the canonical template. `just update` overwrites these
- * with `upstream/<ref>` contents (path-scoped). Everything not on this
- * list is consumer-owned and never touched.
+ * Paths owned by the canonical template. `just update` three-way merges
+ * these with `upstream/<ref>` (path-scoped); committed local customizations
+ * survive unless they conflict. Everything not on this list is
+ * consumer-owned and never touched.
  *
  * The list is intentionally explicit and narrow. Consumer-owned roots
  * (`ws_apps/`, `ws_packages/`, `apps/`, `packages/`, `docs/journal/`,
@@ -35,7 +63,7 @@ export interface UpdateOptions {
  *
  * DO NOT add `vitest.consumer.json`. That file is the deliberate
  * consumer-owned extension point for the `scripts/` TypeScript coverage gate
- * (read by `vitest.config.ts`, which IS harness-owned and overwritten).
+ * (read by `vitest.config.ts`, which IS harness-owned and updated).
  * Its absence from this list is what makes it durable across syncs.
  */
 const HARNESS_OWNED_PATHS = [
@@ -70,25 +98,16 @@ function upstreamRef(cwd: string): string {
   return git(['config', '--get', 'harness.upstreamRef'], { cwd, allowFailure: true }) || 'main';
 }
 
-function existingHarnessPathsAt(cwd: string, ref: string): string[] {
-  const tree = git(['ls-tree', '-r', '--name-only', ref], { cwd });
-  const files = new Set(tree.split('\n').filter(Boolean));
-  const dirs = new Set<string>();
-  for (const file of files) {
-    const parts = file.split('/');
-    for (let index = 1; index < parts.length; index += 1) {
-      dirs.add(`${parts.slice(0, index).join('/')}/`);
-    }
-  }
-  return HARNESS_OWNED_PATHS.filter((path) => files.has(path) || dirs.has(path));
-}
-
 function dirtyHarnessPaths(cwd: string): string[] {
-  return git(['status', '--porcelain', '--', ...HARNESS_OWNED_PATHS], { cwd })
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => line.slice(3));
+  return (
+    git(['status', '--porcelain', '--', ...HARNESS_OWNED_PATHS], { cwd })
+      .split('\n')
+      .filter(Boolean)
+      // NOT trimmed: porcelain's leading status column is significant. Trimming
+      // ' M path' to 'M path' made slice(3) drop the path's first character, so
+      // --force stashed nothing and the checkout silently overwrote the edit.
+      .map((line) => line.slice(3))
+  );
 }
 
 function provenanceDirty(cwd: string): boolean {
@@ -172,39 +191,40 @@ function consumerTouchedHarnessPaths(cwd: string, templateBase: string): string[
     .filter(Boolean);
 }
 
+const SYNC_SUBJECT_PREFIX = 'update: harness sync from upstream@';
+const SYNC_TRAILER = 'Harness-Upstream';
+
 /**
- * Harness-owned paths where an update would DESTROY committed consumer work.
+ * The three-way merge base: the upstream commit this consumer last synced to.
  *
- * Distinct from `dirtyHarnessPaths`, which reads `git status --porcelain` and so
- * only ever sees the WORKING TREE: a consumer who committed a fix to a
- * harness-owned path has a clean tree, passes that check, and loses the fix.
- *
- * BOTH conditions are required, and the second one is what makes this usable:
- *   1. the consumer committed a change to the path since the template base, AND
- *   2. the path's content at HEAD still DIFFERS from upstream.
- *
- * Condition 2 exists because `applyUpdate` COMMITS the files it syncs, and the
- * merge base does not advance (this tool checks paths out, it never merges). So
- * on the very next run every previously-synced file satisfies condition 1 while
- * being byte-identical to upstream. Gating on condition 1 alone makes `just
- * update` refuse to run twice in a row - caught by the fast-forward test, which
- * is exactly the false positive that would have made this guard worse than the
- * bug it fixes.
+ * `git merge-base HEAD upstream` never advances, because this tool checks
+ * paths out rather than merging histories. Merging against that stale base
+ * re-merges every upstream change already taken, which inflates hunks and
+ * produces spurious conflicts next to real local edits. So prefer the upstream
+ * commit recorded by the most recent sync commit (`Harness-Upstream:` trailer,
+ * or the sha in the subject of older sync commits), as long as it is an
+ * ancestor of the target and a descendant of the merge base. Otherwise fall
+ * back to the merge base.
  */
-export function divergedHarnessPaths(cwd: string, templateBase: string, target: string): string[] {
-  const touched = consumerTouchedHarnessPaths(cwd, templateBase);
-  if (touched.length === 0) {
-    return [];
-  }
-  const differsFromUpstream = new Set(
-    git(['diff', '--name-only', 'HEAD', target, '--', ...HARNESS_OWNED_PATHS], {
-      cwd,
-      allowFailure: true,
-    })
-      .split('\n')
-      .filter(Boolean),
+export function syncBase(cwd: string, templateBase: string, target: string): string {
+  const log = git(
+    ['log', '-1', '--fixed-strings', `--grep=${SYNC_SUBJECT_PREFIX}`, '--format=%s%n%b', 'HEAD'],
+    { cwd, allowFailure: true },
   );
-  return touched.filter((path) => differsFromUpstream.has(path));
+  const trailer = log.match(new RegExp(`^${SYNC_TRAILER}: *([0-9a-f]{7,40})`, 'm'));
+  const subject = log.match(/^update: harness sync from upstream@([0-9a-f]{7,40})/);
+  const recorded = trailer?.[1] ?? subject?.[1];
+  if (!recorded) return templateBase;
+  const candidate = git(['rev-parse', '--verify', '--quiet', `${recorded}^{commit}`], {
+    cwd,
+    allowFailure: true,
+  });
+  const isAncestor = (older: string, newer: string) =>
+    git(['merge-base', older, newer], { cwd, allowFailure: true }) === older;
+  if (candidate && isAncestor(candidate, target) && isAncestor(templateBase, candidate)) {
+    return candidate;
+  }
+  return templateBase;
 }
 
 function buildSummaryLines(cwd: string, templateBase: string, target: string): string[] {
@@ -247,37 +267,127 @@ function stashPreimage(cwd: string, dirty: string[], options: UpdateOptions): bo
   return !stashOutput.includes('No local changes to save');
 }
 
+/** Pop the --force pre-image stash; a conflicting pop keeps the stash and says so. */
+function popPreimage(cwd: string, stashed: boolean): string[] {
+  if (!stashed) return [];
+  try {
+    git(['stash', 'pop'], { cwd });
+    return [];
+  } catch {
+    return [
+      'warning: restoring your uncommitted harness edits (`git stash pop`) conflicted.',
+      'They are still in `git stash list`; resolve the conflicts shown by `git status`.',
+    ];
+  }
+}
+
+interface ApplyResult {
+  conflicts: FilePlan[];
+  forced: string[];
+}
+
+/** Stage every non-conflicting outcome; write conflicts to the working tree unstaged. */
+function applyPlan(cwd: string, plans: FilePlan[], target: string, force: boolean): ApplyResult {
+  const takeTheirs: string[] = [];
+  const remove: string[] = [];
+  const upstreamSide = (plan: FilePlan) =>
+    (plan.theirsDeleted ? remove : takeTheirs).push(plan.path);
+  const result: ApplyResult = { conflicts: [], forced: [] };
+  for (const plan of plans) {
+    if (plan.category === 'fast-forward') {
+      upstreamSide(plan);
+    } else if (plan.category === 'merge-clean') {
+      writeWorktreeFile(cwd, plan.path, plan.merged as Buffer);
+      git(['add', '--', plan.path], { cwd });
+    } else if (force && (plan.category === 'conflict' || plan.category === 'kept-deleted')) {
+      upstreamSide(plan);
+      result.forced.push(plan.path);
+    } else if (plan.category === 'conflict') {
+      if (plan.merged) writeWorktreeFile(cwd, plan.path, plan.merged);
+      result.conflicts.push(plan);
+    }
+  }
+  if (takeTheirs.length > 0) git(['checkout', target, '--', ...takeTheirs], { cwd });
+  if (remove.length > 0) git(['rm', '-q', '--', ...remove], { cwd });
+  return result;
+}
+
+function syncCommitArgs(upstreamSha: string): string[] {
+  return [
+    '-m',
+    `${SYNC_SUBJECT_PREFIX}${shortSha(upstreamSha)}`,
+    '-m',
+    `${SYNC_TRAILER}: ${upstreamSha}`,
+  ];
+}
+
+function conflictError(conflicts: FilePlan[], target: string, upstreamSha: string): Error {
+  const commit = syncCommitArgs(upstreamSha)
+    .map((arg) => (arg === '-m' ? arg : `"${arg}"`))
+    .join(' ');
+  return new Error(
+    [
+      `just update: ${conflicts.length} harness-owned file(s) conflict; NOTHING was committed.`,
+      ...conflicts.map((plan) => `  ${plan.path} (${plan.reason})`),
+      '',
+      'Every non-conflicting change is already staged. To finish:',
+      '  1. resolve each file above: remove the <<<<<<< / ======= / >>>>>>> markers,',
+      `     or take a side: \`git checkout ${target} -- <path>\` / \`git checkout HEAD -- <path>\``,
+      '  2. git add <path>...',
+      `  3. git commit ${commit}`,
+      '     (the Harness-Upstream trailer makes the next update merge from this point)',
+      'Or discard your side of every conflict: `git reset --hard HEAD` then',
+      '`just update -- --write --force` (upstream wins for conflicted files only).',
+    ].join('\n'),
+  );
+}
+
+function outcomeLines(plans: FilePlan[], forced: string[]): string[] {
+  const lines: string[] = [];
+  const kept = pathsIn(plans, 'keep-local');
+  const merged = pathsIn(plans, 'merge-clean');
+  const keptDeleted = forced.length > 0 ? [] : pathsIn(plans, 'kept-deleted');
+  if (kept.length > 0) lines.push(`kept local: ${kept.join(', ')}`);
+  if (merged.length > 0) lines.push(`merged cleanly: ${merged.join(', ')}`);
+  if (keptDeleted.length > 0) {
+    lines.push(`kept deleted (changed upstream; --force restores): ${keptDeleted.join(', ')}`);
+  }
+  if (forced.length > 0) lines.push(`--force took upstream for: ${forced.join(', ')}`);
+  return lines;
+}
+
 function applyUpdate(
   cwd: string,
-  target: string,
-  ref: string,
-  upstreamSha: string,
+  plans: FilePlan[],
+  context: { target: string; ref: string; upstreamSha: string },
   dirty: string[],
   options: UpdateOptions,
 ): string {
+  const { target, ref, upstreamSha } = context;
   const stashed = stashPreimage(cwd, dirty, options);
-
-  const paths = existingHarnessPathsAt(cwd, target);
-  if (paths.length === 0) {
-    return 'no harness-owned paths found upstream; nothing to update';
+  const { conflicts, forced } = applyPlan(cwd, plans, target, options.force === true);
+  if (conflicts.length > 0) {
+    throw conflictError(conflicts, target, upstreamSha);
   }
-  git(['checkout', target, '--', ...paths], { cwd });
   const refreshed = git(['diff', '--name-only', '--cached'], { cwd, allowFailure: true })
     .split('\n')
     .filter(Boolean);
+  const outcome = outcomeLines(plans, forced);
   if (refreshed.length === 0) {
-    /* v8 ignore next 3 */
-    if (stashed) {
-      git(['stash', 'pop'], { cwd });
-    }
-    return `already up to date with upstream ${shortSha(upstreamSha)} (${ref})`;
+    const popped = popPreimage(cwd, stashed);
+    return [
+      `already up to date with upstream ${shortSha(upstreamSha)} (${ref})`,
+      ...outcome,
+      ...popped,
+    ].join('\n');
   }
-  git(['commit', '-m', `update: harness sync from upstream@${shortSha(upstreamSha)}`], { cwd });
-  /* v8 ignore next 3 */
-  if (stashed) {
-    git(['stash', 'pop'], { cwd });
-  }
-  return `updated: ${refreshed.length} harness file(s) refreshed; ws_apps/ws_packages untouched`;
+  git(['commit', ...syncCommitArgs(upstreamSha)], { cwd });
+  const popped = popPreimage(cwd, stashed);
+  return [
+    `updated: ${refreshed.length} harness file(s) refreshed; ws_apps/ws_packages untouched`,
+    ...outcome,
+    ...popped,
+  ].join('\n');
 }
 
 export function updateProject(options: UpdateOptions = {}): string {
@@ -291,12 +401,21 @@ export function updateProject(options: UpdateOptions = {}): string {
   git(['fetch', 'upstream', ref], { cwd });
   const templateBase = git(['merge-base', 'HEAD', target], { cwd });
   const upstreamSha = git(['rev-parse', target], { cwd });
+  const base = syncBase(cwd, templateBase, target);
 
-  if (templateBase === upstreamSha) {
+  if (templateBase === upstreamSha || base === upstreamSha) {
     return `already up to date with upstream ${shortSha(upstreamSha)} (${ref})`;
   }
+  if (listTree(cwd, target, HARNESS_OWNED_PATHS).size === 0) {
+    return 'no harness-owned paths found upstream; nothing to update';
+  }
 
-  const summaryLines = buildSummaryLines(cwd, templateBase, target);
+  const plans = planMerge(
+    cwd,
+    { base, ours: 'HEAD', theirs: target, theirsLabel: target },
+    HARNESS_OWNED_PATHS,
+  );
+  const summaryLines = [...buildSummaryLines(cwd, templateBase, target), ...describePlan(plans)];
 
   if (options.check) {
     throw new Error(summaryLines.join('\n'));
@@ -305,39 +424,29 @@ export function updateProject(options: UpdateOptions = {}): string {
     return `${summaryLines.join('\n')}\njust update: preview only (no TTY detected). rerun with\n  \`just update -- --strategy=merge\` to apply harness updates.`;
   }
 
-  // DEFAULT-CLOSED on committed divergence. `summaryLines` already carries a
-  // `local harness edits:` line, but it was only ever surfaced on --check and
-  // preview - the two strategies that change nothing - and DISCARDED here, on
-  // the one path that actually overwrites files. A consumer who fixed a bug in
-  // a harness-owned path and committed it had a clean working tree, sailed past
-  // `dirtyHarnessPaths`, and silently lost the fix.
-  //
-  // Losing committed work must be a conscious act, not the default. --force
-  // still proceeds (and still stashes the dirty pre-image), so the workflow is
-  // intact; it just can no longer happen by accident.
-  const diverged = divergedHarnessPaths(cwd, templateBase, target);
-  if (diverged.length > 0 && !options.force) {
-    throw new Error(
-      [
-        `refusing to update: ${diverged.length} harness-owned path(s) carry COMMITTED local changes`,
-        'that this update would overwrite:',
-        ...diverged.map((path) => `  ${path}`),
-        '',
-        'These are committed, so the working tree is clean and the dirty-path check does not',
-        'see them. Review each one and contribute anything worth keeping upstream first:',
-        `  git diff ${shortSha(templateBase)}..HEAD -- <path>`,
-        '',
-        'Then re-run with --force to accept the overwrite.',
-      ].join('\n'),
-    );
-  }
-
-  return applyUpdate(cwd, target, ref, upstreamSha, dirty, options);
+  return applyUpdate(cwd, plans, { target, ref, upstreamSha }, dirty, options);
 }
+
+const USAGE = `usage: bun run scripts/update.ts [--check] [--strategy=preview|merge] [--write] [--force]
+
+  Three-way merges harness-owned paths from upstream (base = last synced upstream
+  commit, falling back to \`git merge-base HEAD upstream/<ref>\`):
+    fast-forward   unchanged locally        -> take upstream (adds and deletes too)
+    keep-local     unchanged upstream       -> keep yours
+    merge-clean    changed on both sides    -> merged and committed
+    conflict       overlapping / binary / deleted upstream but modified locally
+                   -> markers left in the working tree, NOTHING committed, exit 1
+    kept-deleted   you deleted it, upstream changed it -> stays deleted
+
+  --check      print the summary + per-file plan and exit non-zero if updates exist
+  --strategy   preview (print the plan, change nothing) or merge (apply)
+  --write      shorthand for --strategy=merge
+  --force      upstream wins for every conflict and kept-deleted file (the pre-merge
+               overwrite behaviour), and dirty harness edits are stashed and re-applied`;
 
 const FLAG_HANDLERS: Record<string, (options: UpdateOptions) => void> = {
   '--help': () => {
-    console.log('usage: bun run scripts/update.ts [--check] [--strategy=preview|merge] [--force]');
+    console.log(USAGE);
     process.exit(0);
   },
   '--check': (options) => {

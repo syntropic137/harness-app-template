@@ -12,24 +12,28 @@ git remote add upstream https://github.com/syntropic137/harness-app-template
 just update                    # preview (in non-TTY) or apply (in TTY)
 just update -- --check         # preview, never mutate, exit non-zero if updates exist
 just update -- --write         # apply, even without a TTY
-just update -- --force         # apply even with dirty harness-owned paths (stash + pop)
+just update -- --force         # upstream wins for conflicts; dirty harness edits stashed + popped
 ```
 
-The update is **path-scoped by construction**: only harness-owned surfaces (see below) get fast-forwarded. `ws_apps/`, `ws_packages/`, and `infra/` stay byte-for-byte untouched. There is no whole-repo merge.
+The update is **path-scoped by construction**: only harness-owned surfaces (see below) are touched, each one three-way merged per file. `ws_apps/`, `ws_packages/`, and `infra/` stay byte-for-byte untouched. There is no whole-repo merge.
 
 ## Why path-scoped
 
 The risky alternative is `git merge upstream/main`. That works for a vanilla fork, but the moment you've edited `ws_apps/your-service/src/main.ts` and upstream has improved a harness slot, the merge tries to reconcile both — and you spend an afternoon in a 3-way diff over code upstream doesn't even own.
 
-`just update` does the opposite: it runs
+`just update` does the opposite: it fetches `upstream/<ref>` and runs a **per-file three-way merge over the harness-owned paths only**. base = the upstream commit you last synced to (recorded as a `Harness-Upstream:` trailer on the previous sync commit), falling back to `git merge-base HEAD upstream/<ref>`; ours = `HEAD`; theirs = upstream.
 
-```sh
-git fetch upstream <ref>
-git checkout upstream/<ref> -- <harness-owned-paths-only>
-git commit -m 'update: harness sync from upstream@<sha>'
-```
+| Category | When | Result |
+|---|---|---|
+| `fast-forward` | you never changed the file | take upstream (including upstream adds and deletes) |
+| `keep-local` | upstream never changed the file | keep yours |
+| `merge-clean` | both changed, `git merge-file` merges cleanly | merged result applied |
+| `conflict` | overlapping edits; binary or symlink changed on both sides; deleted upstream but modified locally | standard `<<<<<<<` markers left in the working tree (binary/deleted cases keep your copy), **nothing committed**, exit 1 listing each file |
+| `kept-deleted` | you deleted it, upstream changed it | stays deleted, reported |
 
-so `ws_apps/`, `ws_packages/`, and your other consumer-owned trees never enter the checkout's path list. Upstream changes to harness pieces ARE applied (overwriting any local harness edits — that's the trade-off); upstream changes to consumer paths CAN'T be applied because they're never asked for.
+With no conflicts the result is committed as `update: harness sync from upstream@<sha>` with a `Harness-Upstream: <full-sha>` trailer. On conflict, every non-conflicting change is staged; resolve the listed files, `git add` them, and commit with the message the error prints (keep the trailer so the next update merges from this point).
+
+So your committed customizations to harness files (a tweaked `.claude/skills/*/SKILL.md`, a hardened `lefthook.yml` job) survive updates unless upstream changed the same lines. `ws_apps/`, `ws_packages/`, and your other consumer-owned trees are never part of the merge.
 
 ## What `just update` touches (harness-owned paths)
 
@@ -86,7 +90,9 @@ Force the apply path even without a TTY. Use in trusted automation:
 
 ### `just update -- --force`
 
-When you have local edits to harness-owned files (e.g. you customised `lefthook.yml`), `just update` refuses by default — overwriting them silently is the wrong shape. With `--force`, `update.ts` stash-pushes the dirty harness-owned paths, runs the checkout, then stash-pops, leaving your local edits to merge against the new upstream by hand. Consumer-owned paths are never stashed (they're never touched).
+`--force` means **upstream wins wherever the merge could not decide**: every `conflict` and `kept-deleted` file takes the upstream side (the old wholesale-overwrite behaviour, now limited to files that actually conflict). Clean merges and `keep-local` files are unaffected.
+
+It also covers *uncommitted* edits: without `--force`, dirty harness-owned paths refuse the update; with it, `update.ts` stash-pushes them, applies, then stash-pops. If that pop conflicts, the stash is kept and the output says so. Consumer-owned paths are never stashed (they're never touched).
 
 ### `just update -- --strategy=preview` / `--strategy=merge`
 
@@ -107,7 +113,17 @@ just update: preview only (no TTY detected). rerun with
   `just update -- --strategy=merge` to apply harness updates.
 ```
 
-The `local harness edits:` line is informational — it shows which harness-owned files have your local changes. If that list overlaps with what upstream is bringing, expect a conflict on the apply.
+The `local harness edits:` line lists harness-owned files you have changed. The preview also prints the per-file plan, one block per category, e.g.:
+
+```
+fast-forward (take upstream): 2
+  harness/stack/boot.ts
+  lefthook.yml
+merge-clean (both changed, merges cleanly): 1
+  .claude/skills/observability-queries/SKILL.md
+conflict (needs manual resolution): 1
+  scripts/test-coverage.ts (both modified)
+```
 
 ## Provenance (`.harness-provenance.json`)
 
@@ -166,16 +182,17 @@ The thresholds themselves stay at 100 percent and remain harness-owned; the leve
 | `no `upstream` remote configured` | You didn't run `git remote add upstream …` in Get Started step 3 | Run `git remote add upstream https://github.com/syntropic137/harness-app-template` |
 | `.harness-provenance.json is immutable after init; revert it before updating` | You edited the provenance file | `git checkout HEAD -- .harness-provenance.json` |
 | `dirty harness-owned paths would be overwritten: …` | You have uncommitted edits to harness-owned files | Commit them, stash them, or rerun with `--force` (stashes + pops automatically) |
+| `just update: N harness-owned file(s) conflict; NOTHING was committed.` | You and upstream changed the same lines (or a binary/symlink, or upstream deleted a file you edited) | Resolve the listed files, `git add`, commit with the printed message; or `git reset --hard HEAD` and rerun with `--force` to take upstream for those files |
 | `no harness-owned paths found upstream; nothing to update` | The upstream `<ref>` doesn't carry any files matching the harness path list (extremely rare; usually means `upstream` is pointed at the wrong repo) | Verify `git remote -v` shows the canonical CHA repo |
 
 The script exits 0 with `already up to date with upstream <sha>` when your template base matches upstream — no commit is created.
 
 ## What `just update` doesn't do
 
-- **No `ws_apps/` / `ws_packages/` changes.** Path-scoping is enforced by `git checkout upstream/<ref> -- <harness-paths-only>`. There is no opt-in for "also update the seed examples" — once you've forked, the seeds are yours.
+- **No `ws_apps/` / `ws_packages/` changes.** Path-scoping is enforced by merging only the harness-owned path list. There is no opt-in for "also update the seed examples" — once you've forked, the seeds are yours.
 - **No `infra/` changes.** `infra/` is reserved for *your* deploy infra (compose files for your app's databases, k8s manifests, etc.). The harness's observability compose lives at `harness/observability/compose.harness.yml`.
-- **No rebase semantics.** Path-scoped checkout + commit produces a fast-forward-shaped history, but the underlying mechanic is `git checkout` + `git commit`, not `git rebase`. If you want a linear history relative to upstream, run `just update` regularly so the per-update commits stay small.
-- **No automatic conflict resolution.** If `--force` stashes dirty harness-owned edits and the upstream changes conflict, you'll see the conflict in `git stash pop` and resolve normally. The script doesn't try to be smart about it.
+- **No rebase semantics.** Per-file merge + commit produces a fast-forward-shaped history, but the underlying mechanic is `git merge-file` + `git commit`, not `git merge` or `git rebase`. If you want a linear history relative to upstream, run `just update` regularly so the per-update commits stay small.
+- **No automatic conflict resolution.** Overlapping edits are left as conflict markers for you; `--force` is the only automatic choice, and it always picks upstream.
 - **No lab upstream.** The R&D lab ([`agentic-harness-lab`](https://github.com/NeuralEmpowerment/agentic-harness-lab)) is research, NOT a live upstream. `upstream` always points at the canonical template repo ([`syntropic137/harness-app-template`](https://github.com/syntropic137/harness-app-template)). See [`docs/adrs/ADR-0015-cha-sync-source-of-truth.md`](./adrs/ADR-0015-cha-sync-source-of-truth.md) for the standalone framing.
 
 ## Pushing improvements back upstream
