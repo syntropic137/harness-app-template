@@ -1,5 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { chdir, cwd as processCwd } from 'node:process';
@@ -38,12 +46,21 @@ function initRepo(path: string): void {
   run(path, ['config', 'commit.gpgsign', 'false']);
 }
 
-function setupCanonicalAndFork(root: string): { canonical: string; fork: string } {
+const LINES = 'a\nb\nc\nd\ne\nf\ng\nh\ni\n';
+
+function setupCanonicalAndFork(
+  root: string,
+  harnessFile = 'v1\n',
+  extraFiles: Record<string, string> = {},
+): { canonical: string; fork: string } {
   const canonical = join(root, 'canonical');
   const fork = join(root, 'fork');
   mkdirSync(canonical);
   initRepo(canonical);
-  write(join(canonical, 'harness/file.txt'), 'v1\n');
+  write(join(canonical, 'harness/file.txt'), harnessFile);
+  for (const [path, content] of Object.entries(extraFiles)) {
+    write(join(canonical, path), content);
+  }
   write(join(canonical, 'ws_apps/app.txt'), 'seed\n');
   commitAll(canonical, 'initial template');
 
@@ -85,51 +102,457 @@ describe('updateProject', () => {
     }
   });
 
-  // The consumer committed a fix to a harness-owned path. Before this guard,
-  // `just update` overwrote it silently: `dirtyHarnessPaths` reads
-  // `git status --porcelain`, which only sees the WORKING TREE, and a committed
-  // fix leaves that clean. The `local harness edits:` warning WAS computed, but
-  // only reached --check and preview - the two strategies that change nothing -
-  // and was discarded on the merge path that does the overwriting.
-  //
-  // Observed for real on a consumer (dream-ship_v0): five harness-owned files
-  // diverged, including a 128-line hardening of scripts/test-coverage.ts fixing
-  // a gate flake that had been fixed there three separate times. Every one would
-  // have been reverted with no output naming them.
-  test('merge REFUSES when a harness path carries committed local changes', () => {
-    const root = mkdtempSync(join(tmpdir(), 'cha-update-diverged-'));
+  // History: `just update` used to overwrite harness-owned paths wholesale, then
+  // (#78) refused whenever a committed local edit would be overwritten. Both
+  // forced a choice between "don't update" and "lose your edits". It now does
+  // a per-file three-way merge; these tests pin each outcome.
+  test('three-way: local and upstream edits to different parts of one file both survive', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-clean-'));
     try {
-      const { canonical, fork } = setupCanonicalAndFork(root);
-
-      // Consumer fixes a bug in a HARNESS-owned path and COMMITS it, so the
-      // working tree is clean and the dirty-path check cannot see it.
-      write(join(fork, 'harness/file.txt'), 'consumer harness fix\n');
-      commitAll(fork, 'consumer fixes a harness bug');
+      const { canonical, fork } = setupCanonicalAndFork(root, LINES);
+      write(join(fork, 'harness/file.txt'), LINES.replace('a\n', 'A-local\n'));
+      commitAll(fork, 'consumer customizes the top of a harness file');
       expect(run(fork, ['status', '--porcelain'])).toBe('');
+      write(join(canonical, 'harness/file.txt'), LINES.replace('i\n', 'I-upstream\n'));
+      commitAll(canonical, 'template edits the bottom of the same file');
 
-      // Canonical ships its own change to the same surface.
-      write(join(canonical, 'harness/file.txt'), 'v2\n');
-      commitAll(canonical, 'template harness update');
-
-      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
-        /refusing to update.*COMMITTED local changes/s,
+      const result = updateProject({ cwd: fork, strategy: 'merge' });
+      expect(result).toContain('merged cleanly: harness/file.txt');
+      const merged = readFileSync(join(fork, 'harness/file.txt'), 'utf8');
+      expect(merged).toContain('A-local\n');
+      expect(merged).toContain('I-upstream\n');
+      // Committed with the existing message format, working tree clean.
+      expect(run(fork, ['log', '-1', '--format=%s'])).toMatch(
+        /^update: harness sync from upstream@[0-9a-f]{12}$/,
       );
-      // Refusing means refusing: the consumer's fix is still on disk.
-      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe('consumer harness fix\n');
+      expect(run(fork, ['status', '--porcelain'])).toBe('');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
-      // The refusal must NAME the file, or it cannot be acted on.
+  test('three-way: overlapping edits leave conflict markers, commit nothing, and throw', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-conflict-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root, LINES);
+      write(join(canonical, 'harness/other.txt'), 'new upstream file\n');
+      write(join(fork, 'harness/file.txt'), LINES.replace('e\n', 'E-local\n'));
+      const head = commitAll(fork, 'consumer edits line e');
+      write(join(canonical, 'harness/file.txt'), LINES.replace('e\n', 'E-upstream\n'));
+      commitAll(canonical, 'template edits line e');
+
       let message = '';
       try {
         updateProject({ cwd: fork, strategy: 'merge' });
       } catch (error) {
         message = (error as Error).message;
       }
-      expect(message).toContain('harness/file.txt');
+      expect(message).toContain('NOTHING was committed');
+      expect(message).toContain('harness/file.txt (both modified)');
+      expect(message).toContain('Harness-Upstream');
+      expect(run(fork, ['rev-parse', 'HEAD'])).toBe(head);
+      const onDisk = readFileSync(join(fork, 'harness/file.txt'), 'utf8');
+      expect(onDisk).toMatch(/<<<<<<< HEAD\nE-local\n=======\nE-upstream\n>>>>>>> upstream\/main/);
+      // The conflicted file is unstaged; non-conflicting changes are staged.
+      expect(run(fork, ['diff', '--name-only', '--cached'])).toBe('harness/other.txt');
+      expect(message).not.toContain('reset --hard');
+      // The printed discard command must restore exactly the touched harness
+      // paths and leave unrelated consumer edits alone.
+      write(join(fork, 'ws_apps/app.txt'), 'unrelated in-flight edit\n');
+      const discard = message.match(/`(git restore [^`]+)`/)?.[1] ?? '';
+      expect(discard).toContain('harness/file.txt');
+      execFileSync('sh', ['-c', discard], { cwd: fork, env: withoutLocalGitEnv() });
+      expect(run(fork, ['status', '--porcelain'])).toBe('M ws_apps/app.txt');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
-      // --force is the conscious override, and still applies the update.
-      const forced = updateProject({ cwd: fork, strategy: 'merge', force: true });
-      expect(forced).toContain('ws_apps/ws_packages untouched');
+  test('three-way: --force on a conflict takes upstream', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-force-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root, LINES);
+      write(join(fork, 'harness/file.txt'), LINES.replace('e\n', 'E-local\n'));
+      commitAll(fork, 'consumer edits line e');
+      write(join(canonical, 'harness/file.txt'), LINES.replace('e\n', 'E-upstream\n'));
+      commitAll(canonical, 'template edits line e');
+
+      const result = updateProject({ cwd: fork, strategy: 'merge', force: true });
+      expect(result).toContain('--force took upstream for: harness/file.txt');
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe(
+        LINES.replace('e\n', 'E-upstream\n'),
+      );
+      expect(run(fork, ['status', '--porcelain'])).toBe('');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('three-way: local-only edit is preserved while upstream-only change applies', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-keep-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+      write(join(canonical, 'harness/skill.md'), 'upstream skill v1\n');
+      commitAll(canonical, 'add skill');
+      run(fork, ['pull', '-q', 'origin', 'main']);
+      write(join(fork, 'harness/skill.md'), 'consumer-customized skill\n');
+      commitAll(fork, 'customize skill');
+      write(join(canonical, 'harness/file.txt'), 'v2\n');
+      commitAll(canonical, 'template bumps a different file');
+
+      const result = updateProject({ cwd: fork, strategy: 'merge' });
+      expect(result).toContain('kept local: harness/skill.md');
+      expect(readFileSync(join(fork, 'harness/skill.md'), 'utf8')).toBe(
+        'consumer-customized skill\n',
+      );
       expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe('v2\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  function setupAddsAndDeletes(root: string): string {
+    const { canonical, fork } = setupCanonicalAndFork(root, 'v1\n', {
+      'harness/drop-clean.txt': 'x\n',
+      'harness/drop-edited.txt': 'x\n',
+      'harness/local-gone.txt': 'x\n',
+    });
+    write(join(fork, 'harness/drop-edited.txt'), 'consumer edit\n');
+    rmSync(join(fork, 'harness/local-gone.txt'));
+    commitAll(fork, 'consumer edits and deletes');
+    rmSync(join(canonical, 'harness/drop-clean.txt'));
+    rmSync(join(canonical, 'harness/drop-edited.txt'));
+    write(join(canonical, 'harness/local-gone.txt'), 'upstream improved\n');
+    write(join(canonical, 'harness/added.txt'), 'brand new\n');
+    commitAll(canonical, 'template adds, deletes, edits');
+    return fork;
+  }
+
+  // Regression for the #78 guard's false refusal (found reviewing the
+  // dream-ship port): upstream DELETING a harness file the consumer edited
+  // must not block the update. The edit is kept and reported.
+  test('three-way: adds and deletes on each side, none of which block the update', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-adddel-'));
+    try {
+      const fork = setupAddsAndDeletes(root);
+      const preview = updateProject({ cwd: fork, strategy: 'preview' });
+      expect(preview).toContain('fast-forward (take upstream): 2');
+      expect(preview).toContain(
+        'kept-modified (deleted upstream, modified locally): 1\n  harness/drop-edited.txt',
+      );
+      expect(preview).toContain(
+        'kept-deleted (deleted locally, changed upstream): 1\n  harness/local-gone.txt',
+      );
+      expect(preview).not.toContain('conflict');
+
+      const result = updateProject({ cwd: fork, strategy: 'merge' });
+      expect(result).toContain('harness file(s) refreshed');
+      expect(result).toContain(
+        'kept yours (deleted upstream; --force deletes): harness/drop-edited.txt',
+      );
+      expect(result).toContain(
+        'kept deleted (changed upstream; --force restores): harness/local-gone.txt',
+      );
+      expect(readFileSync(join(fork, 'harness/added.txt'), 'utf8')).toBe('brand new\n');
+      expect(existsSync(join(fork, 'harness/drop-clean.txt'))).toBe(false);
+      expect(readFileSync(join(fork, 'harness/drop-edited.txt'), 'utf8')).toBe('consumer edit\n');
+      expect(existsSync(join(fork, 'harness/local-gone.txt'))).toBe(false);
+      expect(run(fork, ['status', '--porcelain'])).toBe('');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('three-way: --force deletes upstream-deleted edits and restores local deletions', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-adddel-force-'));
+    try {
+      const fork = setupAddsAndDeletes(root);
+      const forced = updateProject({ cwd: fork, strategy: 'merge', force: true });
+      expect(forced).toContain(
+        '--force took upstream for: harness/drop-edited.txt, harness/local-gone.txt',
+      );
+      expect(forced).not.toContain('kept yours');
+      expect(existsSync(join(fork, 'harness/drop-edited.txt'))).toBe(false);
+      expect(readFileSync(join(fork, 'harness/local-gone.txt'), 'utf8')).toBe(
+        'upstream improved\n',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('three-way: a locally deleted file changed upstream stays deleted without --force', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-keptdel-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root, 'v1\n', {
+        'harness/gone.txt': 'x\n',
+      });
+      rmSync(join(fork, 'harness/gone.txt'));
+      commitAll(fork, 'consumer drops a harness file');
+      write(join(canonical, 'harness/gone.txt'), 'y\n');
+      write(join(canonical, 'harness/file.txt'), 'v2\n');
+      commitAll(canonical, 'template edits both');
+
+      const result = updateProject({ cwd: fork, strategy: 'merge' });
+      expect(result).toContain(
+        'kept deleted (changed upstream; --force restores): harness/gone.txt',
+      );
+      expect(existsSync(join(fork, 'harness/gone.txt'))).toBe(false);
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe('v2\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('three-way: binary changed on both sides is a conflict, not a text merge', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-bin-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root, 'v1\n', {
+        'harness/logo.bin': 'bin\0base\n',
+      });
+      write(join(fork, 'harness/logo.bin'), 'bin\0local\n');
+      commitAll(fork, 'consumer logo');
+      write(join(canonical, 'harness/logo.bin'), 'bin\0upstream\n');
+      commitAll(canonical, 'template logo');
+
+      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
+        /harness\/logo\.bin \(binary, changed on both sides\)/,
+      );
+      expect(readFileSync(join(fork, 'harness/logo.bin'), 'utf8')).toBe('bin\0local\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('three-way: both sides adding the same path with different content conflicts', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-bothadd-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+      write(join(fork, 'harness/new.txt'), 'local\n');
+      commitAll(fork, 'consumer adds');
+      write(join(canonical, 'harness/new.txt'), 'upstream\n');
+      commitAll(canonical, 'template adds');
+      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
+        /harness\/new\.txt \(both modified\)/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('three-way: next update merges from the last synced upstream, not the stale fork point', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-rebase-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root, LINES);
+      write(join(fork, 'harness/file.txt'), LINES.replace('a\n', 'A-local\n'));
+      commitAll(fork, 'consumer customizes line a');
+      write(join(canonical, 'harness/file.txt'), LINES.replace('e\n', 'E1\n'));
+      commitAll(canonical, 'template round 1');
+      updateProject({ cwd: fork, strategy: 'merge' });
+      expect(run(fork, ['log', '-1', '--format=%b'])).toMatch(/^Harness-Upstream: [0-9a-f]{40}$/);
+
+      // Second round: upstream changes line e AGAIN. Against the stale fork
+      // point, ours ALSO changed line e (to E1), so this would conflict.
+      write(join(canonical, 'harness/file.txt'), LINES.replace('e\n', 'E2\n'));
+      commitAll(canonical, 'template round 2');
+      const second = updateProject({ cwd: fork, strategy: 'merge' });
+      expect(second).toContain('merged cleanly: harness/file.txt');
+      const merged = readFileSync(join(fork, 'harness/file.txt'), 'utf8');
+      expect(merged).toContain('A-local\n');
+      expect(merged).toContain('E2\n');
+      expect(updateProject({ cwd: fork, strategy: 'merge' })).toContain('already up to date');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('three-way: an unusable recorded sync sha falls back to the merge base', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-fallback-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root, LINES);
+      // A pre-trailer sync subject naming a commit that is NOT on upstream.
+      write(join(fork, 'harness/file.txt'), LINES.replace('a\n', 'A-local\n'));
+      const local = commitAll(fork, 'consumer customizes line a');
+      run(fork, ['commit', '--allow-empty', '-m', `update: harness sync from upstream@${local}`]);
+      write(join(canonical, 'harness/file.txt'), LINES.replace('i\n', 'I-upstream\n'));
+      commitAll(canonical, 'template edits line i');
+
+      const result = updateProject({ cwd: fork, strategy: 'merge' });
+      expect(result).toContain('merged cleanly: harness/file.txt');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('three-way: a symlink retargeted on both sides is a conflict', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-link-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+      symlinkSync('file.txt', join(canonical, 'harness/link'));
+      commitAll(canonical, 'add link');
+      run(fork, ['pull', '-q', 'origin', 'main']);
+      rmSync(join(fork, 'harness/link'));
+      symlinkSync('local-target', join(fork, 'harness/link'));
+      commitAll(fork, 'consumer retargets link');
+      rmSync(join(canonical, 'harness/link'));
+      symlinkSync('upstream-target', join(canonical, 'harness/link'));
+      commitAll(canonical, 'template retargets link');
+
+      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
+        /harness\/link \(symlink changed on both sides\)/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('--force fails loudly when restoring dirty edits conflicts after the sync commit', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-pop-conflict-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+      write(join(fork, 'harness/file.txt'), 'uncommitted local edit\n');
+      write(join(canonical, 'harness/file.txt'), 'v2\n');
+      commitAll(canonical, 'template bump');
+
+      let message = '';
+      try {
+        updateProject({ cwd: fork, strategy: 'merge', force: true });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain('the harness sync WAS committed');
+      expect(message).toContain('  harness/file.txt');
+      expect(message).toContain('git stash drop');
+      expect(run(fork, ['log', '-1', '--format=%s'])).toMatch(/^update: harness sync/);
+      expect(run(fork, ['stash', 'list'])).toContain('just update harness-owned preimage');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('upstream deleting every harness file goes through the plan', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-empty-upstream-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root, 'v1\n', {
+        'harness/edited.txt': 'x\n',
+      });
+      write(join(fork, 'harness/edited.txt'), 'consumer edit\n');
+      commitAll(fork, 'consumer edit');
+      rmSync(join(canonical, 'harness'), { recursive: true });
+      commitAll(canonical, 'template drops the harness tree');
+
+      const preview = updateProject({ cwd: fork, strategy: 'preview' });
+      expect(preview).toContain('fast-forward (take upstream): 1\n  harness/file.txt');
+      expect(preview).toContain('kept-modified (deleted upstream, modified locally): 1');
+
+      const result = updateProject({ cwd: fork, strategy: 'merge' });
+      expect(result).toContain(
+        'kept yours (deleted upstream; --force deletes): harness/edited.txt',
+      );
+      expect(existsSync(join(fork, 'harness/file.txt'))).toBe(false);
+      expect(existsSync(join(fork, 'harness/edited.txt'))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('--force applies upstream deleting every harness file', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-empty-upstream-force-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root, 'v1\n', {
+        'harness/edited.txt': 'x\n',
+      });
+      write(join(fork, 'harness/edited.txt'), 'consumer edit\n');
+      commitAll(fork, 'consumer edit');
+      rmSync(join(canonical, 'harness'), { recursive: true });
+      commitAll(canonical, 'template drops the harness tree');
+
+      updateProject({ cwd: fork, strategy: 'merge', force: true });
+      expect(existsSync(join(fork, 'harness/file.txt'))).toBe(false);
+      expect(existsSync(join(fork, 'harness/edited.txt'))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('pre-staged consumer files are not swept into the sync commit', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-prestaged-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root);
+      write(join(fork, 'ws_apps/app.txt'), 'staged consumer work\n');
+      run(fork, ['add', 'ws_apps/app.txt']);
+      write(join(canonical, 'harness/file.txt'), 'v2\n');
+      commitAll(canonical, 'template bump');
+
+      updateProject({ cwd: fork, strategy: 'merge' });
+      expect(run(fork, ['show', '--name-only', '--format=', 'HEAD'])).toBe('harness/file.txt');
+      expect(run(fork, ['diff', '--cached', '--name-only'])).toBe('ws_apps/app.txt');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('first update after an older sync commit without a trailer uses its subject sha', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-legacy-subject-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root, LINES);
+      write(join(canonical, 'harness/file.txt'), LINES.replace('e\n', 'E1\n'));
+      const round1 = commitAll(canonical, 'template round 1');
+      // What the pre-merge `just update` did: checkout + commit, no trailer.
+      run(fork, ['fetch', '-q', 'upstream', 'main']);
+      run(fork, ['checkout', 'upstream/main', '--', 'harness/']);
+      run(fork, [
+        'commit',
+        '-q',
+        '-m',
+        `update: harness sync from upstream@${round1.slice(0, 12)}`,
+      ]);
+      write(
+        join(fork, 'harness/file.txt'),
+        LINES.replace('e\n', 'E1\n').replace('a\n', 'A-local\n'),
+      );
+      commitAll(fork, 'consumer customizes line a');
+      write(join(canonical, 'harness/file.txt'), LINES.replace('e\n', 'E2\n'));
+      commitAll(canonical, 'template round 2');
+
+      const result = updateProject({ cwd: fork, strategy: 'merge' });
+      expect(result).toContain('merged cleanly: harness/file.txt');
+      const merged = readFileSync(join(fork, 'harness/file.txt'), 'utf8');
+      expect(merged).toContain('A-local\n');
+      expect(merged).toContain('E2\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('preview lists per-file categories and changes nothing', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-3way-preview-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFork(root, LINES, {
+        'harness/keep.txt': 'k\n',
+        'harness/ff.txt': 'f\n',
+        'harness/clash.txt': 'c\n',
+      });
+      write(join(fork, 'harness/keep.txt'), 'k-local\n');
+      write(join(fork, 'harness/file.txt'), LINES.replace('a\n', 'A-local\n'));
+      write(join(fork, 'harness/clash.txt'), 'c-local\n');
+      const head = commitAll(fork, 'consumer edits');
+      write(join(canonical, 'harness/ff.txt'), 'f2\n');
+      write(join(canonical, 'harness/file.txt'), LINES.replace('i\n', 'I-upstream\n'));
+      write(join(canonical, 'harness/clash.txt'), 'c-upstream\n');
+      commitAll(canonical, 'template edits');
+
+      const preview = updateProject({ cwd: fork, strategy: 'preview' });
+      expect(preview).toContain('fast-forward (take upstream): 1\n  harness/ff.txt');
+      expect(preview).toContain('keep-local (unchanged upstream): 1\n  harness/keep.txt');
+      expect(preview).toContain(
+        'merge-clean (both changed, merges cleanly): 1\n  harness/file.txt',
+      );
+      expect(preview).toContain(
+        'conflict (needs manual resolution): 1\n  harness/clash.txt (both modified)',
+      );
+      expect(run(fork, ['rev-parse', 'HEAD'])).toBe(head);
+      expect(run(fork, ['status', '--porcelain'])).toBe('');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -291,7 +714,10 @@ describe('updateProject', () => {
     }
   });
 
-  test('--force stashes dirty harness edits before no-op harness refresh', () => {
+  // This test used to assert the file came back as 'v1' - i.e. it pinned the
+  // bug: dirtyHarnessPaths trimmed porcelain lines, mangling ' M path' into a
+  // wrong pathspec, so nothing was stashed and the checkout destroyed the edit.
+  test('--force stashes dirty harness edits and restores them after a no-op refresh', () => {
     const root = mkdtempSync(join(tmpdir(), 'cha-update-force-'));
     try {
       const { canonical, fork } = setupCanonicalAndFork(root);
@@ -300,7 +726,7 @@ describe('updateProject', () => {
       write(join(fork, 'harness/file.txt'), 'local harness edit\n');
       const result = updateProject({ cwd: fork, strategy: 'merge', force: true });
       expect(result).toContain('already up to date');
-      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe('v1\n');
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe('local harness edit\n');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
