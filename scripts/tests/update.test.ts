@@ -11,9 +11,17 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { chdir, cwd as processCwd } from 'node:process';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { parseCli, updateProject } from '../update';
 import { fixtureGit, hermeticGitEnv } from './helpers/git-env';
+
+// Subprocess-heavy suite: these tests git-init, clone, merge, and shell out to
+// real binaries, and routinely exceed vitest's 5000 ms default on a loaded host
+// (different tests time out on each run of origin/main; every test passes when
+// given room). Wall-clock headroom is not a quality threshold: no assertion is
+// weakened, and a genuinely hung subprocess still fails the run
+// (downstream: dream-ship_v0 bead dreamship-v0-j9ot).
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 function run(cwd: string, args: string[]): string {
   return fixtureGit(args, { cwd }).trim();
