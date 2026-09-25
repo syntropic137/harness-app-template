@@ -128,9 +128,9 @@ interface HarnessProvenance {
 
 /**
  * Read git-native provenance. Missing file = `null` (legal — older
- * consumers may not have it). Update succeeds either way; the
- * provenance file is informational, not load-bearing on the merge
- * mechanic.
+ * consumers may not have it). With shared upstream history it is
+ * informational; without it, `canonical_commit` is the merge base
+ * (see `resolveTemplateBase`).
  */
 function readProvenance(cwd: string): HarnessProvenance | null {
   const path = join(cwd, '.harness-provenance.json');
@@ -262,7 +262,7 @@ function resolveTemplateBase(cwd: string, target: string): string {
       recorded
         ? `  canonical_commit ${recorded} is not an ancestor of ${target}, and no ${target} commit has its tree (fetched?)`
         : '  .harness-provenance.json is missing or has no canonical_commit',
-      'Record the template commit this project was scaffolded from as canonical_commit, then re-run.',
+      `Set canonical_commit in .harness-provenance.json to the ${target} commit this project was scaffolded from (see \`git log ${target}\`), commit it, then re-run.`,
     ].join('\n'),
   );
 }
