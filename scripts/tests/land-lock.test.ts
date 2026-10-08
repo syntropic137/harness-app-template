@@ -116,36 +116,52 @@ describe('landing lock', () => {
     expect(m.files.has('/l')).toBe(true);
   });
 
-  test('a reaper that lost the race leaves a fresh lock alone', async () => {
+  test('a live reaper is waited for, never taken over because it is slow', async () => {
+    const m = memoryLock({ alive: new Set([100, 300]) });
+    m.files.set('/l', { text: holderJson({ pid: 999 }), at: 0 }); // stale holder (pid 999 dead)
+    m.files.set('/l.reap', { text: holderJson({ pid: 300 }), at: 0 }); // live reaper, ancient file
+    let polls = 0;
+    const sleep = m.deps.sleep;
+    m.deps.sleep = async (ms) => {
+      await sleep(ms);
+      polls += 1;
+      if (polls === 3) {
+        m.files.delete('/l.reap');
+        m.files.delete('/l');
+      }
+    };
+    await acquireLock(m.deps, me, 1_000_000);
+    expect(polls).toBeGreaterThanOrEqual(3);
+    expect(parseHolder(m.files.get('/l')?.text ?? null)?.pid).toBe(200);
+  });
+
+  test('an old unreadable lock behind a live reaper also waits', async () => {
+    const m = memoryLock({ alive: new Set([300]) });
+    m.files.set('/l', { text: '{', at: 0 });
+    m.files.set('/l.reap', { text: holderJson({ pid: 300 }), at: 0 });
+    const sleep = m.deps.sleep;
+    let polls = 0;
+    m.deps.sleep = async (ms) => {
+      await sleep(ms);
+      polls += 1;
+      if (polls === 2) m.files.delete('/l.reap');
+    };
+    await acquireLock(m.deps, me, 1_000_000);
+    expect(polls).toBeGreaterThanOrEqual(2);
+  });
+
+  test('a dead reaper is taken over, and so is an old unreadable reaper file', async () => {
     const m = memoryLock({ alive: new Set() });
     m.files.set('/l', { text: holderJson(), at: 0 });
-    // Another waiter reaps and re-creates between our read and our reap.
-    const real = m.deps.read;
-    let first = true;
-    m.deps.read = (p) => {
-      const v = real(p);
-      if (first && p === '/l') {
-        first = false;
-        return v;
-      }
-      return v;
-    };
-    m.files.set('/l.reap', { text: 'x', at: m.state.clock }); // someone else is reaping
-    let slept = false;
-    const sleepFn = m.deps.sleep;
-    m.deps.sleep = async (ms) => {
-      slept = true;
-      await sleepFn(ms);
-    };
-    // reaper held by another and fresh: we spin via continue until it ages out (30s), no deadlock
-    m.deps.createExclusive = ((orig) => (p: string, t: string) => {
-      const ok = orig(p, t);
-      if (!ok && p === '/l.reap') m.state.clock += 31_000;
-      return ok;
-    })(m.deps.createExclusive);
-    await acquireLock(m.deps, me, 1000);
-    expect(slept || m.files.has('/l')).toBe(true);
+    m.files.set('/l.reap', { text: holderJson({ pid: 300 }), at: 0 });
+    await acquireLock(m.deps, me, 1_000_000);
+    expect(parseHolder(m.files.get('/l')?.text ?? null)?.pid).toBe(200);
     expect(m.files.has('/l.reap')).toBe(false);
+    const m2 = memoryLock({ alive: new Set() });
+    m2.files.set('/l', { text: holderJson(), at: 0 });
+    m2.files.set('/l.reap', { text: '{', at: 0 });
+    await acquireLock(m2.deps, me, 1_000_000);
+    expect(m2.files.has('/l.reap')).toBe(false);
   });
 
   test('a lock that became live again before the reap is not removed', async () => {

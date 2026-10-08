@@ -61,8 +61,6 @@ const HEAD_BRANCH_RE = /HEAD -> (.*)$/;
 export type GitRunner = (args: string[]) => { status: number; stdout: string };
 
 export interface ScopeDeps {
-  /** The SHA-bound land marker (env var named by land.config.json markerEnv), if set. */
-  landGateSha?: string;
   /** Ref the land flow protects; defaults to PROTECTED_REF. */
   protectedRef?: string;
   /** lefthook's push-file set, or null when it cannot be computed. */
@@ -188,15 +186,6 @@ export function evaluatePushScope(
   const carrying: string[] = [];
   const unknown: string[] = [];
   for (const ref of refs) {
-    // A push the land flow gated on this exact commit may legitimately be one lefthook sees as
-    // empty (for example a deletion-only change): the SHA binding is the proof it was validated.
-    if (
-      deps.landGateSha !== undefined &&
-      deps.landGateSha === ref.localSha &&
-      ref.remoteRef === (deps.protectedRef ?? PROTECTED_REF)
-    ) {
-      continue;
-    }
     const carries = deps.carriesContent(ref, remote);
     if (carries === null) {
       unknown.push(describeRef(ref));
@@ -274,7 +263,6 @@ if (isMainEntry(import.meta.url)) {
       argv: process.argv.slice(2),
       lefthookPushFiles: () => lefthookPushFiles(realGit, realIsFile),
       carriesContent: (ref, remote) => refCarriesContent(realGit, ref, remote, protectedRef),
-      landGateSha: process.env[config.markerEnv],
       protectedRef,
       stdout: console,
       stderr: console,

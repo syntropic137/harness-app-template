@@ -389,34 +389,14 @@ describe('end to end: the reproduced skip shapes, decided with real git', () => 
   });
 });
 
-describe('land-gated pushes (ADR-0033)', () => {
-  const deletionOnly: PushRefLine = {
-    localRef: 'HEAD',
-    localSha: SHA_B,
-    remoteRef: 'refs/heads/trunk',
-    remoteSha: SHA_A,
-  };
-  const base = {
-    lefthookPushFiles: () => [] as string[],
-    carriesContent: () => true as boolean | null,
-  };
-  test('a push the land flow gated on this exact SHA passes even when lefthook saw an empty set', () => {
-    const gated = { ...base, landGateSha: SHA_B, protectedRef: 'refs/heads/trunk' };
-    expect(evaluatePushScope([deletionOnly], 'origin', gated).ok).toBe(true);
-    // wrong SHA, wrong ref, or no marker: still refused
-    expect(evaluatePushScope([deletionOnly], 'origin', { ...gated, landGateSha: SHA_A }).ok).toBe(
-      false,
-    );
-    expect(
-      evaluatePushScope([deletionOnly], 'origin', { ...gated, protectedRef: 'refs/heads/main' }).ok,
-    ).toBe(false);
-    expect(evaluatePushScope([deletionOnly], 'origin', base).ok).toBe(false);
-    // protected ref defaults to main
-    const onMain = { ...deletionOnly, remoteRef: 'refs/heads/main' };
-    expect(evaluatePushScope([onMain], 'origin', { ...base, landGateSha: SHA_B }).ok).toBe(true);
-  });
+describe('configured protected ref (ADR-0033)', () => {
   test('deleting the configured protected ref counts as content', () => {
-    const del = { ...deletionOnly, localSha: ZERO };
+    const del: PushRefLine = {
+      localRef: '(delete)',
+      localSha: ZERO,
+      remoteRef: 'refs/heads/trunk',
+      remoteSha: SHA_A,
+    };
     const git: GitRunner = () => ({ status: 0, stdout: '' });
     expect(refCarriesContent(git, del, 'origin', 'refs/heads/trunk')).toBe(true);
     expect(refCarriesContent(git, del, 'origin')).toBe(false);

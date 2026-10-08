@@ -36,3 +36,5 @@ A gate may list `requires` (programs on PATH): many hooks exit 0 when a tool is 
 ## Exit codes
 
 `0` landed (or dry run ok), `1` a gate or check failed, `2` push or fetch failed, `64` usage, `75` lock or load wait exhausted.
+
+Deletion-only landings are refused by `push-scope-guard`: lefthook treats a push whose changed paths no longer exist on disk as empty and skips every other pre-push job, and a land cannot know the jobs it was never configured to run. Land such a change together with a non-deleting edit.

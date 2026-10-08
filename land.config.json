@@ -38,13 +38,18 @@
     { "name": "typecheck-affected", "when": ["ts"], "requires": ["pnpm"] },
     { "name": "test-affected", "when": ["ts"], "requires": ["pnpm"] },
     { "name": "cov-ts", "when": ["ts"], "requires": ["pnpm"] },
-    { "name": "cov-rust", "when": ["rust"], "requires": ["cargo", "cargo-llvm-cov"] },
-    { "name": "cov-py", "when": ["python"] },
+    { "name": "cov-rust", "when": ["rust"], "requires": ["cargo", "cargo-llvm-cov", "just"] },
+    { "name": "cov-py", "when": ["python"], "requires": ["uv"] },
     { "name": "doc-validator", "when": ["docs"] },
-    { "name": "perf-gate", "when": ["ts"] },
-    { "name": "sensors-gate", "when": ["ts", "rust", "python"] },
-    { "name": "versioning-release-check" },
+    { "name": "perf-gate", "when": ["ts"], "requires": ["hyperfine", "node"] },
+    { "name": "sensors-gate", "when": ["ts", "rust", "python"], "requires": ["node", "npx"] },
+    { "name": "versioning-release-check", "requires": ["cargo"] },
     { "name": "ubs-diff", "when": ["ts", "python", "rust"], "requires": ["ubs"] }
   ],
-  "checks": []
+  "checks": [
+    {
+      "name": "secret-scan",
+      "run": "command -v gitleaks >/dev/null 2>&1 || { echo 'gitleaks is required to land' >&2; exit 1; }; gitleaks git --log-opts=\"{base}..{head}\" --redact --no-banner ."
+    }
+  ]
 }

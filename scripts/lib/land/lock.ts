@@ -58,14 +58,21 @@ export function describeHolder(holder: LockHolder, nowMs: number): string {
 
 /**
  * Remove a stale lock without two waiters both deleting a lock the other just
- * recreated: the removal itself runs under a short-lived reaper file, and the
- * holder is re-read and re-judged once the reaper is held.
+ * recreated: the removal runs under a reaper file that records its owner, and the
+ * holder is re-read and re-judged once the reaper is held. A reaper is taken over
+ * only when its owner is provably gone (dead PID or a previous boot), never merely
+ * because it is slow, so a paused-but-live reaper cannot be raced.
+ * Returns false when another live process is reaping and the caller should wait.
  */
-function reapStale(deps: LockDeps): void {
+function reapStale(deps: LockDeps, mine: LockHolder): boolean {
   const reaper = `${deps.lockPath}.reap`;
-  const age = deps.ageMs(reaper);
-  if (age !== null && age > REAP_STALE_MS) deps.remove(reaper);
-  if (!deps.createExclusive(reaper, String(deps.now()))) return;
+  if (!deps.createExclusive(reaper, JSON.stringify(mine))) {
+    const other = parseHolder(deps.read(reaper));
+    const orphaned =
+      other === null ? Number(deps.ageMs(reaper)) > REAP_STALE_MS : holderIsStale(other, deps);
+    if (orphaned) deps.remove(reaper);
+    return orphaned;
+  }
   try {
     const text = deps.read(deps.lockPath);
     const holder = parseHolder(text);
@@ -85,6 +92,7 @@ function reapStale(deps: LockDeps): void {
   } finally {
     deps.remove(reaper);
   }
+  return true;
 }
 
 export class LockTimeout extends Error {}
@@ -114,14 +122,14 @@ export async function acquireLock(
     }
     const holder = parseHolder(deps.read(deps.lockPath));
     if (holder !== null && holderIsStale(holder, deps)) {
-      reapStale(deps);
+      if (!reapStale(deps, mine)) await deps.sleep(POLL_MS);
       continue;
     }
     if (holder === null) {
       // Unreadable: foreign or torn. Never presume it dead while it is fresh.
       const age = deps.ageMs(deps.lockPath);
       if (age === null || age > REAP_STALE_MS) {
-        reapStale(deps);
+        if (!reapStale(deps, mine)) await deps.sleep(POLL_MS);
         continue;
       }
       if (deps.now() >= deadline) {
