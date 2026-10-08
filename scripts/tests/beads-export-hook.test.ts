@@ -19,12 +19,13 @@
 // core.hooksPath, .claude/settings.json) make it unfit for a unit test. It
 // refuses to run unless APP_ENV=test (docs/development/mocks.md).
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -332,16 +333,61 @@ describe('beads-export pre-commit hook', () => {
     expect(staged(fx.worktree)).toBe('');
   });
 
-  it('removes its temp file when terminated', () => {
+  it('removes its temp file when terminated', async () => {
     const fx = makeFixture();
-    writeFileSync(join(fx.main, '.beads', 'fake-db'), `${TRACKED}{"id":"t-3","title":"three"}\n`);
+    const ready = join(fx.base, 'ready');
     writeFileSync(
       join(fx.stubDir, 'bd'),
-      `#!/bin/sh\n[ "$1" = config ] && { echo tst; exit 0; }\nkill -TERM $PPID 2>/dev/null\nsleep 5\n`,
+      `#!/bin/sh\n[ "$1" = config ] && { echo tst; exit 0; }\ntouch "${ready}"\nexec sleep 31\n`,
     );
+    const child = spawn(
+      LEFTHOOK,
+      [
+        'run',
+        'pre-commit',
+        '--force',
+        '--commands',
+        'beads-export',
+        '--no-auto-install',
+        '--no-tty',
+      ],
+      {
+        cwd: fx.worktree,
+        env: { ...cleanEnv(), APP_ENV: 'test', PATH: `${fx.stubDir}:${process.env.PATH}` },
+        detached: true,
+        stdio: 'ignore',
+      },
+    );
+    const closed = new Promise((resolve) => child.on('close', resolve));
+    child.unref();
+    for (let i = 0; i < 100 && !existsSync(ready); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(existsSync(ready), 'the export never started').toBe(true);
+    // The temp file exists while bd runs.
+    expect(
+      readdirSync(join(fx.worktree, '.beads')).some((f) => f.startsWith('.issues.jsonl.export.')),
+    ).toBe(true);
+    // lefthook runs jobs in their own process group, so signal the hook shell itself.
+    const ps = execFileSync('ps', ['-A', '-ww', '-o', 'pid=,command='], { encoding: 'utf8' });
+    const shells = ps
+      .split('\n')
+      .filter(
+        (line) => /^\s*\d+\s+(?:\/\S+\/)?sh -eu -c /.test(line) && line.includes('BD_EXPORT_AUTO'),
+      )
+      .map((line) => Number(line.trim().split(/\s+/)[0]));
+    expect(shells.length, 'hook shell not found').toBeGreaterThan(0);
+    // A terminal Ctrl-C reaches the whole foreground group, so signal bd's sleep as well.
+    const sleepers = ps
+      .split('\n')
+      .filter((line) => /^\s*\d+\s+(?:\/\S+\/)?sleep 31\s*$/.test(line))
+      .map((line) => Number(line.trim().split(/\s+/)[0]));
+    for (const pid of [...shells, ...sleepers]) process.kill(pid, 'SIGTERM');
+    await closed;
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
-    runHook(fx, fx.worktree);
-
-    expect(git(fx.worktree, ['status', '--porcelain', '--untracked-files=all']).trim()).toBe('');
-  });
+    expect(
+      readdirSync(join(fx.worktree, '.beads')).filter((f) => f.startsWith('.issues.jsonl.export.')),
+    ).toEqual([]);
+  }, 20_000);
 });

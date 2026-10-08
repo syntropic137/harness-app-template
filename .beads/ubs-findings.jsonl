@@ -1,2 +1,2 @@
-{"type":"scanner","project":"/home/ubuntu/Code/syntropic137/harness-app-template_worktrees/20260611_scaffolder","language":"js","files":3,"critical":0,"warning":4,"info":207,"timestamp":"2026-06-12 04:01:46"}
-{"type":"totals","project":"/home/ubuntu/Code/syntropic137/harness-app-template_worktrees/20260611_scaffolder","files":3,"critical":0,"warning":4,"info":207,"timestamp":"2026-06-12 04:01:46"}
+{"type":"scanner","project":"/Users/neural/Code/harness-app-template_84","language":"js","status":"ok","files":1,"critical":0,"warning":0,"info":45,"timestamp":"2026-10-07 21:50:18"}
+{"type":"totals","project":"/Users/neural/Code/harness-app-template_84","status":"ok","failed_modules":[],"files":1,"critical":0,"warning":0,"info":45,"timestamp":"2026-10-07 21:50:18"}
