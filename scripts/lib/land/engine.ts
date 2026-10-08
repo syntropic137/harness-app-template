@@ -507,6 +507,39 @@ interface Validated {
   scopedOut: GateConfig[];
 }
 
+type CommandGate = GateConfig & { run: string };
+
+const hasCommand = (gate: GateConfig): gate is CommandGate => gate.run !== undefined;
+
+/** The work to do for these gates: the lefthook batch is one lane, command gates share lanes by name. */
+function gateLanes(
+  ctx: Ctx,
+  todo: GateConfig[],
+  evidence: Evidence,
+  vars: Vars,
+  base: string,
+): Array<() => Promise<void>> {
+  const lanes: Array<() => Promise<void>> = [];
+  const jobs = todo.filter(isLefthookGate).map((g) => g.name);
+  if (jobs.length > 0) lanes.push(() => runLefthookBatch(ctx, jobs, evidence, base));
+  const commandLanes = new Map<string, CommandGate[]>();
+  for (const gate of todo.filter(hasCommand)) {
+    const key = gate.lane ?? `gate:${gate.name}`;
+    commandLanes.set(key, [...(commandLanes.get(key) ?? []), gate]);
+  }
+  for (const gates of commandLanes.values()) {
+    lanes.push(async () => {
+      // Gates in one lane run in order; the first failure stops the lane.
+      for (const gate of gates) {
+        const { name, run, retryOnOutput } = gate;
+        await runCheck(ctx, { name, run, cwd: 'worktree', retryOnOutput }, vars);
+        evidence.passed.set(name, evidence.sha);
+      }
+    });
+  }
+  return lanes;
+}
+
 async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   await fetchRemote(ctx);
   const base = await remoteTip(ctx);
@@ -534,21 +567,7 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   await bootstrapIfNeeded(ctx, c, vars);
   const todo = selected.filter((g) => !evidence.passed.has(g.name));
   await requireTools(ctx, todo);
-  const lanes: Array<() => Promise<void>> = [];
-  const jobs = todo.filter(isLefthookGate).map((g) => g.name);
-  if (jobs.length > 0) lanes.push(() => runLefthookBatch(ctx, jobs, evidence, base));
-  for (const gate of todo) {
-    if (gate.run === undefined) continue;
-    const run = gate.run;
-    lanes.push(async () => {
-      await runCheck(
-        ctx,
-        { name: gate.name, run, cwd: 'worktree', retryOnOutput: gate.retryOnOutput },
-        vars,
-      );
-      evidence.passed.set(gate.name, sha);
-    });
-  }
+  const lanes = gateLanes(ctx, todo, evidence, vars, base);
   await runLanes(lanes, ctx.config.parallelGates);
   for (const check of ctx.config.checks) await runCheck(ctx, check, vars);
   await assertUnchanged(ctx, sha);

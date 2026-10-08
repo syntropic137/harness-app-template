@@ -10,6 +10,8 @@ export const CONFIG_FILE = 'land.config.json';
 export interface GateConfig {
   name: string;
   run?: string;
+  /** Command gates that share a lane run one after another, never concurrently (for example two suites that starve each other). Omitted: its own lane. */
+  lane?: string;
   /** As CheckConfig.retryOnOutput, for a command gate. */
   retryOnOutput?: string;
   when?: string[];
@@ -154,6 +156,7 @@ function parseGate(raw: unknown, label: string): GateConfig {
   }
   if (raw.retryOnOutput !== undefined)
     gate.retryOnOutput = requireRegex(raw.retryOnOutput, `${label}.retryOnOutput`);
+  if (raw.lane !== undefined) gate.lane = requireName(raw.lane, `${label}.lane`);
   if (raw.when !== undefined) gate.when = requireStringArray(raw.when, `${label}.when`);
   if (raw.requires !== undefined)
     gate.requires = requireStringArray(raw.requires, `${label}.requires`);
