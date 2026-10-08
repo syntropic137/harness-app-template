@@ -404,6 +404,23 @@ pre-push:
           ubs --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl --files "$(printf "%s\n" "$files" | paste -sd, -)"
         '
 
+    # Land flow (ADR-0033). Default-closes an UNGATED code push to the target
+    # branch: it passes only when the SHA-bound marker env var (land.config.json
+    # `markerEnv`) equals the pushed commit, which `just land` sets after gating
+    # that exact commit. Fails closed on empty stdin. See scripts/guard-main-push.ts.
+    guard-main-push:
+      use_stdin: true
+      run: bun run scripts/guard-main-push.ts
+
+  scripts:
+    # lefthook skips every pre-push `commands:` job when its push-file set (computed
+    # from the LOCAL checkout, never from the pushed refs) is empty. This guard is a
+    # `scripts:` entry because that skip does not apply to scripts; it refuses a push
+    # that would have been silently ungated. See scripts/push-scope-guard.ts.
+    "push-scope-guard.sh":
+      runner: sh
+      use_stdin: true
+
 # After a checkout or merge the tracked .beads/issues.jsonl can be ahead of
 # the local Dolt database (someone else's beads arrived through git). These
 # replay it back into the DB so `bd ready` reflects what was just pulled.

@@ -1,0 +1,49 @@
+{
+  "$comment": "Consumer-owned configuration for `just land` (ADR-0033). `just update` never touches this file.",
+  "remote": "origin",
+  "targetBranch": "main",
+  "loadMax": 40,
+  "markerEnv": "HARNESS_LAND_GATE",
+  "lefthook": "pnpm exec lefthook",
+  "metadataSafe": [],
+  "scopes": {
+    "ts": [
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.mjs",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "tsconfig*.json",
+      "vitest.config.ts"
+    ],
+    "rust": ["**/*.rs", "**/Cargo.toml", "Cargo.lock"],
+    "python": ["**/*.py", "pyproject.toml", "uv.lock"],
+    "docs": ["**/*.md", "docs/**"],
+    "meta": [".beads/**", "assets/**", "LICENSE"]
+  },
+  "full": [
+    "harness/**",
+    ".github/**",
+    "justfile",
+    "turbo.json",
+    "biome.jsonc",
+    "cog.toml",
+    "infra/**",
+    "go.work"
+  ],
+  "bootstrap": { "run": "pnpm install --frozen-lockfile", "when": ["ts"] },
+  "gates": [
+    { "name": "typecheck-affected", "when": ["ts"] },
+    { "name": "test-affected", "when": ["ts"] },
+    { "name": "cov-ts", "when": ["ts"] },
+    { "name": "cov-rust", "when": ["rust"] },
+    { "name": "cov-py", "when": ["python"] },
+    { "name": "doc-validator", "when": ["docs"] },
+    { "name": "perf-gate", "when": ["ts"] },
+    { "name": "sensors-gate", "when": ["ts", "rust", "python"] },
+    { "name": "versioning-release-check" },
+    { "name": "ubs-diff", "when": ["ts", "python"] }
+  ],
+  "checks": []
+}

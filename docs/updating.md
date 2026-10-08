@@ -43,7 +43,8 @@ The exact list, sourced from [`scripts/update.ts`](../scripts/update.ts):
 ```
 harness/                       # slot plugins (stack, inspector, sensors, hooks, …)
 .claude/                       # agent context (skills, hooks, settings)
-scripts/                       # TS runners under just (init, update, bootstrap, …)
+scripts/                       # TS runners under just (init, update, bootstrap, land, …)
+.lefthook/                     # lefthook script entries (push-scope-guard shim)
 docs/standard/                 # the Tool-Belt Harness Standard
 security.md                    # the security standard
 lefthook.yml                   # hook gates
@@ -58,7 +59,7 @@ vitest.config.ts               # root test runner config
 harness.manifest.json          # slot ⟶ plugin documentation
 ```
 
-Anything not on this list is **consumer-owned** and never touched by `just update`. That includes the coverage-gate extension point `vitest.consumer.json` — see [Excluding your own scripts from the coverage gate](#excluding-your-own-scripts-from-the-coverage-gate). The seed examples in `ws_apps/example-*` and `ws_packages/` are sync-owned only **at fork time** (when you click "Use this template"); from your first commit onward they belong to you.
+Anything not on this list is **consumer-owned** and never touched by `just update`. That includes `land.config.json` (the [landing flow](./development/landing.md) configuration) and the coverage-gate extension point `vitest.consumer.json` — see [Excluding your own scripts from the coverage gate](#excluding-your-own-scripts-from-the-coverage-gate). The seed examples in `ws_apps/example-*` and `ws_packages/` are sync-owned only **at fork time** (when you click "Use this template"); from your first commit onward they belong to you.
 
 ## Modes
 

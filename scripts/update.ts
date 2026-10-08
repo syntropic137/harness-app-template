@@ -71,6 +71,7 @@ const HARNESS_OWNED_PATHS = [
   'harness/',
   '.claude/',
   'scripts/',
+  '.lefthook/',
   'docs/standard/',
   'security.md',
   'lefthook.yml',
