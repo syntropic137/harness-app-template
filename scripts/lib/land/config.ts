@@ -31,6 +31,8 @@ export interface LandConfig {
   quietCommand: string | null;
   loadPollSeconds: number;
   loadWaitMaxSeconds: number;
+  /** When the machine is still busy after loadWaitMaxSeconds: refuse (`fail`, default) or log how long it waited and go on (`proceed`). */
+  onLoadTimeout: 'fail' | 'proceed';
   lockWaitMaxSeconds: number;
   /** Env var carrying the exact validated SHA to the pre-push main guard. */
   markerEnv: string;
@@ -65,6 +67,7 @@ export const DEFAULT_CONFIG: LandConfig = {
   quietCommand: null,
   loadPollSeconds: 15,
   loadWaitMaxSeconds: 1800,
+  onLoadTimeout: 'fail',
   lockWaitMaxSeconds: 0,
   markerEnv: 'HARNESS_LAND_GATE',
   lefthook: 'lefthook',
@@ -239,6 +242,10 @@ PARSERS.lefthookSelector = (c, v) => {
 PARSERS.cargoTargetDir = (c, v) => {
   if (typeof v !== 'string' || v === '') fail('cargoTargetDir must be a non-empty string');
   c.cargoTargetDir = v as string;
+};
+PARSERS.onLoadTimeout = (c, v) => {
+  if (v !== 'fail' && v !== 'proceed') fail('onLoadTimeout must be fail or proceed');
+  c.onLoadTimeout = v as 'fail' | 'proceed';
 };
 PARSERS.quietCommand = (c, v) => {
   if (typeof v !== 'string' || v === '') fail('quietCommand must be a non-empty string');

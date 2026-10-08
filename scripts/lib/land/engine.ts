@@ -250,6 +250,12 @@ async function waitForLoad(ctx: Ctx): Promise<void> {
   const deadline = ctx.deps.now() + loadWaitMaxSeconds * 1000;
   for (let reason = await busyReason(ctx); reason !== null; reason = await busyReason(ctx)) {
     if (ctx.deps.now() >= deadline) {
+      if (ctx.config.onLoadTimeout === 'proceed') {
+        ctx.deps.log(
+          `${reason}; still busy after waiting ${loadWaitMaxSeconds}s, proceeding anyway`,
+        );
+        return;
+      }
       throw new Abort(
         `${reason}; still busy after ${loadWaitMaxSeconds}s, not starting gates`,
         EXIT.busy,
