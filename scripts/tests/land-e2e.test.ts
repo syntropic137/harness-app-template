@@ -726,6 +726,17 @@ describe('land engine end to end (real git, local bare origin)', () => {
     expect(await land(f.deps, { ...OPTS, ref: 'busy' }, f.config({ loadWaitMaxSeconds: 10 }))).toBe(
       EXIT.busy,
     );
+    // onLoadTimeout=proceed: the wait is capped, logged, and the land goes ahead
+    f.errors.length = 0;
+    f.deps.loadavg = () => 99;
+    sh(f.src, 'git checkout -q -B cap main');
+    f.commit(f.src, 'crates/cap.rs');
+    sh(f.src, 'git checkout -q main');
+    const capped = f.config({ loadWaitMaxSeconds: 10, onLoadTimeout: 'proceed' });
+    expect(await land(f.deps, { ...OPTS, ref: 'cap' }, capped)).toBe(EXIT.ok);
+    expect(f.logs.join('\n')).toMatch(
+      /load 99.0 is above 40; still busy after waiting 10s, proceeding anyway/,
+    );
     // lock held by a live process: times out as busy
     const m = memoryLock();
     m.files.set('/l', {
