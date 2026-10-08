@@ -71,11 +71,36 @@ pre-commit:
               bd "$@"
             fi
           }
-          _dest="$(git rev-parse --show-toplevel)/.beads/issues.jsonl"
-          mkdir -p "${_dest%/*}"
-          _tmp=$(mktemp "${_dest%/*}/.issues.jsonl.export.XXXXXX")
+          # An UNINITIALISED database (no issue_prefix: a fresh clone that was
+          # never `bd init`-ed or imported) has nothing to export, and bd still
+          # exits 0 with "Exported 0 issues". Skip it, loudly. An INITIALISED
+          # database that returns 0 issues while the tracked file has content is
+          # a different thing and is refused below. If `bd config get` itself
+          # fails, fall through: the export below reports the real error.
+          if _prefix=$(run_bd config get issue_prefix 2>/dev/null); then
+            case "$(printf "%s" "$_prefix" | tail -n 1)" in
+              ""|*"(not set)"*)
+                printf "%s\n" "beads: skipping export - the bd database is not initialised (no issue_prefix). To enable it: bd init --prefix <prefix> && bd import .beads/issues.jsonl" >&2
+                exit 0
+                ;;
+            esac
+          fi
+          _top=$(git rev-parse --show-toplevel)
+          _dir="$_top/.beads"
+          _dest="$_dir/issues.jsonl"
+          mkdir -p "$_dir"
+          # Never write through a symlink: a .beads (or issues.jsonl) that points
+          # at the main checkout would send the export outside this worktree.
+          if [ -L "$_dir" ] || [ -L "$_dest" ] || [ "$(cd "$_dir" && pwd -P)" != "$(cd "$_top" && pwd -P)/.beads" ]; then
+            printf "%s\n" "beads: REFUSING to export - .beads or .beads/issues.jsonl is a symlink or resolves outside this worktree." >&2
+            exit 1
+          fi
+          _tmp=$(mktemp "$_dir/.issues.jsonl.export.XXXXXX")
           cleanup() { rm -f "$_tmp"; }
           trap cleanup EXIT
+          trap "cleanup; exit 129" HUP
+          trap "cleanup; exit 130" INT
+          trap "cleanup; exit 143" TERM
           # `bd hooks run pre-commit` would also `git add` the export itself.
           # This hook is `parallel: true` alongside biome-format-lint, which
           # writes the index via stage_fixed, and two concurrent index writers
@@ -127,7 +152,14 @@ pre-commit:
             chmod 644 "$_tmp"
             mv -f "$_tmp" "$_dest"
           fi
-          git diff --quiet -- .beads/issues.jsonl && exit 0
+          # A consumer that gitignores the export has nothing to stage.
+          git check-ignore -q .beads/issues.jsonl && exit 0
+          # Stage when the file is new to the index (git diff ignores untracked
+          # files) or differs from it.
+          if git ls-files --error-unmatch .beads/issues.jsonl >/dev/null 2>&1 \
+            && git diff --quiet -- .beads/issues.jsonl; then
+            exit 0
+          fi
           i=0
           until git add .beads/issues.jsonl 2>/dev/null; do
             i=$((i+1))

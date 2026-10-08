@@ -28,6 +28,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -45,8 +46,18 @@ common=$(git rev-parse --path-format=absolute --git-common-dir)
 main=$(dirname "$common")
 db="$main/.beads/fake-db"
 if [ ! -f "$db" ]; then
+  [ "$1" = "config" ] && { echo "Error: no beads database found" >&2; exit 1; }
   echo "Error: no beads database found" >&2
   exit 1
+fi
+if [ "$1" = "config" ] && [ "$2" = "get" ] && [ "$3" = "issue_prefix" ]; then
+  if [ -f "$main/.beads/fake-uninit" ]; then echo "issue_prefix (not set)"; else echo "tst"; fi
+  exit 0
+fi
+if [ -f "$main/.beads/fake-uninit" ] && [ "$1" = "export" ]; then
+  : > "$3"
+  echo "Exported 0 issues to $3"
+  exit 0
 fi
 case "\${BD_EXPORT_AUTO:-true}" in
   false) ;;
@@ -71,21 +82,16 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, env: cleanEnv(), encoding: 'utf8' });
 }
 
-function extractHookProgram(): string {
+/** The whole beads-export job, exactly as lefthook.yml declares it (wrapper, quoting and all). */
+function extractJob(): string {
   const yaml = readFileSync(join(ROOT, 'lefthook.yml'), 'utf8');
   const start = yaml.indexOf('    beads-export:');
   if (start < 0) throw new Error('beads-export hook not found in lefthook.yml');
-  const tail = yaml.slice(start);
-  const begin = tail.indexOf("sh -eu -c '");
-  const end = tail.indexOf("\n        '\n", begin);
-  if (begin < 0 || end < 0) throw new Error('could not extract beads-export shell body');
-  // Strip the 10-space YAML block indentation; the body is plain POSIX sh.
-  return tail
-    .slice(begin + "sh -eu -c '".length, end)
-    .split('\n')
-    .map((l) => l.replace(/^ {10}/, ''))
-    .join('\n');
+  const end = yaml.indexOf('\n\n', start);
+  return yaml.slice(start, end < 0 ? undefined : end);
 }
+
+const LEFTHOOK = join(ROOT, 'node_modules', '.bin', 'lefthook');
 
 interface Fixture {
   base: string;
@@ -108,9 +114,10 @@ function makeFixture(): Fixture {
   git(main, ['config', 'user.email', 'test@test']);
   git(main, ['config', 'user.name', 'test']);
   mkdirSync(join(main, '.beads'));
-  writeFileSync(join(main, '.beads', '.gitignore'), 'fake-db\n');
+  writeFileSync(join(main, '.beads', '.gitignore'), 'fake-db\nfake-uninit\n');
   writeFileSync(join(main, '.beads', 'issues.jsonl'), TRACKED);
-  git(main, ['add', '.beads']);
+  writeFileSync(join(main, 'lefthook.yml'), `pre-commit:\n  commands:\n${extractJob()}\n`);
+  git(main, ['add', '.beads', 'lefthook.yml']);
   git(main, ['commit', '-q', '-m', 'init']);
   const worktree = join(base, 'wt');
   git(main, ['worktree', 'add', '-q', worktree, '-b', 'feature']);
@@ -121,12 +128,22 @@ function makeFixture(): Fixture {
   return { base, main, worktree, stubDir };
 }
 
-function runHook(fx: Fixture, cwd: string) {
-  return spawnSync('/bin/sh', ['-eu', '-c', extractHookProgram()], {
-    cwd,
-    env: { ...cleanEnv(), APP_ENV: 'test', PATH: `${fx.stubDir}:${process.env.PATH}` },
-    encoding: 'utf8',
-  });
+/** Run the job through the real lefthook, as `git commit` would. */
+function runHook(fx: Fixture, cwd: string, extraEnv: NodeJS.ProcessEnv = {}) {
+  return spawnSync(
+    LEFTHOOK,
+    ['run', 'pre-commit', '--force', '--commands', 'beads-export', '--no-auto-install', '--no-tty'],
+    {
+      cwd,
+      env: {
+        ...cleanEnv(),
+        APP_ENV: 'test',
+        PATH: `${fx.stubDir}:${process.env.PATH}`,
+        ...extraEnv,
+      },
+      encoding: 'utf8',
+    },
+  );
 }
 
 const jsonl = (tree: string) => join(tree, '.beads', 'issues.jsonl');
@@ -140,7 +157,7 @@ describe('beads-export pre-commit hook', () => {
     const r = runHook(fx, fx.worktree);
 
     expect(r.status, `stdout: ${r.stdout}\nstderr: ${r.stderr}`).not.toBe(0);
-    expect(r.stderr).toContain('REFUSING');
+    expect(`${r.stdout}${r.stderr}`).toContain('REFUSING');
     expect(readFileSync(jsonl(fx.worktree), 'utf8')).toBe(TRACKED);
     expect(staged(fx.worktree)).toBe('');
     expect(existsSync(jsonl(fx.main))).toBe(true);
@@ -154,7 +171,7 @@ describe('beads-export pre-commit hook', () => {
     const r = runHook(fx, fx.main);
 
     expect(r.status).not.toBe(0);
-    expect(r.stderr).toContain('REFUSING');
+    expect(`${r.stdout}${r.stderr}`).toContain('REFUSING');
     expect(readFileSync(jsonl(fx.main), 'utf8')).toBe(TRACKED);
     expect(staged(fx.main)).toBe('');
   });
@@ -232,8 +249,99 @@ describe('beads-export pre-commit hook', () => {
 
     const r = runHook(fx, fx.worktree);
 
-    expect(r.status).toBe(2);
-    expect(r.stderr).toContain('dolt exploded');
+    expect(r.status).not.toBe(0);
+    expect(`${r.stdout}${r.stderr}`).toContain('dolt exploded');
     expect(readFileSync(jsonl(fx.worktree), 'utf8')).toBe(TRACKED);
+  });
+
+  it('skips, naming the way to enable it, when the db is uninitialised (no issue_prefix)', () => {
+    const fx = makeFixture();
+    writeFileSync(join(fx.main, '.beads', 'fake-db'), '');
+    writeFileSync(join(fx.main, '.beads', 'fake-uninit'), '');
+
+    const r = runHook(fx, fx.worktree);
+
+    expect(r.status, `stdout: ${r.stdout}\nstderr: ${r.stderr}`).toBe(0);
+    expect(`${r.stdout}${r.stderr}`).toContain('bd init --prefix <prefix> && bd import');
+    expect(readFileSync(jsonl(fx.worktree), 'utf8')).toBe(TRACKED);
+    expect(staged(fx.worktree)).toBe('');
+  });
+
+  it('still refuses an INITIALISED db that returns 0 issues over a populated tracked file', () => {
+    const fx = makeFixture();
+    writeFileSync(join(fx.main, '.beads', 'fake-db'), '');
+
+    const r = runHook(fx, fx.worktree);
+
+    expect(r.status).not.toBe(0);
+    expect(`${r.stdout}${r.stderr}`).toContain('REFUSING');
+  });
+
+  it('refuses to write through a symlinked .beads', () => {
+    const fx = makeFixture();
+    writeFileSync(join(fx.main, '.beads', 'fake-db'), `${TRACKED}{"id":"t-3","title":"three"}\n`);
+    const elsewhere = join(fx.base, 'elsewhere');
+    mkdirSync(elsewhere);
+    git(fx.worktree, ['rm', '-rq', '--cached', '.beads']);
+    rmSync(join(fx.worktree, '.beads'), { recursive: true, force: true });
+    symlinkSync(elsewhere, join(fx.worktree, '.beads'));
+
+    const r = runHook(fx, fx.worktree);
+
+    expect(r.status).not.toBe(0);
+    expect(`${r.stdout}${r.stderr}`).toContain('symlink');
+    expect(existsSync(join(elsewhere, 'issues.jsonl'))).toBe(false);
+  });
+
+  it('refuses a symlinked issues.jsonl destination', () => {
+    const fx = makeFixture();
+    writeFileSync(join(fx.main, '.beads', 'fake-db'), `${TRACKED}{"id":"t-3","title":"three"}\n`);
+    rmSync(jsonl(fx.worktree));
+    symlinkSync(jsonl(fx.main), jsonl(fx.worktree));
+
+    const r = runHook(fx, fx.worktree);
+
+    expect(r.status).not.toBe(0);
+    expect(`${r.stdout}${r.stderr}`).toContain('symlink');
+    expect(readFileSync(jsonl(fx.main), 'utf8')).toBe(TRACKED);
+  });
+
+  it('stages an export that is new to the index', () => {
+    const fx = makeFixture();
+    writeFileSync(join(fx.main, '.beads', 'fake-db'), TRACKED);
+    git(fx.worktree, ['rm', '-q', '--cached', '.beads/issues.jsonl']);
+    git(fx.worktree, ['commit', '-q', '-m', 'untrack export']);
+
+    const r = runHook(fx, fx.worktree);
+
+    expect(r.status, `stdout: ${r.stdout}\nstderr: ${r.stderr}`).toBe(0);
+    expect(staged(fx.worktree)).toBe('.beads/issues.jsonl');
+  });
+
+  it('does not stage a gitignored export', () => {
+    const fx = makeFixture();
+    writeFileSync(join(fx.main, '.beads', 'fake-db'), TRACKED);
+    git(fx.worktree, ['rm', '-q', '--cached', '.beads/issues.jsonl']);
+    writeFileSync(join(fx.worktree, '.gitignore'), '.beads/issues.jsonl\n');
+    git(fx.worktree, ['add', '.gitignore']);
+    git(fx.worktree, ['commit', '-q', '-m', 'ignore export']);
+
+    const r = runHook(fx, fx.worktree);
+
+    expect(r.status, `stdout: ${r.stdout}\nstderr: ${r.stderr}`).toBe(0);
+    expect(staged(fx.worktree)).toBe('');
+  });
+
+  it('removes its temp file when terminated', () => {
+    const fx = makeFixture();
+    writeFileSync(join(fx.main, '.beads', 'fake-db'), `${TRACKED}{"id":"t-3","title":"three"}\n`);
+    writeFileSync(
+      join(fx.stubDir, 'bd'),
+      `#!/bin/sh\n[ "$1" = config ] && { echo tst; exit 0; }\nkill -TERM $PPID 2>/dev/null\nsleep 5\n`,
+    );
+
+    runHook(fx, fx.worktree);
+
+    expect(git(fx.worktree, ['status', '--porcelain', '--untracked-files=all']).trim()).toBe('');
   });
 });
