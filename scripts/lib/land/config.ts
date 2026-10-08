@@ -29,6 +29,8 @@ export interface LandConfig {
   loadMax: number;
   /** Shell command that exits 0 when the machine is quiet. Catches I/O-bound starvation that load average misses (for example a disk-bound box). */
   quietCommand: string | null;
+  /** Shell command whose one-line output is recorded in the run receipt when the lease is taken and when the run ends (for example an I/O pressure reading). Recorded only; it never gates. */
+  sampleCommand: string | null;
   loadPollSeconds: number;
   loadWaitMaxSeconds: number;
   /** When the machine is still busy after loadWaitMaxSeconds: refuse (`fail`, default) or log how long it waited and go on (`proceed`). */
@@ -67,6 +69,7 @@ export const DEFAULT_CONFIG: LandConfig = {
   targetBranch: 'main',
   loadMax: 40,
   quietCommand: null,
+  sampleCommand: null,
   loadPollSeconds: 15,
   loadWaitMaxSeconds: 1800,
   onLoadTimeout: 'fail',
@@ -250,6 +253,10 @@ PARSERS.cargoTargetDir = (c, v) => {
 PARSERS.onLoadTimeout = (c, v) => {
   if (v !== 'fail' && v !== 'proceed') fail('onLoadTimeout must be fail or proceed');
   c.onLoadTimeout = v as 'fail' | 'proceed';
+};
+PARSERS.sampleCommand = (c, v) => {
+  if (typeof v !== 'string' || v === '') fail('sampleCommand must be a non-empty string');
+  c.sampleCommand = v as string;
 };
 PARSERS.quietCommand = (c, v) => {
   if (typeof v !== 'string' || v === '') fail('quietCommand must be a non-empty string');

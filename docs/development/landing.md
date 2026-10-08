@@ -23,7 +23,7 @@ When unsure it runs everything: an unmapped path, a path in `full`, an unreadabl
 
 ## `land.config.json` (consumer-owned)
 
-`just update` never touches it. Keys: `remote`, `targetBranch`, `loadMax`, `quietCommand`, `cargoTargetDir`, `loadPollSeconds`, `loadWaitMaxSeconds`, `onLoadTimeout` (`fail` default, or `proceed` to log the wait and go on), `lockWaitMaxSeconds`, `maxAttempts`, `parallelGates` (lanes at once: the lefthook batch is one lane, each command gate another; default 1; every started lane finishes and the first failure is reported), `markerEnv`, `lefthook`, `lefthookSelector` (`--job` default; `--commands` for lefthook 1.x), `inheritUnaffectedEvidence`, `metadataSafe` (globs a direct push to the target may change without the gate), `scopes` (name to globs), `full` (globs that force every gate), `bootstrap`, `preflight`, `earlyChecks`, `gates`, `checks`, `env`.
+`just update` never touches it. Keys: `remote`, `targetBranch`, `loadMax`, `quietCommand`, `sampleCommand` (one-line reading recorded in the run receipt at lease time and at the end, for example I/O pressure; recorded only, never gates), `cargoTargetDir`, `loadPollSeconds`, `loadWaitMaxSeconds`, `onLoadTimeout` (`fail` default, or `proceed` to log the wait and go on), `lockWaitMaxSeconds`, `maxAttempts`, `parallelGates` (lanes at once: the lefthook batch is one lane, each command gate another; default 1; every started lane finishes and the first failure is reported), `markerEnv`, `lefthook`, `lefthookSelector` (`--job` default; `--commands` for lefthook 1.x), `inheritUnaffectedEvidence`, `metadataSafe` (globs a direct push to the target may change without the gate), `scopes` (name to globs), `full` (globs that force every gate), `bootstrap`, `preflight`, `earlyChecks`, `gates`, `checks`, `env`.
 
 - A **gate** with no `run` is a lefthook pre-push job of that name. With `run` it is a shell command. `when` lists scope names; omit it for an unconditional gate.
 - A **check** is a shell command that always runs after the gates. Placeholders: `{base}`, `{head}`, `{worktree}`, `{source}`. `cwd` is `worktree` (default) or `source` (the invoking checkout, which the applied ref cannot alter). Project-specific rules (for example "baseline.json must not differ from the base") live here, not in the engine.
@@ -35,7 +35,7 @@ A gate may list `requires` (programs on PATH): many hooks exit 0 when a tool is 
 
 ## Run receipts (p50/p90)
 
-Every run appends one line to `~/.cache/harness-land/<repo>/runs.jsonl`: `at`, `ref`, `sha`, `dryRun`, `exit`, `totalSeconds`, `waitedSeconds` (lease plus load wait) and `steps` (name, seconds, ok per bootstrap, lefthook batch, command gate and check). `jq -s 'map(.totalSeconds-.waitedSeconds)|sort' runs.jsonl` gives the work time distribution; a receipt that cannot be written never changes the outcome.
+Every run appends one line to `~/.cache/harness-land/<repo>/runs.jsonl`: `at`, `ref`, `sha`, `dryRun`, `exit`, `totalSeconds`, `waitedSeconds` (lease plus load wait) and `sampleStart`/`sampleEnd` (the `sampleCommand` readings) and `steps` (name, seconds, ok per bootstrap, lefthook batch, command gate and check). `jq -s 'map(.totalSeconds-.waitedSeconds)|sort' runs.jsonl` gives the work time distribution; a receipt that cannot be written never changes the outcome.
 
 ## Exit codes
 

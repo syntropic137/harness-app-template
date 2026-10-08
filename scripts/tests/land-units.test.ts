@@ -111,6 +111,7 @@ describe('config', () => {
         remote: 'up',
         lefthook: 'pnpm exec lefthook',
         quietCommand: 'true',
+        sampleCommand: 'echo hi',
         onLoadTimeout: 'proceed',
         cargoTargetDir: '~/t',
         lefthookSelector: '--commands',
@@ -135,6 +136,7 @@ describe('config', () => {
     expect(c.inheritUnaffectedEvidence).toBe(true);
     expect(c.ignoreDirty).toEqual(['a.log']);
     expect(c.quietCommand).toBe('true');
+    expect(c.sampleCommand).toBe('echo hi');
     expect(c.onLoadTimeout).toBe('proceed');
     expect(c.cargoTargetDir).toBe('~/t');
     expect(c.lefthookSelector).toBe('--commands');
@@ -184,6 +186,7 @@ describe('config', () => {
     [{ gates: [{ name: 'a', requires: 'pnpm' }] }, /array of strings/],
     [{ ignoreDirty: 1 }, /array of strings/],
     [{ quietCommand: '' }, /non-empty/],
+    [{ sampleCommand: '' }, /non-empty/],
     [{ parallelGates: -1 }, /non-negative/],
     [{ onLoadTimeout: 'maybe' }, /fail or proceed/],
     [{ cargoTargetDir: '' }, /non-empty/],
