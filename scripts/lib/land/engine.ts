@@ -581,52 +581,61 @@ async function runAttempts(ctx: Ctx): Promise<void> {
   );
 }
 
+/** The exit code for an error that escaped the landing. */
+function failureCode(deps: EngineDeps, error: unknown): number {
+  deps.error(error instanceof Error ? error.message : String(error));
+  if (error instanceof LockTimeout) return EXIT.busy;
+  return error instanceof Abort ? error.code : EXIT.gate;
+}
+
+/** Everything between taking the lease and finishing; `hold.release` is set once the lease is held. */
+async function landHoldingLease(
+  deps: EngineDeps,
+  options: LandOptions,
+  config: LandConfig,
+  hold: { release: () => void },
+): Promise<number> {
+  const seed = { deps, options, config } as Ctx;
+  seed.logDir = '';
+  const sourceRoot = await gitOut(seed, ['rev-parse', '--show-toplevel'], deps.cwd);
+  const commonDir = await gitOut(
+    seed,
+    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+    sourceRoot,
+  );
+  const stateDir = join(deps.home, repoId(commonDir, sourceRoot));
+  const stamp = new Date(deps.now()).toISOString().replace(/[:.]/g, '-');
+  const ctx: Ctx = {
+    deps,
+    options,
+    config,
+    sourceRoot,
+    worktree: join(stateDir, 'worktree'),
+    stateDir,
+    logDir: join(stateDir, 'logs', stamp),
+  };
+  for (const check of config.preflight)
+    await runCheck(ctx, check, { base: '', head: '', worktree: '', source: sourceRoot });
+  const handle = await acquireLock(
+    deps.lock,
+    { pid: process.pid, repo: sourceRoot, ref: options.ref, user: deps.user() },
+    (options.waitSeconds ?? config.lockWaitMaxSeconds) * 1000,
+  );
+  hold.release = () => handle.release();
+  await waitForLoad(ctx);
+  await runAttempts(ctx);
+  return EXIT.ok;
+}
+
 export async function land(
   deps: EngineDeps,
   options: LandOptions,
   config: LandConfig,
 ): Promise<number> {
-  const seed = { deps, options, config } as Ctx;
-  seed.logDir = '';
-  let release: () => void = () => undefined;
-  try {
-    const sourceRoot = await gitOut(seed, ['rev-parse', '--show-toplevel'], deps.cwd);
-    const commonDir = await gitOut(
-      seed,
-      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-      sourceRoot,
-    );
-    const id = repoId(commonDir, sourceRoot);
-    const stateDir = join(deps.home, id);
-    const stamp = new Date(deps.now()).toISOString().replace(/[:.]/g, '-');
-    const ctx: Ctx = {
-      deps,
-      options,
-      config,
-      sourceRoot,
-      worktree: join(stateDir, 'worktree'),
-      stateDir,
-      logDir: join(stateDir, 'logs', stamp),
-    };
-    for (const check of config.preflight)
-      await runCheck(ctx, check, { base: '', head: '', worktree: '', source: sourceRoot });
-    const handle = await acquireLock(
-      deps.lock,
-      { pid: process.pid, repo: sourceRoot, ref: options.ref, user: deps.user() },
-      (options.waitSeconds ?? config.lockWaitMaxSeconds) * 1000,
-    );
-    release = () => handle.release();
-    await waitForLoad(ctx);
-    await runAttempts(ctx);
-    return EXIT.ok;
-  } catch (error) {
-    if (error instanceof LockTimeout) {
-      deps.error(error.message);
-      return EXIT.busy;
-    }
-    deps.error(error instanceof Error ? error.message : String(error));
-    return error instanceof Abort ? error.code : EXIT.gate;
-  } finally {
-    release();
-  }
+  const hold = { release: () => undefined as void };
+  const code = await landHoldingLease(deps, options, config, hold).catch((error: unknown) =>
+    failureCode(deps, error),
+  );
+  hold.release();
+  return code;
 }
