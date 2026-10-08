@@ -6,6 +6,7 @@
   "markerEnv": "HARNESS_LAND_GATE",
   "lefthook": "pnpm exec lefthook",
   "metadataSafe": [],
+  "ignoreDirty": [".beads/ubs-findings.jsonl"],
   "scopes": {
     "ts": [
       "**/*.ts",
@@ -34,16 +35,16 @@
   ],
   "bootstrap": { "run": "pnpm install --frozen-lockfile", "when": ["ts"] },
   "gates": [
-    { "name": "typecheck-affected", "when": ["ts"] },
-    { "name": "test-affected", "when": ["ts"] },
-    { "name": "cov-ts", "when": ["ts"] },
-    { "name": "cov-rust", "when": ["rust"] },
+    { "name": "typecheck-affected", "when": ["ts"], "requires": ["pnpm"] },
+    { "name": "test-affected", "when": ["ts"], "requires": ["pnpm"] },
+    { "name": "cov-ts", "when": ["ts"], "requires": ["pnpm"] },
+    { "name": "cov-rust", "when": ["rust"], "requires": ["cargo", "cargo-llvm-cov"] },
     { "name": "cov-py", "when": ["python"] },
     { "name": "doc-validator", "when": ["docs"] },
     { "name": "perf-gate", "when": ["ts"] },
     { "name": "sensors-gate", "when": ["ts", "rust", "python"] },
     { "name": "versioning-release-check" },
-    { "name": "ubs-diff", "when": ["ts", "python"] }
+    { "name": "ubs-diff", "when": ["ts", "python", "rust"], "requires": ["ubs"] }
   ],
   "checks": []
 }

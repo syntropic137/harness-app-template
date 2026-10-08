@@ -3,6 +3,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { PROTECTED_REF, type PushRefLine, parsePushStdin, ZERO_SHA } from './guard-main-push';
 import { isMainEntry } from './lib/entrypoint';
+import { loadConfig } from './lib/land/config';
 
 // Pre-push guard (bead ADR-0033): refuse a push on which lefthook has
 // silently skipped every other pre-push job.
@@ -60,6 +61,10 @@ const HEAD_BRANCH_RE = /HEAD -> (.*)$/;
 export type GitRunner = (args: string[]) => { status: number; stdout: string };
 
 export interface ScopeDeps {
+  /** The SHA-bound land marker (env var named by land.config.json markerEnv), if set. */
+  landGateSha?: string;
+  /** Ref the land flow protects; defaults to PROTECTED_REF. */
+  protectedRef?: string;
   /** lefthook's push-file set, or null when it cannot be computed. */
   lefthookPushFiles: () => string[] | null;
   /** Whether a ref line sends content the remote lacks; null when unknown. */
@@ -112,11 +117,12 @@ export function refCarriesContent(
   git: GitRunner,
   ref: PushRefLine,
   remote: string,
+  protectedRef: string = PROTECTED_REF,
 ): boolean | null {
   if (ref.localSha === ZERO_SHA) {
     // A deletion sends no content. Deleting main is still something guard-main-push
     // exists to refuse, and it did not run -- so it counts.
-    return ref.remoteRef === PROTECTED_REF;
+    return ref.remoteRef === protectedRef;
   }
   if (ref.remoteSha !== ZERO_SHA) {
     if (git(['cat-file', '-e', `${ref.remoteSha}^{commit}`]).status !== 0) {
@@ -182,6 +188,15 @@ export function evaluatePushScope(
   const carrying: string[] = [];
   const unknown: string[] = [];
   for (const ref of refs) {
+    // A push the land flow gated on this exact commit may legitimately be one lefthook sees as
+    // empty (for example a deletion-only change): the SHA binding is the proof it was validated.
+    if (
+      deps.landGateSha !== undefined &&
+      deps.landGateSha === ref.localSha &&
+      ref.remoteRef === (deps.protectedRef ?? PROTECTED_REF)
+    ) {
+      continue;
+    }
     const carries = deps.carriesContent(ref, remote);
     if (carries === null) {
       unknown.push(describeRef(ref));
@@ -251,12 +266,16 @@ function readStdinSync(): string {
 }
 
 if (isMainEntry(import.meta.url)) {
+  const config = loadConfig(process.cwd());
+  const protectedRef = `refs/heads/${config.targetBranch}`;
   process.exit(
     runPushScopeGuard({
       stdin: readStdinSync(),
       argv: process.argv.slice(2),
       lefthookPushFiles: () => lefthookPushFiles(realGit, realIsFile),
-      carriesContent: (ref, remote) => refCarriesContent(realGit, ref, remote),
+      carriesContent: (ref, remote) => refCarriesContent(realGit, ref, remote, protectedRef),
+      landGateSha: process.env[config.markerEnv],
+      protectedRef,
       stdout: console,
       stderr: console,
     }),

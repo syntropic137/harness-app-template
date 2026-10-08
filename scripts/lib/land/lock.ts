@@ -69,7 +69,12 @@ function reapStale(deps: LockDeps): void {
   try {
     const text = deps.read(deps.lockPath);
     const holder = parseHolder(text);
-    if (text !== null && (holder === null || holderIsStale(holder, deps))) {
+    if (
+      text !== null &&
+      (holder === null
+        ? Number(deps.ageMs(deps.lockPath)) > REAP_STALE_MS
+        : holderIsStale(holder, deps))
+    ) {
       deps.log(
         holder === null
           ? 'lock: removing unreadable lock file'
@@ -108,8 +113,21 @@ export async function acquireLock(
       };
     }
     const holder = parseHolder(deps.read(deps.lockPath));
-    if (holder === null || holderIsStale(holder, deps)) {
+    if (holder !== null && holderIsStale(holder, deps)) {
       reapStale(deps);
+      continue;
+    }
+    if (holder === null) {
+      // Unreadable: foreign or torn. Never presume it dead while it is fresh.
+      const age = deps.ageMs(deps.lockPath);
+      if (age === null || age > REAP_STALE_MS) {
+        reapStale(deps);
+        continue;
+      }
+      if (deps.now() >= deadline) {
+        throw new LockTimeout('gave up waiting for an unreadable landing lock file to age out');
+      }
+      await deps.sleep(POLL_MS);
       continue;
     }
     if (deps.now() >= deadline) {

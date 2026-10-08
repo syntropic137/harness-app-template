@@ -84,6 +84,38 @@ describe('landing lock', () => {
     expect(m.logs[0]).toMatch(/unreadable/);
   });
 
+  test('a fresh unreadable lock file is waited on, not reaped; an old one is', async () => {
+    const m = memoryLock();
+    m.files.set('/l', { text: '', at: m.state.clock });
+    await expect(acquireLock(m.deps, me, 10_000)).rejects.toThrow();
+    expect(m.files.get('/l')?.text).toBe('');
+    // ages out
+    const m2 = memoryLock();
+    m2.files.set('/l', { text: '', at: m2.state.clock });
+    let n = 0;
+    const real = m2.deps.sleep;
+    m2.deps.sleep = async (ms) => {
+      n += 1;
+      await real(ms + 10_000);
+    };
+    await acquireLock(m2.deps, me, 1_000_000);
+    expect(n).toBeGreaterThan(0);
+    expect(parseHolder(m2.files.get('/l')?.text ?? null)?.pid).toBe(200);
+  });
+
+  test('a lock file that vanishes while unreadable is simply taken', async () => {
+    const m = memoryLock();
+    m.files.set('/l', { text: '{', at: m.state.clock });
+    const real = m.deps.read;
+    m.deps.read = (p) => {
+      const v = real(p);
+      if (p === '/l') m.files.delete('/l');
+      return v;
+    };
+    await acquireLock(m.deps, me, 1000);
+    expect(m.files.has('/l')).toBe(true);
+  });
+
   test('a reaper that lost the race leaves a fresh lock alone', async () => {
     const m = memoryLock({ alive: new Set() });
     m.files.set('/l', { text: holderJson(), at: 0 });

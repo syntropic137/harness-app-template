@@ -29,7 +29,9 @@ When unsure it runs everything: an unmapped path, a path in `full`, an unreadabl
 - A **check** is a shell command that always runs after the gates. Placeholders: `{base}`, `{head}`, `{worktree}`, `{source}`. `cwd` is `worktree` (default) or `source` (the invoking checkout, which the applied ref cannot alter). Project-specific rules (for example "baseline.json must not differ from the base") live here, not in the engine.
 - `preflight` checks run before the lock is taken.
 
-Ambient `LEFTHOOK`, `LEFTHOOK_EXCLUDE`, `CARGO_TARGET_DIR` and the marker variable are stripped from the environment of every gate and the push.
+Ambient `LEFTHOOK`, `LEFTHOOK_EXCLUDE`, `CARGO_TARGET_DIR`, the marker variable and git routing or config variables (`GIT_DIR`, `GIT_CONFIG_*`, ...) are stripped from the environment of every gate and the push, after `env` is merged. `harness.hookBaseRemote` and `harness.hookBaseRef` are injected so every diff-scoped hook uses the landing base.
+
+A gate may list `requires` (programs on PATH): many hooks exit 0 when a tool is missing, which a landing must treat as failure. `ignoreDirty` lists tracked paths a gate may rewrite; any other change to the tree, or to HEAD, after gating aborts the land. Gates named `guard-main-push` or `push-scope-guard.sh` are rejected, so the guards can never be excluded from the push.
 
 ## Exit codes
 

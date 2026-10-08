@@ -106,5 +106,10 @@ To be recorded here from the DreamShip dogfood.
   `full` scope for shared paths, unknown paths fall into `full`, and the
   scope-to-gate plan is printed on every run.
 - `baseline.json`-style project aborts are `checks` entries, not engine code.
-- Not solved: `--no-verify`, `LEFTHOOK=0` and a forged marker remain conscious
+- Fail closed on soft skips: a gate may declare `requires` (programs that must be on PATH), because
+  several hooks exit 0 when a tool is missing. Every hook's diff base is bound to the landing base
+  through injected `harness.hookBase*` config, ambient git routing/config variables are stripped, and
+  after gating HEAD must be unchanged and tracked files clean (except `ignoreDirty`), so evidence
+  binds the pushed SHA. The push names the literal SHA.
+- Not solved: `--no-verify`, `LEFTHOOK=0`, an ad hoc `LEFTHOOK_EXCLUDE` and a forged marker remain conscious
   bypasses. Real enforcement needs server-side protection.

@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
 import { basename, join } from 'node:path';
-import { withoutLocalGitEnv } from '../git';
 import type { CheckConfig, GateConfig, LandConfig } from './config';
 import { describeExit, type RunOptions, type RunResult, succeeded } from './exec';
 import { acquireLock, type LockDeps, LockTimeout } from './lock';
-import { type Classification, classify, gateApplies } from './scope';
+import { type Classification, classify, gateApplies, matchesAny } from './scope';
 
 export type LandMode = 'auto' | 'ff-only' | 'cherry-pick' | 'merge';
 
@@ -52,7 +51,10 @@ class Abort extends Error {
   }
 }
 
-const GATE_ENV_STRIP = ['LEFTHOOK', 'LEFTHOOK_EXCLUDE', 'CARGO_TARGET_DIR'];
+const ENV_STRIP = ['LEFTHOOK', 'LEFTHOOK_EXCLUDE', 'CARGO_TARGET_DIR'];
+/** Ambient git variables that route git to another repository or inject config (core.hooksPath=/dev/null would disarm every guard). */
+const GIT_ENV_STRIP =
+  /^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|EXEC_PATH|CEILING_DIRECTORIES|CONFIG.*|HOOK.*)$/;
 const PASSED_JOB = /^\s*(?:✔️|✔|✓)\s+(\S+)/u;
 const TAIL_LINES = 30;
 
@@ -116,6 +118,10 @@ export function repoId(commonDir: string, toplevel: string): string {
   return `${basename(toplevel)}-${createHash('sha1').update(commonDir).digest('hex').slice(0, 10)}`;
 }
 
+function shortSha(sha: string): string {
+  return sha.slice(0, 12);
+}
+
 function tail(output: string): string {
   return output.split('\n').slice(-TAIL_LINES).join('\n');
 }
@@ -132,7 +138,7 @@ interface Ctx {
 
 function baseEnv(ctx: Ctx): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {
-    ...withoutLocalGitEnv(ctx.deps.env),
+    ...ctx.deps.env,
     CI: '1',
     NO_COLOR: '1',
     CARGO_TERM_PROGRESS_WHEN: 'never',
@@ -140,7 +146,18 @@ function baseEnv(ctx: Ctx): Record<string, string | undefined> {
     GIT_MERGE_AUTOEDIT: 'no',
     ...ctx.config.env,
   };
-  for (const key of [...GATE_ENV_STRIP, ctx.config.markerEnv]) delete env[key];
+  // Sanitize AFTER merging, so neither the ambient environment nor config.env can reintroduce them.
+  for (const key of Object.keys(env)) {
+    if (GIT_ENV_STRIP.test(key)) delete env[key];
+  }
+  for (const key of [...ENV_STRIP, ctx.config.markerEnv]) delete env[key];
+  // Bind every hook's diff base to the exact base this landing validated against, so an
+  // `affected` job cannot silently diff against another ref and still report green.
+  env.GIT_CONFIG_COUNT = '2';
+  env.GIT_CONFIG_KEY_0 = 'harness.hookBaseRemote';
+  env.GIT_CONFIG_VALUE_0 = ctx.config.remote;
+  env.GIT_CONFIG_KEY_1 = 'harness.hookBaseRef';
+  env.GIT_CONFIG_VALUE_1 = ctx.config.targetBranch;
   return env;
 }
 
@@ -324,6 +341,42 @@ async function runLefthookBatch(ctx: Ctx, jobs: string[], evidence: Evidence): P
   }
 }
 
+/** Many hooks soft-skip (exit 0) when a tool is missing. A landing must fail closed instead. */
+async function requireTools(ctx: Ctx, gates: GateConfig[]): Promise<void> {
+  const missing: string[] = [];
+  for (const tool of new Set(gates.flatMap((g) => g.requires ?? []))) {
+    const found = await ctx.deps.run('sh', ['-c', 'command -v "$1" >/dev/null 2>&1', 'sh', tool], {
+      cwd: ctx.worktree,
+      env: baseEnv(ctx),
+    });
+    if (!succeeded(found)) missing.push(tool);
+  }
+  if (missing.length > 0) {
+    throw new Abort(
+      `required tool(s) not on PATH: ${missing.join(', ')}; refusing to land on a soft-skipped gate`,
+      EXIT.gate,
+    );
+  }
+}
+
+/** Evidence is bound to a SHA only if the gates ran against exactly that tree. */
+async function assertUnchanged(ctx: Ctx, sha: string): Promise<void> {
+  const head = await gitOut(ctx, ['rev-parse', 'HEAD']);
+  // Tracked files that differ from HEAD (working tree or index). Untracked output is not evidence.
+  const changed = await gitOut(ctx, ['diff', '--name-only', 'HEAD']);
+  const dirty = changed
+    .split('\n')
+    .filter(Boolean)
+    .filter((path) => !matchesAny(path, ctx.config.ignoreDirty));
+  const treeChanged = head !== sha || dirty.length > 0;
+  if (treeChanged) {
+    const names = dirty.length > 0 ? dirty.join(', ') : 'none';
+    const heads = `HEAD ${shortSha(head)} vs ${shortSha(sha)}`;
+    const message = `gates changed the tree they were validating (${heads}; modified: ${names}); evidence no longer binds the SHA`;
+    throw new Abort(message, EXIT.gate);
+  }
+}
+
 async function runCheck(ctx: Ctx, check: CheckConfig, vars: Vars): Promise<void> {
   const cwd = check.cwd === 'source' ? ctx.sourceRoot : ctx.worktree;
   const result = await runLogged(ctx, check.name, 'sh', ['-c', expand(check.run, vars)], cwd);
@@ -374,6 +427,7 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   const vars = { base, head: sha, worktree: ctx.worktree, source: ctx.sourceRoot };
   await bootstrapIfNeeded(ctx, c, vars);
   const todo = selected.filter((g) => !evidence.passed.has(g.name));
+  await requireTools(ctx, todo);
   await runLefthookBatch(
     ctx,
     todo.filter(isLefthookGate).map((g) => g.name),
@@ -385,6 +439,7 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
     evidence.passed.set(gate.name, sha);
   }
   for (const check of ctx.config.checks) await runCheck(ctx, check, vars);
+  await assertUnchanged(ctx, sha);
   return { base, evidence, scopedOut };
 }
 
@@ -433,11 +488,15 @@ async function pushAndConfirm(ctx: Ctx, v: Validated, sha: string): Promise<Push
     ctx.deps.log(
       `pushing ${sha.slice(0, 12)} (jobs skipped, verified on this SHA: ${env.LEFTHOOK_EXCLUDE ?? 'none'})`,
     );
-    const result = await ctx.deps.run('git', ['push', remote, `HEAD:refs/heads/${targetBranch}`], {
-      cwd: ctx.worktree,
-      env,
-      onLine: (l) => ctx.deps.log(`  [push] ${l}`),
-    });
+    const result = await ctx.deps.run(
+      'git',
+      ['push', remote, `${sha}:refs/heads/${targetBranch}`],
+      {
+        cwd: ctx.worktree,
+        env,
+        onLine: (l) => ctx.deps.log(`  [push] ${l}`),
+      },
+    );
     // The push's own status is a claim; origin containing the SHA is the fact.
     if (await landed(ctx, sha)) {
       if (!succeeded(result))

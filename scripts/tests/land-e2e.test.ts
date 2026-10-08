@@ -480,7 +480,10 @@ describe('land engine end to end (real git, local bare origin)', () => {
     branch(f, 'docs/only.md');
     const real = f.deps.run;
     f.deps.run = async (cmd, args, o) =>
-      cmd === 'git' && args.includes('diff') && args.includes('--name-only')
+      cmd === 'git' &&
+      args.includes('diff') &&
+      args.includes('--name-only') &&
+      !args.includes('HEAD')
         ? { status: 128, signal: null, output: 'boom' }
         : real(cmd, args, o);
     expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.ok);
@@ -539,6 +542,66 @@ describe('land engine end to end (real git, local bare origin)', () => {
     );
     expect(f.hookSeen()[0]).not.toContain('forged');
     expect(f.hookSeen()[0]).not.toContain('everything');
+  });
+
+  test('a gate whose required tool is missing fails closed instead of soft-skipping', async () => {
+    const f = fixture();
+    branch(f, 'crates/x.rs');
+    const config = f.config({
+      gates: [
+        { name: 'cov-rust', when: ['rust'], requires: ['definitely-not-installed-xyz', 'sh'] },
+      ],
+    });
+    expect(await land(f.deps, OPTS, config)).toBe(EXIT.gate);
+    expect(f.errors.join('\n')).toMatch(
+      /required tool\(s\) not on PATH: definitely-not-installed-xyz/,
+    );
+    expect(f.ran()).toEqual([]);
+    const ok = f.config({ gates: [{ name: 'cov-rust', when: ['rust'], requires: ['sh'] }] });
+    expect(await land(f.deps, OPTS, ok)).toBe(EXIT.ok);
+  });
+
+  test('gates that rewrite the tree they validate invalidate the evidence, except declared paths', async () => {
+    const f = fixture();
+    branch(f, 'crates/x.rs');
+    const mutate = { gates: [{ name: 'mut', run: 'echo changed >> a.txt', when: ['rust'] }] };
+    expect(await land(f.deps, OPTS, f.config(mutate))).toBe(EXIT.gate);
+    expect(f.errors.join('\n')).toMatch(
+      /gates changed the tree they were validating .*modified: a.txt/,
+    );
+    expect(f.hookSeen()).toEqual([]);
+    const allowed = f.config({ ...mutate, ignoreDirty: ['a.txt'] });
+    expect(await land(f.deps, OPTS, allowed)).toBe(EXIT.ok);
+    const moved = {
+      gates: [{ name: 'mv', run: 'git commit -q --allow-empty -m sneaky', when: ['rust'] }],
+    };
+    sh(f.src, 'git checkout -q -B feat9 main');
+    f.commit(f.src, 'crates/n.rs');
+    sh(f.src, 'git checkout -q main');
+    expect(await land(f.deps, { ...OPTS, ref: 'feat9' }, f.config(moved))).toBe(EXIT.gate);
+    expect(f.errors.join('\n')).toMatch(/HEAD [0-9a-f]{12} vs [0-9a-f]{12}/);
+  });
+
+  test('git config injection and repo-routing variables never reach gates; the diff base is bound', async () => {
+    const f = fixture();
+    branch(f, 'crates/x.rs');
+    f.env.GIT_CONFIG_COUNT = '1';
+    f.env.GIT_CONFIG_KEY_0 = 'core.hooksPath';
+    f.env.GIT_CONFIG_VALUE_0 = '/dev/null';
+    f.env.GIT_CONFIG_PARAMETERS = "'core.hooksPath=/dev/null'";
+    const config = f.config({
+      env: { GIT_DIR: '/elsewhere' },
+      checks: [
+        {
+          name: 'cfg',
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: shell syntax, not a template literal
+          run: 'echo "$(git config harness.hookBaseRemote)/$(git config harness.hookBaseRef) $(git config core.hooksPath) ${GIT_DIR-unset} ${GIT_CONFIG_PARAMETERS-unset}" > "$FAKE_STATE/cfg.log"',
+        },
+      ],
+    });
+    expect(await land(f.deps, OPTS, config)).toBe(EXIT.ok);
+    expect(readFileSync(join(f.state, 'cfg.log'), 'utf8').trim()).toBe('origin/main  unset unset');
+    expect(f.hookSeen()).toHaveLength(1); // the push hook still fired
   });
 
   test('waits for load, gives up when it never drops, and queues behind the lock', async () => {

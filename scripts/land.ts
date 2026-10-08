@@ -1,5 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir, loadavg, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { isMainEntry } from './lib/entrypoint';
@@ -92,13 +100,19 @@ export function pidAlive(
 function realLockDeps(lockPath: string, log: (m: string) => void): LockDeps {
   return {
     lockPath,
+    // Publish atomically: write a private temp file, then link() it into place. link() fails with
+    // EEXIST rather than overwriting, and a reader can never observe a half-written lock.
     createExclusive(path, contents) {
+      const temp = `${path}.${process.pid}.${Date.now()}.tmp`;
+      writeFileSync(temp, contents);
       try {
-        writeFileSync(path, contents, { flag: 'wx' });
+        linkSync(temp, path);
         return true;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
         throw error;
+      } finally {
+        rmSync(temp, { force: true });
       }
     },
     read: (path) => (existsSync(path) ? readFileSync(path, 'utf8') : null),

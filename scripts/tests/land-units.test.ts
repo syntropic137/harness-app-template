@@ -114,7 +114,8 @@ describe('config', () => {
         bootstrap: { run: 'x', when: ['ts'] },
         preflight: [{ name: 'p', run: 'true' }],
         checks: [{ name: 'c', run: 'true', cwd: 'source' }],
-        gates: [{ name: 'g', run: 'true', when: ['x'] }],
+        gates: [{ name: 'g', run: 'true', when: ['x'], requires: ['sh'] }],
+        ignoreDirty: ['a.log'],
         scopes: { x: ['a'] },
         full: ['f'],
       }),
@@ -125,6 +126,8 @@ describe('config', () => {
     expect(c.bootstrap).toEqual({ run: 'x', when: ['ts'] });
     expect(c.checks[0]?.cwd).toBe('source');
     expect(c.inheritUnaffectedEvidence).toBe(true);
+    expect(c.ignoreDirty).toEqual(['a.log']);
+    expect(c.gates[0]?.requires).toEqual(['sh']);
     expect(parseConfig({ bootstrap: { run: 'x' } }).bootstrap).toEqual({ run: 'x' });
   });
   test('malformed JSON is loud', () => {
@@ -164,6 +167,10 @@ describe('config', () => {
     [{ env: { a: 1 } }, /env must be/],
     [{ env: [] }, /env must be/],
     [{ inheritUnaffectedEvidence: 'y' }, /boolean/],
+    [{ gates: [{ name: 'guard-main-push' }] }, /may never be skipped/],
+    [{ gates: [{ name: 'push-scope-guard.sh' }] }, /may never be skipped/],
+    [{ gates: [{ name: 'a', requires: 'pnpm' }] }, /array of strings/],
+    [{ ignoreDirty: 1 }, /array of strings/],
   ])('rejects %j', (raw, re) => {
     expect(() => parseConfig(raw)).toThrow(re);
   });

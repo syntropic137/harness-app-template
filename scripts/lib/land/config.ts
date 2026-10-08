@@ -11,6 +11,8 @@ export interface GateConfig {
   name: string;
   run?: string;
   when?: string[];
+  /** Programs that must be on PATH. Many hooks soft-skip when a tool is missing; landing must not. */
+  requires?: string[];
 }
 
 export interface CheckConfig {
@@ -39,6 +41,8 @@ export interface LandConfig {
   full: string[];
   /** Globs a direct push to the target branch may change without the land gate. */
   metadataSafe: string[];
+  /** Tracked paths gates may legitimately rewrite (for example a findings log). Any other change after gating aborts. */
+  ignoreDirty: string[];
   bootstrap: { run: string; when?: string[] } | null;
   preflight: CheckConfig[];
   gates: GateConfig[];
@@ -60,12 +64,20 @@ export const DEFAULT_CONFIG: LandConfig = {
   scopes: {},
   full: [],
   metadataSafe: [],
+  ignoreDirty: [],
   bootstrap: null,
   preflight: [],
   gates: [],
   checks: [],
   env: {},
 };
+
+/** Guards that must run on every push; listing one as a gate would let the land flow exclude it. */
+export const PROTECTED_JOBS: readonly string[] = [
+  'guard-main-push',
+  'push-scope-guard.sh',
+  'push-scope-guard',
+];
 
 const NAME_RE = /^[A-Za-z0-9._-]+$/;
 
@@ -106,6 +118,11 @@ function parseGate(raw: unknown, label: string): GateConfig {
     gate.run = raw.run;
   }
   if (raw.when !== undefined) gate.when = requireStringArray(raw.when, `${label}.when`);
+  if (raw.requires !== undefined)
+    gate.requires = requireStringArray(raw.requires, `${label}.requires`);
+  if (PROTECTED_JOBS.includes(gate.name)) {
+    return fail(`${label}: ${gate.name} is a guard and may never be skipped at push time`);
+  }
   return gate;
 }
 
@@ -161,6 +178,9 @@ const PARSERS: Record<string, Parser> = {
   },
   full: (c, v) => {
     c.full = requireStringArray(v, 'full');
+  },
+  ignoreDirty: (c, v) => {
+    c.ignoreDirty = requireStringArray(v, 'ignoreDirty');
   },
   metadataSafe: (c, v) => {
     c.metadataSafe = requireStringArray(v, 'metadataSafe');
