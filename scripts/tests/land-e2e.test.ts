@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -144,6 +145,7 @@ function fixture(): Fixture {
     exists: existsSync,
     mkdirp: (p) => void mkdirSync(p, { recursive: true }),
     writeFile: (p, t) => writeFileSync(p, t),
+    appendFile: (p, t) => appendFileSync(p, t),
     rmrf: (p) => rmSync(p, { recursive: true, force: true }),
     user: () => 'tester',
   };
@@ -190,6 +192,25 @@ function fixture(): Fixture {
     hookSeen: () => read('hook.log'),
     mainTip: () => sh(root, 'git --git-dir=origin.git rev-parse main'),
   };
+}
+
+interface RunLine {
+  ref: string;
+  sha: string | null;
+  exit: number;
+  dryRun: boolean;
+  totalSeconds: number;
+  waitedSeconds: number;
+  steps: { name: string; seconds: number; ok: boolean }[];
+}
+
+/** A run receipt line, parsed for assertions. */
+function parseRun(line: string): RunLine {
+  try {
+    return JSON.parse(line) as RunLine;
+  } catch {
+    throw new Error(`unparseable run receipt: ${line}`);
+  }
 }
 
 const OPTS: LandOptions = {
@@ -363,6 +384,48 @@ describe('land engine end to end (real git, local bare origin)', () => {
       ),
     ).toBe(EXIT.ok);
     expect(readFileSync(join(f.state, 'cargo.log'), 'utf8').trim()).toBe('rel');
+  });
+
+  test('every run leaves a receipt for p50/p90: timings per step, wait, sha and exit', async () => {
+    const f = fixture();
+    const sha = branch(f, 'crates/x.rs');
+    f.clock.t += 0;
+    expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.ok);
+    f.env.FAKE_FAIL = 'cov-rust';
+    sh(f.src, 'git checkout -q -B feat10 main');
+    f.commit(f.src, 'crates/q2.rs');
+    sh(f.src, 'git checkout -q main');
+    expect(await land(f.deps, { ...OPTS, ref: 'feat10', dryRun: true }, f.config())).toBe(
+      EXIT.gate,
+    );
+    const state = join(f.home, readdirSync(f.home).find((d) => d.startsWith('src-')) ?? '');
+    const lines = readFileSync(join(state, 'runs.jsonl'), 'utf8').trim().split('\n');
+    const runs = lines.map((line) => parseRun(line));
+    expect(runs).toHaveLength(2);
+    expect(runs[0]).toMatchObject({ ref: 'feat', sha, exit: 0, dryRun: false, waitedSeconds: 0 });
+    expect(runs[0]?.steps.map((step) => step.name)).toEqual(['lefthook']);
+    expect(runs[1]).toMatchObject({ ref: 'feat10', exit: 1, dryRun: true });
+    expect(runs[1]?.steps[0]).toMatchObject({ name: 'lefthook', ok: false });
+    expect(typeof runs[0]?.totalSeconds).toBe('number');
+  });
+
+  test('a run receipt that cannot be written never changes the outcome', async () => {
+    const f = fixture();
+    branch(f, 'crates/x.rs');
+    f.deps.appendFile = () => {
+      throw new Error('disk full');
+    };
+    expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.ok);
+    expect(f.errors.join('\n')).toMatch(/could not record the run receipt: disk full/);
+    const nonError: unknown = 'plain';
+    f.deps.appendFile = () => {
+      throw nonError;
+    };
+    sh(f.src, 'git checkout -q -B feat11 main');
+    f.commit(f.src, 'crates/q3.rs');
+    sh(f.src, 'git checkout -q main');
+    expect(await land(f.deps, { ...OPTS, ref: 'feat11' }, f.config())).toBe(EXIT.ok);
+    expect(f.errors.join('\n')).toMatch(/could not record the run receipt: plain/);
   });
 
   test('lefthook 1.x style comma selectors are supported', async () => {

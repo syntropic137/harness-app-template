@@ -33,6 +33,10 @@ Ambient `LEFTHOOK`, `LEFTHOOK_EXCLUDE`, `CARGO_TARGET_DIR`, the marker variable 
 
 A gate may list `requires` (programs on PATH): many hooks exit 0 when a tool is missing, which a landing must treat as failure. `ignoreDirty` lists tracked paths a gate may rewrite; any other change to the tree, or to HEAD, after gating aborts the land. Gates named `guard-main-push` or `push-scope-guard.sh` are rejected, so the guards can never be excluded from the push.
 
+## Run receipts (p50/p90)
+
+Every run appends one line to `~/.cache/harness-land/<repo>/runs.jsonl`: `at`, `ref`, `sha`, `dryRun`, `exit`, `totalSeconds`, `waitedSeconds` (lease plus load wait) and `steps` (name, seconds, ok per bootstrap, lefthook batch, command gate and check). `jq -s 'map(.totalSeconds-.waitedSeconds)|sort' runs.jsonl` gives the work time distribution; a receipt that cannot be written never changes the outcome.
+
 ## Exit codes
 
 `0` landed (or dry run ok), `1` a gate or check failed, `2` push or fetch failed, `64` usage, `75` lock or load wait exhausted.
