@@ -110,6 +110,7 @@ describe('config', () => {
         remote: 'up',
         lefthook: 'pnpm exec lefthook',
         quietCommand: 'true',
+        lefthookSelector: '--commands',
         inheritUnaffectedEvidence: true,
         env: { A: 'b' },
         bootstrap: { run: 'x', when: ['ts'] },
@@ -131,6 +132,7 @@ describe('config', () => {
     expect(c.inheritUnaffectedEvidence).toBe(true);
     expect(c.ignoreDirty).toEqual(['a.log']);
     expect(c.quietCommand).toBe('true');
+    expect(c.lefthookSelector).toBe('--commands');
     expect(c.gates[0]?.requires).toEqual(['sh']);
     expect(parseConfig({ bootstrap: { run: 'x' } }).bootstrap).toEqual({ run: 'x' });
   });
@@ -177,6 +179,7 @@ describe('config', () => {
     [{ gates: [{ name: 'a', requires: 'pnpm' }] }, /array of strings/],
     [{ ignoreDirty: 1 }, /array of strings/],
     [{ quietCommand: '' }, /non-empty/],
+    [{ lefthookSelector: '--nope' }, /lefthookSelector must be one of/],
   ])('rejects %j', (raw, re) => {
     expect(() => parseConfig(raw)).toThrow(re);
   });

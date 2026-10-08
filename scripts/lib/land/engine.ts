@@ -349,7 +349,11 @@ function describePlan(c: Classification, selected: GateConfig[], scopedOut: Gate
 
 async function runLefthookBatch(ctx: Ctx, jobs: string[], evidence: Evidence): Promise<void> {
   if (jobs.length === 0) return;
-  const args = ['run', 'pre-push', '--force', ...jobs.flatMap((j) => ['--job', j])];
+  const selector = ctx.config.lefthookSelector;
+  const selected = selector.endsWith('s')
+    ? [selector, jobs.join(',')]
+    : jobs.flatMap((job) => [selector, job]);
+  const args = ['run', 'pre-push', '--force', ...selected];
   const [bin = 'lefthook', ...pre] = ctx.config.lefthook.split(/\s+/);
   const result = await runLogged(ctx, 'lefthook', bin, [...pre, ...args], ctx.worktree);
   const passed = passedJobs(result.output);
