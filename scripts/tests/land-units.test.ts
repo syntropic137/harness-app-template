@@ -114,6 +114,7 @@ describe('config', () => {
         env: { A: 'b' },
         bootstrap: { run: 'x', when: ['ts'] },
         preflight: [{ name: 'p', run: 'true' }],
+        earlyChecks: [{ name: 'e', run: 'true', cwd: 'source' }],
         checks: [{ name: 'c', run: 'true', cwd: 'source' }],
         gates: [{ name: 'g', run: 'true', when: ['x'], requires: ['sh'] }],
         ignoreDirty: ['a.log'],
@@ -126,6 +127,7 @@ describe('config', () => {
     expect(c.remote).toBe('up');
     expect(c.bootstrap).toEqual({ run: 'x', when: ['ts'] });
     expect(c.checks[0]?.cwd).toBe('source');
+    expect(c.earlyChecks[0]?.name).toBe('e');
     expect(c.inheritUnaffectedEvidence).toBe(true);
     expect(c.ignoreDirty).toEqual(['a.log']);
     expect(c.quietCommand).toBe('true');
@@ -164,6 +166,7 @@ describe('config', () => {
     [{ gates: [{ name: '' }] }, /must match/],
     [{ checks: [{ name: 'a' }] }, /needs a run/],
     [{ checks: [1] }, /needs a run/],
+    [{ earlyChecks: [{ name: 'a' }] }, /needs a run/],
     [{ checks: [{ name: 'a', run: 'x', cwd: 'z' }] }, /cwd/],
     [{ bootstrap: 1 }, /bootstrap needs/],
     [{ env: { a: 1 } }, /env must be/],

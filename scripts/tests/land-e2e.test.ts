@@ -301,6 +301,29 @@ describe('land engine end to end (real git, local bare origin)', () => {
     expect(readFileSync(join(f.state, 'boot.log'), 'utf8')).toBe('boot\n');
   });
 
+  test('an early check runs before bootstrap and any gate, and a failure stops the land there', async () => {
+    const f = fixture();
+    branch(f, 'crates/x.rs');
+    const config = f.config({
+      earlyChecks: [{ name: 'early', run: 'echo early-{head}-{base} >> "$FAKE_STATE/order.log"' }],
+      bootstrap: { run: 'echo bootstrap >> "$FAKE_STATE/order.log"' },
+      gates: [{ name: 'cmd', run: 'echo gate >> "$FAKE_STATE/order.log"' }],
+    });
+    expect(await land(f.deps, OPTS, config)).toBe(EXIT.ok);
+    const lines = readFileSync(join(f.state, 'order.log'), 'utf8').trim().split('\n');
+    expect(lines.map((l) => l.split('-')[0])).toEqual(['early', 'bootstrap', 'gate']);
+    sh(f.src, 'git checkout -q -B feat6 main');
+    f.commit(f.src, 'crates/y.rs');
+    sh(f.src, 'git checkout -q main');
+    const failing = f.config({
+      earlyChecks: [{ name: 'host', run: 'echo host down; exit 9' }],
+      gates: [{ name: 'cmd', run: 'echo gate >> "$FAKE_STATE/never.log"' }],
+    });
+    expect(await land(f.deps, { ...OPTS, ref: 'feat6' }, failing)).toBe(EXIT.gate);
+    expect(f.errors.join('\n')).toMatch(/host failed \(exit status 9\)\nhost down/);
+    expect(existsSync(join(f.state, 'never.log'))).toBe(false);
+  });
+
   test('a failing project check blocks landing', async () => {
     const f = fixture();
     branch(f, 'crates/x.rs');

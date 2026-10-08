@@ -448,6 +448,7 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   const { selected, scopedOut } = planGates(ctx.config, c);
   ctx.deps.log(describePlan(c, selected, scopedOut));
   const vars = { base, head: sha, worktree: ctx.worktree, source: ctx.sourceRoot };
+  for (const check of ctx.config.earlyChecks) await runCheck(ctx, check, vars);
   await bootstrapIfNeeded(ctx, c, vars);
   const todo = selected.filter((g) => !evidence.passed.has(g.name));
   await requireTools(ctx, todo);

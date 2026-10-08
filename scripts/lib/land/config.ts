@@ -47,6 +47,8 @@ export interface LandConfig {
   ignoreDirty: string[];
   bootstrap: { run: string; when?: string[] } | null;
   preflight: CheckConfig[];
+  /** Checks that run once the plan is printed, before bootstrap and any gate, so a doomed landing fails before it spends minutes. */
+  earlyChecks: CheckConfig[];
   gates: GateConfig[];
   checks: CheckConfig[];
   env: Record<string, string>;
@@ -70,6 +72,7 @@ export const DEFAULT_CONFIG: LandConfig = {
   ignoreDirty: [],
   bootstrap: null,
   preflight: [],
+  earlyChecks: [],
   gates: [],
   checks: [],
   env: {},
@@ -193,6 +196,9 @@ const PARSERS: Record<string, Parser> = {
   },
   preflight: (c, v) => {
     c.preflight = parseList(v, 'preflight', parseCheck);
+  },
+  earlyChecks: (c, v) => {
+    c.earlyChecks = parseList(v, 'earlyChecks', parseCheck);
   },
   gates: (c, v) => {
     c.gates = parseList(v, 'gates', parseGate);
