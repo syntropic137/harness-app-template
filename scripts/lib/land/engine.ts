@@ -13,6 +13,8 @@ export interface LandOptions {
   message: string | null;
   dryRun: boolean;
   bootstrap: boolean;
+  /** Seconds to queue behind a live lock; null uses the config (default 0: refuse and name the holder). */
+  waitSeconds: number | null;
 }
 
 export const EXIT = { ok: 0, gate: 1, push: 2, usage: 64, busy: 75 } as const;
@@ -221,19 +223,32 @@ function expand(command: string, vars: Vars): string {
   );
 }
 
+/** Why the machine is not quiet right now, or null when it is. */
+async function busyReason(ctx: Ctx): Promise<string | null> {
+  const load = ctx.deps.loadavg();
+  if (load > ctx.config.loadMax) return `load ${load.toFixed(1)} is above ${ctx.config.loadMax}`;
+  const { quietCommand } = ctx.config;
+  if (quietCommand === null) return null;
+  const quiet = await ctx.deps.run('sh', ['-c', quietCommand], {
+    cwd: ctx.sourceRoot,
+    env: baseEnv(ctx),
+  });
+  return succeeded(quiet)
+    ? null
+    : `quiet check failed (${describeExit(quiet)}): ${quiet.output.trim()}`;
+}
+
 async function waitForLoad(ctx: Ctx): Promise<void> {
-  const { loadMax, loadPollSeconds, loadWaitMaxSeconds } = ctx.config;
+  const { loadPollSeconds, loadWaitMaxSeconds } = ctx.config;
   const deadline = ctx.deps.now() + loadWaitMaxSeconds * 1000;
-  while (ctx.deps.loadavg() > loadMax) {
+  for (let reason = await busyReason(ctx); reason !== null; reason = await busyReason(ctx)) {
     if (ctx.deps.now() >= deadline) {
       throw new Abort(
-        `load stayed above ${loadMax} for ${loadWaitMaxSeconds}s; not starting gates`,
+        `${reason}; still busy after ${loadWaitMaxSeconds}s, not starting gates`,
         EXIT.busy,
       );
     }
-    ctx.deps.log(
-      `load ${ctx.deps.loadavg().toFixed(1)} is above ${loadMax}; waiting ${loadPollSeconds}s`,
-    );
+    ctx.deps.log(`${reason}; waiting ${loadPollSeconds}s`);
     await ctx.deps.sleep(loadPollSeconds * 1000);
   }
 }
@@ -276,38 +291,46 @@ async function ensureWorktree(ctx: Ctx, base: string): Promise<void> {
   await gitOut(ctx, ['clean', '-fd']);
 }
 
-async function applyTarget(ctx: Ctx, base: string, target: string): Promise<void> {
-  const { mode, message } = ctx.options;
-  const ff = succeeded(await git(ctx, ['merge-base', '--is-ancestor', base, target]));
-  if (mode === 'merge') {
-    const args =
-      message === null
-        ? ['merge', '--no-ff', '--no-edit', target]
-        : ['merge', '--no-ff', '-m', message, target];
-    await gitOut(ctx, args);
-  } else if (mode === 'ff-only' || (mode === 'auto' && ff)) {
-    await gitOut(ctx, ['merge', '--ff-only', target]);
-  } else {
-    const commits = (await gitOut(ctx, ['rev-list', '--reverse', `${base}..${target}`]))
-      .split('\n')
-      .filter(Boolean);
-    if (commits.length === 0)
+async function applyMerge(ctx: Ctx, target: string): Promise<void> {
+  const { message } = ctx.options;
+  const args =
+    message === null
+      ? ['merge', '--no-ff', '--no-edit', target]
+      : ['merge', '--no-ff', '-m', message, target];
+  await gitOut(ctx, args);
+}
+
+async function applyCherryPick(ctx: Ctx, base: string, target: string): Promise<void> {
+  const listed = await gitOut(ctx, ['rev-list', '--reverse', `${base}..${target}`]);
+  const commits = listed.split('\n').filter(Boolean);
+  if (commits.length === 0) {
+    throw new Abort(
+      `ref ${ctx.options.ref} has no commits absent from ${shortSha(base)}`,
+      EXIT.gate,
+    );
+  }
+  ctx.deps.log(`cherry-picking ${commits.length} commit(s) onto ${shortSha(base)}`);
+  for (const commit of commits) {
+    const result = await git(ctx, ['cherry-pick', commit]);
+    if (!succeeded(result)) {
+      await git(ctx, ['cherry-pick', '--abort']);
       throw new Abort(
-        `ref ${ctx.options.ref} has no commits absent from ${base.slice(0, 12)}`,
+        `cherry-pick ${shortSha(commit)} failed (${describeExit(result)})\n${tail(result.output)}`,
         EXIT.gate,
       );
-    ctx.deps.log(`cherry-picking ${commits.length} commit(s) onto ${base.slice(0, 12)}`);
-    for (const commit of commits) {
-      const result = await git(ctx, ['cherry-pick', commit]);
-      if (!succeeded(result)) {
-        await git(ctx, ['cherry-pick', '--abort']);
-        throw new Abort(
-          `cherry-pick ${commit.slice(0, 12)} failed (${describeExit(result)})\n${tail(result.output)}`,
-          EXIT.gate,
-        );
-      }
     }
   }
+}
+
+async function applyTarget(ctx: Ctx, base: string, target: string): Promise<void> {
+  const { mode } = ctx.options;
+  if (mode === 'merge') return applyMerge(ctx, target);
+  const ff = succeeded(await git(ctx, ['merge-base', '--is-ancestor', base, target]));
+  if (mode === 'ff-only' || (mode === 'auto' && ff)) {
+    await gitOut(ctx, ['merge', '--ff-only', target]);
+    return;
+  }
+  return applyCherryPick(ctx, base, target);
 }
 
 async function changedFiles(ctx: Ctx, from: string, to: string): Promise<string[] | null> {
@@ -586,7 +609,7 @@ export async function land(
     handle = await acquireLock(
       deps.lock,
       { pid: process.pid, repo: sourceRoot, ref: options.ref, user: deps.user() },
-      config.lockWaitMaxSeconds * 1000,
+      (options.waitSeconds ?? config.lockWaitMaxSeconds) * 1000,
     );
     await waitForLoad(ctx);
     await runAttempts(ctx);

@@ -194,6 +194,7 @@ const OPTS: LandOptions = {
   message: null,
   dryRun: false,
   bootstrap: true,
+  waitSeconds: null,
 };
 const branch = (f: Fixture, file: string): string => {
   sh(f.src, 'git checkout -q -B feat main');
@@ -611,6 +612,19 @@ describe('land engine end to end (real git, local bare origin)', () => {
     f.deps.loadavg = () => (++calls < 4 ? 99 : 1);
     expect(await land(f.deps, OPTS, f.config({ loadPollSeconds: 5 }))).toBe(EXIT.ok);
     expect(f.logs.filter((l) => l.includes('is above 40')).length).toBeGreaterThan(0);
+    // an I/O-starved box can have a low load average: the quiet command is the second signal
+    f.deps.loadavg = () => 1;
+    sh(f.src, 'git checkout -q -B io main');
+    f.commit(f.src, 'crates/io.rs');
+    sh(f.src, 'git checkout -q main');
+    const starved = f.config({ quietCommand: 'echo disk busy; exit 1', loadWaitMaxSeconds: 10 });
+    expect(await land(f.deps, { ...OPTS, ref: 'io' }, starved)).toBe(EXIT.busy);
+    expect(f.errors.join('\n')).toMatch(
+      /quiet check failed \(exit status 1\): disk busy; still busy after 10s/,
+    );
+    expect(await land(f.deps, { ...OPTS, ref: 'io' }, f.config({ quietCommand: 'true' }))).toBe(
+      EXIT.ok,
+    );
     f.deps.loadavg = () => 99;
     sh(f.src, 'git checkout -q -B busy main');
     f.commit(f.src, 'crates/busy.rs');
@@ -632,11 +646,19 @@ describe('land engine end to end (real git, local bare origin)', () => {
       at: 0,
     });
     f.deps.lock = m.deps;
+    f.errors.length = 0;
     f.deps.loadavg = () => 1;
     expect(await land(f.deps, { ...OPTS, ref: 'busy' }, f.config({ lockWaitMaxSeconds: 10 }))).toBe(
       EXIT.busy,
     );
-    expect(f.errors.join('\n')).toMatch(/gave up waiting for the landing lock held by pid 100/);
+    expect(f.errors.join('\n')).toMatch(
+      /landing lock is held by pid 100 \(u\) landing r in \/o, since .* \(\d+ min ago\); not waiting/,
+    );
+    // default is to refuse at once, naming the holder
+    f.errors.length = 0;
+    expect(await land(f.deps, { ...OPTS, ref: 'busy' }, f.config())).toBe(EXIT.busy);
+    expect(f.errors.join('\n')).toMatch(/held by pid 100/);
+    expect(f.clock.t).toBeLessThan(2_000_000);
   });
 });
 

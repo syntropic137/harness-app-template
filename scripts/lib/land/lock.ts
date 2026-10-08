@@ -97,6 +97,30 @@ function reapStale(deps: LockDeps, mine: LockHolder): boolean {
 
 export class LockTimeout extends Error {}
 
+function makeHandle(deps: LockDeps, mine: LockHolder): LockHandle {
+  return {
+    release() {
+      const current = parseHolder(deps.read(deps.lockPath));
+      if (current?.pid === mine.pid && current.startedAt === mine.startedAt) {
+        deps.remove(deps.lockPath);
+      }
+    },
+  };
+}
+
+/** reap: the holder is provably gone (or an old unreadable file). live: leave it alone. */
+function judgeHolder(deps: LockDeps, holder: LockHolder | null): 'reap' | 'live' {
+  if (holder !== null) return holderIsStale(holder, deps) ? 'reap' : 'live';
+  // Unreadable: foreign or torn. Never presume it dead while it is fresh.
+  const age = deps.ageMs(deps.lockPath);
+  return age === null || age > REAP_STALE_MS ? 'reap' : 'live';
+}
+
+function timeoutFor(deps: LockDeps, holder: LockHolder | null): LockTimeout {
+  const who = holder === null ? 'an unreadable lock file' : describeHolder(holder, deps.now());
+  return new LockTimeout(`landing lock is held by ${who}; not waiting`);
+}
+
 export async function acquireLock(
   deps: LockDeps,
   me: Omit<LockHolder, 'bootId' | 'startedAt'>,
@@ -110,40 +134,14 @@ export async function acquireLock(
   const deadline = deps.now() + maxWaitMs;
   let lastAnnounce = Number.NEGATIVE_INFINITY;
   for (;;) {
-    if (deps.createExclusive(deps.lockPath, JSON.stringify(mine))) {
-      return {
-        release() {
-          const current = parseHolder(deps.read(deps.lockPath));
-          if (current?.pid === mine.pid && current.startedAt === mine.startedAt) {
-            deps.remove(deps.lockPath);
-          }
-        },
-      };
-    }
+    if (deps.createExclusive(deps.lockPath, JSON.stringify(mine))) return makeHandle(deps, mine);
     const holder = parseHolder(deps.read(deps.lockPath));
-    if (holder !== null && holderIsStale(holder, deps)) {
+    if (judgeHolder(deps, holder) === 'reap') {
       if (!reapStale(deps, mine)) await deps.sleep(POLL_MS);
       continue;
     }
-    if (holder === null) {
-      // Unreadable: foreign or torn. Never presume it dead while it is fresh.
-      const age = deps.ageMs(deps.lockPath);
-      if (age === null || age > REAP_STALE_MS) {
-        if (!reapStale(deps, mine)) await deps.sleep(POLL_MS);
-        continue;
-      }
-      if (deps.now() >= deadline) {
-        throw new LockTimeout('gave up waiting for an unreadable landing lock file to age out');
-      }
-      await deps.sleep(POLL_MS);
-      continue;
-    }
-    if (deps.now() >= deadline) {
-      throw new LockTimeout(
-        `gave up waiting for the landing lock held by ${describeHolder(holder, deps.now())}`,
-      );
-    }
-    if (deps.now() - lastAnnounce >= ANNOUNCE_EVERY_MS) {
+    if (deps.now() >= deadline) throw timeoutFor(deps, holder);
+    if (holder !== null && deps.now() - lastAnnounce >= ANNOUNCE_EVERY_MS) {
       deps.log(`waiting for the landing lock held by ${describeHolder(holder, deps.now())}`);
       lastAnnounce = deps.now();
     }

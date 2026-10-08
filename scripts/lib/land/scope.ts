@@ -11,21 +11,23 @@ export const ALWAYS_FULL_GLOBS: readonly string[] = [
 const REGEX_SPECIALS = /[.+^${}()|[\]\\]/g;
 
 /** Glob to RegExp. `**` crosses directories, `*` and `?` do not. */
+/** Translate the glob token at `i`; returns the regex source and how many characters it consumed. */
+function translateToken(glob: string, i: number): [source: string, consumed: number] {
+  const ch = glob.charAt(i);
+  if (ch === '*' && glob.charAt(i + 1) === '*') {
+    return glob.charAt(i + 2) === '/' ? ['(?:.*/)?', 3] : ['.*', 2];
+  }
+  if (ch === '*') return ['[^/]*', 1];
+  if (ch === '?') return ['[^/]', 1];
+  return [ch.replace(REGEX_SPECIALS, '\\$&'), 1];
+}
+
 export function globToRegExp(glob: string): RegExp {
   let out = '';
-  for (let i = 0; i < glob.length; i += 1) {
-    const ch = glob.charAt(i);
-    if (ch === '*' && glob.charAt(i + 1) === '*') {
-      const slashAfter = glob.charAt(i + 2) === '/';
-      out += slashAfter ? '(?:.*/)?' : '.*';
-      i += slashAfter ? 2 : 1;
-    } else if (ch === '*') {
-      out += '[^/]*';
-    } else if (ch === '?') {
-      out += '[^/]';
-    } else {
-      out += ch.replace(REGEX_SPECIALS, '\\$&');
-    }
+  for (let i = 0; i < glob.length; ) {
+    const [source, consumed] = translateToken(glob, i);
+    out += source;
+    i += consumed;
   }
   return new RegExp(`^${out}$`);
 }

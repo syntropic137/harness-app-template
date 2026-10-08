@@ -27,6 +27,7 @@ options:
   --mode auto|ff-only|cherry-pick|merge   default: auto
   --message <text>                        merge commit message (--mode merge only)
   --skip-bootstrap                        do not run the configured bootstrap
+  --wait <seconds>                        queue behind a live landing lock this long (default: refuse at once, naming the holder)
   --dry-run                               gate and exercise the pre-push guards; push nothing
   --help                                  print this help
 
@@ -38,7 +39,68 @@ export type ParsedArgs =
   | { ok: true; options: LandOptions }
   | { ok: false; message: string; exitCode: number };
 
-const bad = (message: string): ParsedArgs => ({ ok: false, message, exitCode: EXIT.usage });
+type Failure = Extract<ParsedArgs, { ok: false }>;
+
+const bad = (message: string): Failure => ({ ok: false, message, exitCode: EXIT.usage });
+
+const FLAG_SETTERS: Record<string, (options: LandOptions) => void> = {
+  '--dry-run': (o) => {
+    o.dryRun = true;
+  },
+  '--skip-bootstrap': (o) => {
+    o.bootstrap = false;
+  },
+};
+
+const VALUE_FLAGS = new Set(['--mode', '--message', '--wait']);
+
+function applyValue(options: LandOptions, arg: string, value: string): Failure | null {
+  if (arg === '--message') {
+    options.message = value;
+  } else if (arg === '--wait') {
+    const seconds = Number(value);
+    if (!Number.isFinite(seconds) || seconds < 0) return bad(`invalid --wait ${value}`);
+    options.waitSeconds = seconds;
+  } else if (MODES.has(value)) {
+    options.mode = value as LandMode;
+  } else {
+    return bad(`invalid --mode ${value}`);
+  }
+  return null;
+}
+
+function parseValueFlag(
+  argv: readonly string[],
+  i: number,
+  arg: string,
+  options: LandOptions,
+): number | Failure {
+  const value = argv[i + 1];
+  if (value === undefined || value.startsWith('--')) return bad(`${arg} requires a value`);
+  return applyValue(options, arg, value) ?? i + 1;
+}
+
+function parsePositional(arg: string, i: number, options: LandOptions): number | Failure {
+  if (arg.startsWith('-')) return bad(`unknown option ${arg}`);
+  if (options.ref !== '') return bad(`unexpected extra ref ${arg}`);
+  options.ref = arg;
+  return i;
+}
+
+/** Parse the argument at `i`; returns the index of the last argument consumed, or a failure. */
+function parseStep(argv: readonly string[], i: number, options: LandOptions): number | Failure {
+  const arg = argv[i] as string;
+  if (arg === '--') return i;
+  if (arg === '--help' || arg === '-h') return { ok: false, message: USAGE, exitCode: 0 };
+  const flag = FLAG_SETTERS[arg];
+  if (flag !== undefined) {
+    flag(options);
+    return i;
+  }
+  return VALUE_FLAGS.has(arg)
+    ? parseValueFlag(argv, i, arg, options)
+    : parsePositional(arg, i, options);
+}
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const options: LandOptions = {
@@ -47,23 +109,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     message: null,
     dryRun: false,
     bootstrap: true,
+    waitSeconds: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i] as string;
-    if (arg === '--') continue;
-    if (arg === '--help' || arg === '-h') return { ok: false, message: USAGE, exitCode: 0 };
-    if (arg === '--dry-run') options.dryRun = true;
-    else if (arg === '--skip-bootstrap') options.bootstrap = false;
-    else if (arg === '--mode' || arg === '--message') {
-      const value = argv[i + 1];
-      if (value === undefined || value.startsWith('--')) return bad(`${arg} requires a value`);
-      i += 1;
-      if (arg === '--message') options.message = value;
-      else if (MODES.has(value)) options.mode = value as LandMode;
-      else return bad(`invalid --mode ${value}`);
-    } else if (arg.startsWith('-')) return bad(`unknown option ${arg}`);
-    else if (options.ref !== '') return bad(`unexpected extra ref ${arg}`);
-    else options.ref = arg;
+    const next = parseStep(argv, i, options);
+    if (typeof next !== 'number') return next;
+    i = next;
   }
   if (options.ref === '') return bad(USAGE);
   if (options.message !== null && options.mode !== 'merge')

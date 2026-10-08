@@ -99,25 +99,25 @@ const GUIDANCE = `Refusing an ungated push to main.
     - \`gh pr merge\`           merges server-side; ungateable locally without
                               server-side branch protection.`;
 
+/** The failure for one pushed ref, or null when the ref is allowed. */
+function refFailure(ref: PushRefLine, deps: GuardDeps): GuardResult | null {
+  if (ref.remoteRef !== (deps.protectedRef ?? PROTECTED_REF)) return null;
+  if (ref.localSha === ZERO_SHA) return { ok: false, message: 'Refusing to delete main via push.' };
+  // Gated iff `just land` validated THIS exact commit (SHA-bound, not a boolean).
+  if (deps.landGateSha !== undefined && deps.landGateSha === ref.localSha) return null;
+  // A brand-new remote main (remoteSha all-zero) can't be diffed; require the gate.
+  if (ref.remoteSha === ZERO_SHA) return { ok: false, message: GUIDANCE };
+  const files = deps.changedFiles(ref.remoteSha, ref.localSha);
+  return isMetadataOnly(files, deps.metadataSafe ?? METADATA_SAFE)
+    ? null
+    : { ok: false, message: GUIDANCE };
+}
+
 /** Decide whether a push may proceed. Pure: all IO is injected via deps. */
 export function evaluatePush(refs: PushRefLine[], deps: GuardDeps): GuardResult {
   for (const ref of refs) {
-    if (ref.remoteRef !== (deps.protectedRef ?? PROTECTED_REF)) {
-      continue;
-    }
-    if (ref.localSha === ZERO_SHA) {
-      return { ok: false, message: 'Refusing to delete main via push.' };
-    }
-    // Gated iff `just land` validated THIS exact commit (SHA-bound, not a boolean).
-    if (deps.landGateSha !== undefined && deps.landGateSha === ref.localSha) {
-      continue;
-    }
-    // A brand-new remote main (remoteSha all-zero) can't be diffed; require the gate.
-    const files = ref.remoteSha === ZERO_SHA ? [] : deps.changedFiles(ref.remoteSha, ref.localSha);
-    if (ref.remoteSha !== ZERO_SHA && isMetadataOnly(files, deps.metadataSafe ?? METADATA_SAFE)) {
-      continue;
-    }
-    return { ok: false, message: GUIDANCE };
+    const failure = refFailure(ref, deps);
+    if (failure !== null) return failure;
   }
   return { ok: true, message: '' };
 }

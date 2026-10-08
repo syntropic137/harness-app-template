@@ -155,6 +155,36 @@ const REMEDY = `  lefthook computes its pre-push file set from HEAD vs @{push} (
       just land <branch-or-ref>
   Bead ${BEAD}. A conscious bypass (--no-verify) still skips this guard.`;
 
+/** lefthook skipped everything: allowed only if the push sends nothing the remote lacks. */
+function emptySetVerdict(refs: PushRefLine[], remote: string, deps: ScopeDeps): ScopeResult {
+  const carrying: string[] = [];
+  const unknown: string[] = [];
+  for (const ref of refs) {
+    const carries = deps.carriesContent(ref, remote);
+    if (carries === null) unknown.push(describeRef(ref));
+    else if (carries) carrying.push(describeRef(ref));
+  }
+  if (carrying.length === 0 && unknown.length === 0) {
+    return {
+      ok: true,
+      message:
+        `push-scope-guard: lefthook push-file set is EMPTY, so every other pre-push job skipped; ` +
+        `allowed because this push sends nothing the remote lacks (${refs.length} ref(s)).`,
+    };
+  }
+  const detail = [
+    ...carrying.map((r) => `    sends content the remote lacks: ${r}`),
+    ...unknown.map((r) => `    could not determine what this sends: ${r}`),
+  ].join('\n');
+  return {
+    ok: false,
+    message:
+      'push-scope-guard: REFUSING. lefthook reported "no matching push files" for every ' +
+      'pre-push job, but this push is not empty:\n' +
+      `${detail}\n${REMEDY}`,
+  };
+}
+
 /** Decide whether a push may proceed. Pure: all IO is injected via deps. */
 export function evaluatePushScope(
   refs: PushRefLine[],
@@ -183,35 +213,7 @@ export function evaluatePushScope(
       message: `push-scope-guard: lefthook push-file set has ${files.length} ${noun}; the pre-push jobs were armed.`,
     };
   }
-  const carrying: string[] = [];
-  const unknown: string[] = [];
-  for (const ref of refs) {
-    const carries = deps.carriesContent(ref, remote);
-    if (carries === null) {
-      unknown.push(describeRef(ref));
-    } else if (carries) {
-      carrying.push(describeRef(ref));
-    }
-  }
-  if (carrying.length === 0 && unknown.length === 0) {
-    return {
-      ok: true,
-      message:
-        `push-scope-guard: lefthook push-file set is EMPTY, so every other pre-push job skipped; ` +
-        `allowed because this push sends nothing the remote lacks (${refs.length} ref(s)).`,
-    };
-  }
-  const detail = [
-    ...carrying.map((r) => `    sends content the remote lacks: ${r}`),
-    ...unknown.map((r) => `    could not determine what this sends: ${r}`),
-  ].join('\n');
-  return {
-    ok: false,
-    message:
-      'push-scope-guard: REFUSING. lefthook reported "no matching push files" for every ' +
-      'pre-push job, but this push is not empty:\n' +
-      `${detail}\n${REMEDY}`,
-  };
+  return emptySetVerdict(refs, remote, deps);
 }
 
 export interface ScopeIoDeps extends ScopeDeps {

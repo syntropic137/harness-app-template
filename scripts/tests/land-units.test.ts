@@ -109,6 +109,7 @@ describe('config', () => {
         loadMax: 10,
         remote: 'up',
         lefthook: 'pnpm exec lefthook',
+        quietCommand: 'true',
         inheritUnaffectedEvidence: true,
         env: { A: 'b' },
         bootstrap: { run: 'x', when: ['ts'] },
@@ -127,6 +128,7 @@ describe('config', () => {
     expect(c.checks[0]?.cwd).toBe('source');
     expect(c.inheritUnaffectedEvidence).toBe(true);
     expect(c.ignoreDirty).toEqual(['a.log']);
+    expect(c.quietCommand).toBe('true');
     expect(c.gates[0]?.requires).toEqual(['sh']);
     expect(parseConfig({ bootstrap: { run: 'x' } }).bootstrap).toEqual({ run: 'x' });
   });
@@ -171,6 +173,7 @@ describe('config', () => {
     [{ gates: [{ name: 'push-scope-guard.sh' }] }, /may never be skipped/],
     [{ gates: [{ name: 'a', requires: 'pnpm' }] }, /array of strings/],
     [{ ignoreDirty: 1 }, /array of strings/],
+    [{ quietCommand: '' }, /non-empty/],
   ])('rejects %j', (raw, re) => {
     expect(() => parseConfig(raw)).toThrow(re);
   });
@@ -284,9 +287,20 @@ describe('land cli helpers', () => {
   test('parseArgs', () => {
     expect(parseArgs(['feat', '--', '--dry-run', '--skip-bootstrap'])).toEqual({
       ok: true,
-      options: { ref: 'feat', mode: 'auto', message: null, dryRun: true, bootstrap: false },
+      options: {
+        ref: 'feat',
+        mode: 'auto',
+        message: null,
+        dryRun: true,
+        bootstrap: false,
+        waitSeconds: null,
+      },
     });
     expect(parseArgs(['x', '--mode', 'merge', '--message', 'hi'])).toMatchObject({ ok: true });
+    expect(parseArgs(['x', '--wait', '30'])).toMatchObject({
+      ok: true,
+      options: { waitSeconds: 30 },
+    });
     expect(parseArgs(['--help'])).toEqual({ ok: false, message: USAGE, exitCode: 0 });
     expect(parseArgs(['-h'])).toMatchObject({ exitCode: 0 });
     for (const argv of [
@@ -294,6 +308,8 @@ describe('land cli helpers', () => {
       ['x', '--mode'],
       ['x', '--mode', '--dry-run'],
       ['x', '--mode', 'bogus'],
+      ['x', '--wait', 'soon'],
+      ['x', '--wait', '-1'],
       ['x', '--nope'],
       ['x', 'y'],
       ['x', '--message', 'm'],

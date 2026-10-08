@@ -34,9 +34,12 @@ failed repeatedly. Observed failures, all in one day:
 `scripts/land.ts` (+ `scripts/lib/land/*`), run as `just land <ref>`, with
 behaviour read from consumer-owned `land.config.json`.
 
-1. **Serialize.** Per-machine lock (`O_EXCL` file, pid + start time, stale
-   detection) so landings queue and print who holds it. After acquiring it, wait
-   while the 1-minute load exceeds `loadMax` (poll, bounded, fail loudly).
+1. **Serialize.** Per-machine lease (atomically published file recording pid,
+   boot id, user, repo, ref and start time; a dead PID or a new boot releases it).
+   It refuses at once and names the holder and elapsed time, so a blocked agent can
+   do other work; `--wait` queues instead. After acquiring it, wait while the
+   1-minute load exceeds `loadMax` or an optional `quietCommand` fails (load average
+   misses an I/O-starved box), bounded, failing loudly.
 2. **Persistent worktree per repo** under `~/.cache/harness-land/<repo-id>/`,
    reset each run to fresh `origin/<target>` (`reset --hard`, `clean -fd`, never
    `-x`, so `node_modules` and its own `target/` stay warm). Its cargo target dir
@@ -59,7 +62,9 @@ behaviour read from consumer-owned `land.config.json`.
    this run verified green or scoped out on this commit. Any job the config does
    not list still runs at push (fail-safe: unknown jobs are slow, never skipped).
    The guards (`guard-main-push`, `push-scope-guard`, versioning) run in seconds.
-8. **Success = origin/main contains the SHA**: after the push, fetch and
+8. **Success = origin/main contains the SHA**: the SHA is the post-apply HEAD that was
+   gated and pushed (a cherry-pick mints new SHAs, so the input ref's SHA is never the
+   one checked). After the push, fetch and
    `git merge-base --is-ancestor <sha> origin/<target>`, regardless of push exit
    status. A killed child reports its signal name. A signal or exit 128 push that
    did not land, with `main` unmoved, is retried (gates are already green).

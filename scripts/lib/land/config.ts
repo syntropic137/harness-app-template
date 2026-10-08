@@ -27,6 +27,8 @@ export interface LandConfig {
   targetBranch: string;
   /** Wait while the 1-minute load average exceeds this. */
   loadMax: number;
+  /** Shell command that exits 0 when the machine is quiet. Catches I/O-bound starvation that load average misses (for example a disk-bound box). */
+  quietCommand: string | null;
   loadPollSeconds: number;
   loadWaitMaxSeconds: number;
   lockWaitMaxSeconds: number;
@@ -54,9 +56,10 @@ export const DEFAULT_CONFIG: LandConfig = {
   remote: 'origin',
   targetBranch: 'main',
   loadMax: 40,
+  quietCommand: null,
   loadPollSeconds: 15,
   loadWaitMaxSeconds: 1800,
-  lockWaitMaxSeconds: 3600,
+  lockWaitMaxSeconds: 0,
   markerEnv: 'HARNESS_LAND_GATE',
   lefthook: 'lefthook',
   maxAttempts: 3,
@@ -215,6 +218,10 @@ for (const key of STRING_KEYS) {
     c[key] = requireName(v, key);
   };
 }
+PARSERS.quietCommand = (c, v) => {
+  if (typeof v !== 'string' || v === '') fail('quietCommand must be a non-empty string');
+  c.quietCommand = v as string;
+};
 PARSERS.lefthook = (c, v) => {
   if (typeof v !== 'string' || v === '') fail('lefthook must be a non-empty string');
   c.lefthook = v as string;
