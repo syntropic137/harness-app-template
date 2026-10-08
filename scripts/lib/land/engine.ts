@@ -153,6 +153,12 @@ function baseEnv(ctx: Ctx): Record<string, string | undefined> {
     if (GIT_ENV_STRIP.test(key)) delete env[key];
   }
   for (const key of [...ENV_STRIP, ctx.config.markerEnv]) delete env[key];
+  const { cargoTargetDir } = ctx.config;
+  if (cargoTargetDir !== null) {
+    env.CARGO_TARGET_DIR = cargoTargetDir.startsWith('~/')
+      ? join(ctx.deps.env.HOME ?? '', cargoTargetDir.slice(2))
+      : cargoTargetDir;
+  }
   // Bind every hook's diff base to the exact base this landing validated against, so an
   // `affected` job cannot silently diff against another ref and still report green.
   env.GIT_CONFIG_COUNT = '2';

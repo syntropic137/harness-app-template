@@ -54,6 +54,8 @@ export interface LandConfig {
   gates: GateConfig[];
   checks: CheckConfig[];
   env: Record<string, string>;
+  /** Cargo target directory for every gate (a leading ~/ expands to HOME). Null means the landing worktree's own target/. The caller's CARGO_TARGET_DIR is never inherited. */
+  cargoTargetDir: string | null;
 }
 
 export const DEFAULT_CONFIG: LandConfig = {
@@ -79,6 +81,7 @@ export const DEFAULT_CONFIG: LandConfig = {
   gates: [],
   checks: [],
   env: {},
+  cargoTargetDir: null,
 };
 
 /** Guards that must run on every push; listing one as a gate would let the land flow exclude it. */
@@ -232,6 +235,10 @@ PARSERS.lefthookSelector = (c, v) => {
   const found = SELECTORS.find((selector) => selector === v);
   if (found === undefined) fail(`lefthookSelector must be one of ${SELECTORS.join(', ')}`);
   c.lefthookSelector = found as (typeof SELECTORS)[number];
+};
+PARSERS.cargoTargetDir = (c, v) => {
+  if (typeof v !== 'string' || v === '') fail('cargoTargetDir must be a non-empty string');
+  c.cargoTargetDir = v as string;
 };
 PARSERS.quietCommand = (c, v) => {
   if (typeof v !== 'string' || v === '') fail('quietCommand must be a non-empty string');
