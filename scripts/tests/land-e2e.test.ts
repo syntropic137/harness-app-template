@@ -318,6 +318,53 @@ describe('land engine end to end (real git, local bare origin)', () => {
     );
   });
 
+  test("cargoTargetDir is set for gates (with ~ expanded) and the caller's own is never inherited", async () => {
+    const f = fixture();
+    branch(f, 'crates/x.rs');
+    f.env.CARGO_TARGET_DIR = '/shared/target';
+    const probe = {
+      name: 'cargo',
+      run: 'echo "${CARGO_TARGET_DIR-unset}" > "$FAKE_STATE/cargo.log"',
+    };
+    expect(await land(f.deps, OPTS, f.config({ checks: [probe] }))).toBe(EXIT.ok);
+    expect(readFileSync(join(f.state, 'cargo.log'), 'utf8').trim()).toBe('unset');
+    sh(f.src, 'git checkout -q -B feat7 main');
+    f.commit(f.src, 'crates/z.rs');
+    sh(f.src, 'git checkout -q main');
+    expect(
+      await land(
+        f.deps,
+        { ...OPTS, ref: 'feat7' },
+        f.config({ checks: [probe], cargoTargetDir: '~/warm' }),
+      ),
+    ).toBe(EXIT.ok);
+    expect(readFileSync(join(f.state, 'cargo.log'), 'utf8').trim()).toBe(join(f.root, 'warm'));
+    sh(f.src, 'git checkout -q -B feat8 main');
+    f.commit(f.src, 'crates/w.rs');
+    sh(f.src, 'git checkout -q main');
+    expect(
+      await land(
+        f.deps,
+        { ...OPTS, ref: 'feat8' },
+        f.config({ checks: [probe], cargoTargetDir: '/abs/t' }),
+      ),
+    ).toBe(EXIT.ok);
+    expect(readFileSync(join(f.state, 'cargo.log'), 'utf8').trim()).toBe('/abs/t');
+    // no HOME: a ~/ path degrades to a relative one rather than throwing
+    sh(f.src, 'git checkout -q -B feat9 main');
+    f.commit(f.src, 'crates/v.rs');
+    sh(f.src, 'git checkout -q main');
+    f.env.HOME = undefined;
+    expect(
+      await land(
+        f.deps,
+        { ...OPTS, ref: 'feat9' },
+        f.config({ checks: [probe], cargoTargetDir: '~/rel' }),
+      ),
+    ).toBe(EXIT.ok);
+    expect(readFileSync(join(f.state, 'cargo.log'), 'utf8').trim()).toBe('rel');
+  });
+
   test('lefthook 1.x style comma selectors are supported', async () => {
     const f = fixture();
     branch(f, 'crates/x.rs');
