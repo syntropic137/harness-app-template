@@ -205,6 +205,7 @@ export function realDeps(env: NodeJS.ProcessEnv, cwd: string): EngineDeps {
     exists: existsSync,
     mkdirp: (p) => mkdirSync(p, { recursive: true }),
     writeFile: (p, t) => writeFileSync(p, t),
+    appendFile: (p, t) => appendFileSync(p, t),
     rmrf: (p) => rmSync(p, { recursive: true, force: true }),
     user: () => userInfo().username,
   };

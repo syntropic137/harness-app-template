@@ -34,6 +34,7 @@ export interface EngineDeps {
   exists(path: string): boolean;
   mkdirp(path: string): void;
   writeFile(path: string, text: string): void;
+  appendFile(path: string, text: string): void;
   rmrf(path: string): void;
   user(): string;
 }
@@ -128,8 +129,18 @@ function tail(output: string): string {
   return output.split('\n').slice(-TAIL_LINES).join('\n');
 }
 
+/** What one landing leaves behind for p50/p90 measurement: <state>/runs.jsonl, one line per run. */
+export interface Receipt {
+  release: () => void;
+  stateDir: string | null;
+  sha: string | null;
+  waitedSeconds: number;
+  steps: { name: string; seconds: number; ok: boolean }[];
+}
+
 interface Ctx {
   deps: EngineDeps;
+  receipt: Receipt;
   options: LandOptions;
   config: LandConfig;
   sourceRoot: string;
@@ -210,6 +221,7 @@ async function runLogged(
   ctx.deps.mkdirp(ctx.logDir);
   ctx.deps.writeFile(join(ctx.logDir, `${name}.log`), `${lines.join('\n')}\n`);
   const seconds = Math.round((ctx.deps.now() - start) / 1000);
+  ctx.receipt.steps.push({ name, seconds, ok: succeeded(result) });
   ctx.deps.log(
     `${succeeded(result) ? 'PASS' : 'FAIL'} ${name} (${seconds}s${succeeded(result) ? '' : `, ${describeExit(result)}`})`,
   );
@@ -585,6 +597,7 @@ async function runAttempts(ctx: Ctx): Promise<void> {
   for (let attempt = 1; attempt <= ctx.config.maxAttempts; attempt += 1) {
     const v = await validate(ctx, prev);
     const sha = v.evidence.sha;
+    ctx.receipt.sha = sha;
     await fetchRemote(ctx);
     if ((await remoteTip(ctx)) !== v.base) {
       ctx.deps.log(
@@ -625,7 +638,7 @@ async function landHoldingLease(
   deps: EngineDeps,
   options: LandOptions,
   config: LandConfig,
-  hold: { release: () => void },
+  receipt: Receipt,
 ): Promise<number> {
   const seed = { deps, options, config } as Ctx;
   seed.logDir = '';
@@ -637,8 +650,10 @@ async function landHoldingLease(
   );
   const stateDir = join(deps.home, repoId(commonDir, sourceRoot));
   const stamp = new Date(deps.now()).toISOString().replace(/[:.]/g, '-');
+  receipt.stateDir = stateDir;
   const ctx: Ctx = {
     deps,
+    receipt,
     options,
     config,
     sourceRoot,
@@ -648,15 +663,46 @@ async function landHoldingLease(
   };
   for (const check of config.preflight)
     await runCheck(ctx, check, { base: '', head: '', worktree: '', source: sourceRoot });
+  const queuedAt = deps.now();
   const handle = await acquireLock(
     deps.lock,
     { pid: process.pid, repo: sourceRoot, ref: options.ref, user: deps.user() },
     (options.waitSeconds ?? config.lockWaitMaxSeconds) * 1000,
   );
-  hold.release = () => handle.release();
+  receipt.release = () => handle.release();
   await waitForLoad(ctx);
+  receipt.waitedSeconds = Math.round((deps.now() - queuedAt) / 1000);
   await runAttempts(ctx);
   return EXIT.ok;
+}
+
+/** Append this run to <state>/runs.jsonl. A receipt that cannot be written never changes the outcome. */
+function recordRun(
+  deps: EngineDeps,
+  options: LandOptions,
+  receipt: Receipt,
+  exit: number,
+  startedAt: number,
+): void {
+  if (receipt.stateDir === null) return;
+  const line = JSON.stringify({
+    at: new Date(startedAt).toISOString(),
+    ref: options.ref,
+    dryRun: options.dryRun,
+    sha: receipt.sha,
+    exit,
+    totalSeconds: Math.round((deps.now() - startedAt) / 1000),
+    waitedSeconds: receipt.waitedSeconds,
+    steps: receipt.steps,
+  });
+  try {
+    deps.mkdirp(receipt.stateDir);
+    deps.appendFile(join(receipt.stateDir, 'runs.jsonl'), `${line}\n`);
+  } catch (error) {
+    deps.error(
+      `could not record the run receipt: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 export async function land(
@@ -664,10 +710,18 @@ export async function land(
   options: LandOptions,
   config: LandConfig,
 ): Promise<number> {
-  const hold = { release: () => undefined as void };
-  const code = await landHoldingLease(deps, options, config, hold).catch((error: unknown) =>
+  const startedAt = deps.now();
+  const receipt: Receipt = {
+    release: () => undefined,
+    stateDir: null,
+    sha: null,
+    waitedSeconds: 0,
+    steps: [],
+  };
+  const code = await landHoldingLease(deps, options, config, receipt).catch((error: unknown) =>
     failureCode(deps, error),
   );
-  hold.release();
+  receipt.release();
+  recordRun(deps, options, receipt, code, startedAt);
   return code;
 }
