@@ -455,6 +455,39 @@ describe('land engine end to end (real git, local bare origin)', () => {
     expect(f.errors.join('\n')).toMatch(/could not record the run receipt: plain/);
   });
 
+  test('retryOnOutput re-runs a failed command once, only when its output matches', async () => {
+    const f = fixture();
+    branch(f, 'crates/x.rs');
+    // Fails the first time with a matching line, passes the second.
+    const flaky = {
+      name: 'flaky',
+      run: 'if [ -f "$FAKE_STATE/seen" ]; then echo ok; else touch "$FAKE_STATE/seen"; echo "Timeout calling onTaskUpdate"; exit 1; fi',
+      when: ['rust'],
+      retryOnOutput: 'Timeout calling',
+    };
+    expect(await land(f.deps, OPTS, f.config({ gates: [flaky] }))).toBe(EXIT.ok);
+    expect(f.logs.join('\n')).toMatch(/flaky: output matched \/Timeout calling\/; retrying once/);
+    expect(f.logs.join('\n')).toMatch(/PASS flaky-retry/);
+    // a non-matching failure is NOT retried
+    sh(f.src, 'git checkout -q -B feat14 main');
+    f.commit(f.src, 'crates/r1.rs');
+    sh(f.src, 'git checkout -q main');
+    f.logs.length = 0;
+    const real = { ...flaky, run: 'echo real failure; exit 1' };
+    expect(await land(f.deps, { ...OPTS, ref: 'feat14' }, f.config({ gates: [real] }))).toBe(
+      EXIT.gate,
+    );
+    expect(f.logs.join('\n')).not.toMatch(/retrying once/);
+    // a matching failure that fails again still fails
+    sh(f.src, 'git checkout -q -B feat15 main');
+    f.commit(f.src, 'crates/r2.rs');
+    sh(f.src, 'git checkout -q main');
+    const always = { ...flaky, run: 'echo "Timeout calling"; exit 1' };
+    expect(await land(f.deps, { ...OPTS, ref: 'feat15' }, f.config({ gates: [always] }))).toBe(
+      EXIT.gate,
+    );
+  });
+
   test('lefthook 1.x style comma selectors are supported', async () => {
     const f = fixture();
     branch(f, 'crates/x.rs');
