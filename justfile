@@ -281,6 +281,11 @@ cov-config-manager:
         --fail-under-lines 98 \
         --fail-under-functions 98
 
+# Gated, isolated landing of a branch onto the target branch (ADR-0033).
+[group('release')]
+land *args:
+    bun run scripts/land.ts {{args}}
+
 # --- release ---------------------------------------------------------------
 
 # Versioning slot entrypoint (release-check, plan, dry-run, apply).

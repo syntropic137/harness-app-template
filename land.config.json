@@ -1,0 +1,55 @@
+{
+  "$comment": "Consumer-owned configuration for `just land` (ADR-0033). `just update` never touches this file.",
+  "remote": "origin",
+  "targetBranch": "main",
+  "loadMax": 40,
+  "markerEnv": "HARNESS_LAND_GATE",
+  "lefthook": "pnpm exec lefthook",
+  "metadataSafe": [],
+  "ignoreDirty": [".beads/ubs-findings.jsonl"],
+  "scopes": {
+    "ts": [
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.mjs",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "tsconfig*.json",
+      "vitest.config.ts"
+    ],
+    "rust": ["**/*.rs", "**/Cargo.toml", "Cargo.lock"],
+    "python": ["**/*.py", "pyproject.toml", "uv.lock"],
+    "docs": ["**/*.md", "docs/**"],
+    "meta": [".beads/**", "assets/**", "LICENSE"]
+  },
+  "full": [
+    "harness/**",
+    ".github/**",
+    "justfile",
+    "turbo.json",
+    "biome.jsonc",
+    "cog.toml",
+    "infra/**",
+    "go.work"
+  ],
+  "bootstrap": { "run": "pnpm install --frozen-lockfile", "when": ["ts"] },
+  "gates": [
+    { "name": "typecheck-affected", "when": ["ts"], "requires": ["pnpm"] },
+    { "name": "test-affected", "when": ["ts"], "requires": ["pnpm"] },
+    { "name": "cov-ts", "when": ["ts"], "requires": ["pnpm"] },
+    { "name": "cov-rust", "when": ["rust"], "requires": ["cargo", "cargo-llvm-cov", "just"] },
+    { "name": "cov-py", "when": ["python"], "requires": ["uv"] },
+    { "name": "doc-validator", "when": ["docs"] },
+    { "name": "perf-gate", "when": ["ts"], "requires": ["hyperfine", "node"] },
+    { "name": "sensors-gate", "when": ["ts", "rust", "python"], "requires": ["node", "npx"] },
+    { "name": "versioning-release-check", "requires": ["cargo"] },
+    { "name": "ubs-diff", "when": ["ts", "python", "rust"], "requires": ["ubs"] }
+  ],
+  "checks": [
+    {
+      "name": "secret-scan",
+      "run": "command -v gitleaks >/dev/null 2>&1 || { echo 'gitleaks is required to land' >&2; exit 1; }; gitleaks git --log-opts=\"{base}..{head}\" --redact --no-banner ."
+    }
+  ]
+}
