@@ -23,11 +23,11 @@ When unsure it runs everything: an unmapped path, a path in `full`, an unreadabl
 
 ## `land.config.json` (consumer-owned)
 
-`just update` never touches it. Keys: `remote`, `targetBranch`, `loadMax`, `quietCommand`, `loadPollSeconds`, `loadWaitMaxSeconds`, `lockWaitMaxSeconds`, `maxAttempts`, `markerEnv`, `lefthook`, `inheritUnaffectedEvidence`, `metadataSafe` (globs a direct push to the target may change without the gate), `scopes` (name to globs), `full` (globs that force every gate), `bootstrap`, `preflight`, `gates`, `checks`, `env`.
+`just update` never touches it. Keys: `remote`, `targetBranch`, `loadMax`, `quietCommand`, `loadPollSeconds`, `loadWaitMaxSeconds`, `lockWaitMaxSeconds`, `maxAttempts`, `markerEnv`, `lefthook`, `lefthookSelector` (`--job` default; `--commands` for lefthook 1.x), `inheritUnaffectedEvidence`, `metadataSafe` (globs a direct push to the target may change without the gate), `scopes` (name to globs), `full` (globs that force every gate), `bootstrap`, `preflight`, `earlyChecks`, `gates`, `checks`, `env`.
 
 - A **gate** with no `run` is a lefthook pre-push job of that name. With `run` it is a shell command. `when` lists scope names; omit it for an unconditional gate.
 - A **check** is a shell command that always runs after the gates. Placeholders: `{base}`, `{head}`, `{worktree}`, `{source}`. `cwd` is `worktree` (default) or `source` (the invoking checkout, which the applied ref cannot alter). Project-specific rules (for example "baseline.json must not differ from the base") live here, not in the engine.
-- `preflight` checks run before the lock is taken.
+- `preflight` checks run before the lock is taken. `earlyChecks` run once the plan is printed, before bootstrap and any gate (for example: is the evidence host reachable), with the same placeholders as `checks`.
 
 Ambient `LEFTHOOK`, `LEFTHOOK_EXCLUDE`, `CARGO_TARGET_DIR`, the marker variable and git routing or config variables (`GIT_DIR`, `GIT_CONFIG_*`, ...) are stripped from the environment of every gate and the push, after `env` is merged. `harness.hookBaseRemote` and `harness.hookBaseRef` are injected so every diff-scoped hook uses the landing base.
 

@@ -35,6 +35,8 @@ export interface LandConfig {
   /** Env var carrying the exact validated SHA to the pre-push main guard. */
   markerEnv: string;
   lefthook: string;
+  /** How lefthook selects jobs: --job/--command repeat per name (lefthook 2.x); --jobs/--commands take a comma list (1.x). */
+  lefthookSelector: '--job' | '--command' | '--jobs' | '--commands';
   /** Re-apply attempts when the target branch moves during validation. */
   maxAttempts: number;
   /** Reuse a gate's green result across a re-apply when the SHA delta provably misses its scopes. */
@@ -47,6 +49,8 @@ export interface LandConfig {
   ignoreDirty: string[];
   bootstrap: { run: string; when?: string[] } | null;
   preflight: CheckConfig[];
+  /** Checks that run once the plan is printed, before bootstrap and any gate, so a doomed landing fails before it spends minutes. */
+  earlyChecks: CheckConfig[];
   gates: GateConfig[];
   checks: CheckConfig[];
   env: Record<string, string>;
@@ -62,6 +66,7 @@ export const DEFAULT_CONFIG: LandConfig = {
   lockWaitMaxSeconds: 0,
   markerEnv: 'HARNESS_LAND_GATE',
   lefthook: 'lefthook',
+  lefthookSelector: '--job',
   maxAttempts: 3,
   inheritUnaffectedEvidence: false,
   scopes: {},
@@ -70,6 +75,7 @@ export const DEFAULT_CONFIG: LandConfig = {
   ignoreDirty: [],
   bootstrap: null,
   preflight: [],
+  earlyChecks: [],
   gates: [],
   checks: [],
   env: {},
@@ -194,6 +200,9 @@ const PARSERS: Record<string, Parser> = {
   preflight: (c, v) => {
     c.preflight = parseList(v, 'preflight', parseCheck);
   },
+  earlyChecks: (c, v) => {
+    c.earlyChecks = parseList(v, 'earlyChecks', parseCheck);
+  },
   gates: (c, v) => {
     c.gates = parseList(v, 'gates', parseGate);
   },
@@ -218,6 +227,12 @@ for (const key of STRING_KEYS) {
     c[key] = requireName(v, key);
   };
 }
+const SELECTORS = ['--job', '--command', '--jobs', '--commands'] as const;
+PARSERS.lefthookSelector = (c, v) => {
+  const found = SELECTORS.find((selector) => selector === v);
+  if (found === undefined) fail(`lefthookSelector must be one of ${SELECTORS.join(', ')}`);
+  c.lefthookSelector = found as (typeof SELECTORS)[number];
+};
 PARSERS.quietCommand = (c, v) => {
   if (typeof v !== 'string' || v === '') fail('quietCommand must be a non-empty string');
   c.quietCommand = v as string;

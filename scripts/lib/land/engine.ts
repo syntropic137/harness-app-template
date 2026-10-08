@@ -349,7 +349,11 @@ function describePlan(c: Classification, selected: GateConfig[], scopedOut: Gate
 
 async function runLefthookBatch(ctx: Ctx, jobs: string[], evidence: Evidence): Promise<void> {
   if (jobs.length === 0) return;
-  const args = ['run', 'pre-push', '--force', ...jobs.flatMap((j) => ['--job', j])];
+  const selector = ctx.config.lefthookSelector;
+  const selected = selector.endsWith('s')
+    ? [selector, jobs.join(',')]
+    : jobs.flatMap((job) => [selector, job]);
+  const args = ['run', 'pre-push', '--force', ...selected];
   const [bin = 'lefthook', ...pre] = ctx.config.lefthook.split(/\s+/);
   const result = await runLogged(ctx, 'lefthook', bin, [...pre, ...args], ctx.worktree);
   const passed = passedJobs(result.output);
@@ -448,6 +452,7 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   const { selected, scopedOut } = planGates(ctx.config, c);
   ctx.deps.log(describePlan(c, selected, scopedOut));
   const vars = { base, head: sha, worktree: ctx.worktree, source: ctx.sourceRoot };
+  for (const check of ctx.config.earlyChecks) await runCheck(ctx, check, vars);
   await bootstrapIfNeeded(ctx, c, vars);
   const todo = selected.filter((g) => !evidence.passed.has(g.name));
   await requireTools(ctx, todo);
