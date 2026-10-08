@@ -27,6 +27,7 @@ When unsure it runs everything: an unmapped path, a path in `full`, an unreadabl
 
 - A **gate** with no `run` is a lefthook pre-push job of that name. With `run` it is a shell command. `when` lists scope names; omit it for an unconditional gate.
 - A command gate may name a `lane`: gates sharing a lane run one after another (the first failure stops the lane), never concurrently, even with `parallelGates`. Use it for suites that starve each other.
+- A command gate takes `cwd` like a check: `worktree` (default) or `source`, the invoking checkout, which the applied ref cannot alter.
 - A **check** is a shell command that always runs after the gates. Placeholders: `{base}`, `{head}`, `{worktree}`, `{source}`. `cwd` is `worktree` (default) or `source` (the invoking checkout, which the applied ref cannot alter). Project-specific rules (for example "baseline.json must not differ from the base") live here, not in the engine.
 - `preflight` checks run before the lock is taken. `earlyChecks` run once the plan is printed, before bootstrap and any gate (for example: is the evidence host reachable), with the same placeholders as `checks`.
 

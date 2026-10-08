@@ -129,6 +129,7 @@ describe('config', () => {
             requires: ['sh'],
             retryOnOutput: 'flaky',
             lane: 'heavy',
+            cwd: 'source',
           },
         ],
         ignoreDirty: ['a.log'],
@@ -144,6 +145,7 @@ describe('config', () => {
     expect(c.checks[0]?.retryOnOutput).toBe('x');
     expect(c.gates[0]?.retryOnOutput).toBe('flaky');
     expect(c.gates[0]?.lane).toBe('heavy');
+    expect(c.gates[0]?.cwd).toBe('source');
     expect(c.earlyChecks[0]?.name).toBe('e');
     expect(c.inheritUnaffectedEvidence).toBe(true);
     expect(c.ignoreDirty).toEqual(['a.log']);
@@ -198,6 +200,7 @@ describe('config', () => {
     [{ gates: [{ name: 'a', requires: 'pnpm' }] }, /array of strings/],
     [{ ignoreDirty: 1 }, /array of strings/],
     [{ quietCommand: '' }, /non-empty/],
+    [{ gates: [{ name: 'a', run: 'x', cwd: 'elsewhere' }] }, /cwd must be worktree\|source/],
     [{ gates: [{ name: 'a', run: 'x', lane: 'bad lane' }] }, /must match/],
     [{ gates: [{ name: 'a', run: 'x', retryOnOutput: 5 }] }, /must be a string/],
     [{ gates: [{ name: 'a', run: 'x', retryOnOutput: '(' }] }, /valid regular expression/],
