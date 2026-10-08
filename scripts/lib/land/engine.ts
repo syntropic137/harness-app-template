@@ -381,7 +381,6 @@ async function runLefthookBatch(
   evidence: Evidence,
   base: string,
 ): Promise<void> {
-  if (jobs.length === 0) return;
   const url = await gitOut(ctx, ['remote', 'get-url', ctx.config.remote]);
   const selector = ctx.config.lefthookSelector;
   const selected = selector.endsWith('s')
@@ -445,6 +444,31 @@ async function assertUnchanged(ctx: Ctx, sha: string): Promise<void> {
   }
 }
 
+/**
+ * Run lanes with at most `limit` in flight. Every started lane finishes (a child cannot be
+ * recalled mid-run) and the first failure, in lane order, is then thrown, so one red gate never
+ * hides another and evidence is recorded for every lane that passed.
+ */
+export async function runLanes(lanes: Array<() => Promise<void>>, limit: number): Promise<void> {
+  const failures: unknown[] = new Array(lanes.length).fill(undefined);
+  let failed = false;
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < lanes.length) {
+      const index = next;
+      next += 1;
+      try {
+        await (lanes[index] as () => Promise<void>)();
+      } catch (error) {
+        failures[index] = error;
+        failed = true;
+      }
+    }
+  };
+  await Promise.allSettled(Array.from({ length: Math.max(1, limit) }, worker));
+  if (failed) throw failures.find((f) => f !== undefined);
+}
+
 async function runCheck(ctx: Ctx, check: CheckConfig, vars: Vars): Promise<void> {
   const cwd = check.cwd === 'source' ? ctx.sourceRoot : ctx.worktree;
   const result = await runLogged(ctx, check.name, 'sh', ['-c', expand(check.run, vars)], cwd);
@@ -498,17 +522,18 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   await bootstrapIfNeeded(ctx, c, vars);
   const todo = selected.filter((g) => !evidence.passed.has(g.name));
   await requireTools(ctx, todo);
-  await runLefthookBatch(
-    ctx,
-    todo.filter(isLefthookGate).map((g) => g.name),
-    evidence,
-    base,
-  );
+  const lanes: Array<() => Promise<void>> = [];
+  const jobs = todo.filter(isLefthookGate).map((g) => g.name);
+  if (jobs.length > 0) lanes.push(() => runLefthookBatch(ctx, jobs, evidence, base));
   for (const gate of todo) {
     if (gate.run === undefined) continue;
-    await runCheck(ctx, { name: gate.name, run: gate.run, cwd: 'worktree' }, vars);
-    evidence.passed.set(gate.name, sha);
+    const run = gate.run;
+    lanes.push(async () => {
+      await runCheck(ctx, { name: gate.name, run, cwd: 'worktree' }, vars);
+      evidence.passed.set(gate.name, sha);
+    });
   }
+  await runLanes(lanes, ctx.config.parallelGates);
   for (const check of ctx.config.checks) await runCheck(ctx, check, vars);
   await assertUnchanged(ctx, sha);
   return { base, evidence, scopedOut };

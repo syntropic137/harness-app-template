@@ -12,6 +12,7 @@ import {
   passedJobs,
   planGates,
   repoId,
+  runLanes,
 } from '../lib/land/engine';
 import { describeExit, runProcess, succeeded } from '../lib/land/exec';
 import { createLineFolder, foldedLine } from '../lib/land/fold';
@@ -183,6 +184,7 @@ describe('config', () => {
     [{ gates: [{ name: 'a', requires: 'pnpm' }] }, /array of strings/],
     [{ ignoreDirty: 1 }, /array of strings/],
     [{ quietCommand: '' }, /non-empty/],
+    [{ parallelGates: -1 }, /non-negative/],
     [{ onLoadTimeout: 'maybe' }, /fail or proceed/],
     [{ cargoTargetDir: '' }, /non-empty/],
     [{ lefthookSelector: '--nope' }, /lefthookSelector must be one of/],
@@ -225,6 +227,44 @@ describe('exec', () => {
     const r = await runProcess('definitely-not-a-program-xyz', []);
     expect(r.status).toBe(127);
     expect(r.output).toMatch(/ENOENT/);
+  });
+});
+
+describe('runLanes', () => {
+  const lane =
+    (log: string[], name: string, fail = false) =>
+    async () => {
+      log.push(`start ${name}`);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      log.push(`end ${name}`);
+      if (fail) throw new Error(`${name} failed`);
+    };
+
+  test('limit 1 is sequential', async () => {
+    const log: string[] = [];
+    await runLanes([lane(log, 'a'), lane(log, 'b')], 1);
+    expect(log).toEqual(['start a', 'end a', 'start b', 'end b']);
+  });
+
+  test('limit 2 overlaps lanes', async () => {
+    const log: string[] = [];
+    await runLanes([lane(log, 'a'), lane(log, 'b')], 2);
+    expect(log.slice(0, 2)).toEqual(['start a', 'start b']);
+  });
+
+  test('every lane finishes, and the first failure in lane order is thrown', async () => {
+    const log: string[] = [];
+    await expect(
+      runLanes([lane(log, 'a', true), lane(log, 'b', true), lane(log, 'c')], 3),
+    ).rejects.toThrow('a failed');
+    expect(log.filter((l) => l.startsWith('end'))).toHaveLength(3);
+  });
+
+  test('a limit below 1 still runs, sequentially, and no lanes is fine', async () => {
+    const log: string[] = [];
+    await runLanes([lane(log, 'a')], 0);
+    expect(log).toEqual(['start a', 'end a']);
+    await runLanes([], 4);
   });
 });
 

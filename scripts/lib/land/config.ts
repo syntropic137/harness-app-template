@@ -41,6 +41,8 @@ export interface LandConfig {
   lefthookSelector: '--job' | '--command' | '--jobs' | '--commands';
   /** Re-apply attempts when the target branch moves during validation. */
   maxAttempts: number;
+  /** Gate lanes (the lefthook batch is one lane, each command gate another) run at once. 1 is sequential. */
+  parallelGates: number;
   /** Reuse a gate's green result across a re-apply when the SHA delta provably misses its scopes. */
   inheritUnaffectedEvidence: boolean;
   scopes: Record<string, string[]>;
@@ -73,6 +75,7 @@ export const DEFAULT_CONFIG: LandConfig = {
   lefthook: 'lefthook',
   lefthookSelector: '--job',
   maxAttempts: 3,
+  parallelGates: 1,
   inheritUnaffectedEvidence: false,
   scopes: {},
   full: [],
@@ -184,6 +187,7 @@ const NUMBER_KEYS = [
   'loadWaitMaxSeconds',
   'lockWaitMaxSeconds',
   'maxAttempts',
+  'parallelGates',
 ] as const;
 const STRING_KEYS = ['remote', 'targetBranch', 'markerEnv', 'lefthook'] as const;
 
