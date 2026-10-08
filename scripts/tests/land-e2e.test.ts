@@ -51,6 +51,7 @@ interface Fixture {
 
 const FAKE_LEFTHOOK = `#!/bin/sh
 echo "$@" >> "$FAKE_STATE/lefthook.log"
+cat >> "$FAKE_STATE/lefthook.stdin"
 jobs=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -185,7 +186,7 @@ function fixture(): Fixture {
       sh(dir, `git add -A && git commit -qm "touch ${file}"`);
       return sh(dir, 'git rev-parse HEAD');
     },
-    ran: () => read('lefthook.log'),
+    ran: () => read('lefthook.log').map((line) => line.replace(/ origin \S+$/, '')),
     hookSeen: () => read('hook.log'),
     mainTip: () => sh(root, 'git --git-dir=origin.git rev-parse main'),
   };
@@ -302,6 +303,19 @@ describe('land engine end to end (real git, local bare origin)', () => {
     sh(f.src, 'git checkout -q main');
     expect(await land(f.deps, { ...OPTS, ref: 'feat3', bootstrap: false }, config)).toBe(EXIT.gate);
     expect(readFileSync(join(f.state, 'boot.log'), 'utf8')).toBe('boot\n');
+  });
+
+  test('lefthook jobs see this landing as a pre-push: ref line on stdin, remote and url as args', async () => {
+    const f = fixture();
+    const base = f.mainTip();
+    const sha = branch(f, 'crates/x.rs');
+    expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.ok);
+    expect(readFileSync(join(f.state, 'lefthook.stdin'), 'utf8')).toBe(
+      `HEAD ${sha} refs/heads/main ${base}\n`,
+    );
+    expect(readFileSync(join(f.state, 'lefthook.log'), 'utf8').trim()).toMatch(
+      / origin \S+origin\.git$/,
+    );
   });
 
   test('lefthook 1.x style comma selectors are supported', async () => {
