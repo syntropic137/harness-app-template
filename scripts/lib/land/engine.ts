@@ -188,13 +188,14 @@ async function runLogged(
   command: string,
   args: string[],
   cwd: string,
-  env = baseEnv(ctx),
+  input?: string,
 ): Promise<RunResult> {
   const start = ctx.deps.now();
   const lines: string[] = [];
   const result = await ctx.deps.run(command, args, {
     cwd,
-    env,
+    env: baseEnv(ctx),
+    input,
     onLine: (line) => {
       lines.push(line);
       ctx.deps.log(`  [${name}] ${line}`);
@@ -345,15 +346,33 @@ function describePlan(c: Classification, selected: GateConfig[], scopedOut: Gate
   return `plan: ${why}; gates: ${selected.map((g) => g.name).join(', ') || 'none'}${out}`;
 }
 
-async function runLefthookBatch(ctx: Ctx, jobs: string[], evidence: Evidence): Promise<void> {
+/** The ref line git feeds a pre-push hook, so jobs that use stdin (`use_stdin`) see this landing's push. */
+function prePushStdin(ctx: Ctx, base: string, sha: string): string {
+  return `HEAD ${sha} refs/heads/${ctx.config.targetBranch} ${base}\n`;
+}
+
+async function runLefthookBatch(
+  ctx: Ctx,
+  jobs: string[],
+  evidence: Evidence,
+  base: string,
+): Promise<void> {
   if (jobs.length === 0) return;
+  const url = await gitOut(ctx, ['remote', 'get-url', ctx.config.remote]);
   const selector = ctx.config.lefthookSelector;
   const selected = selector.endsWith('s')
     ? [selector, jobs.join(',')]
     : jobs.flatMap((job) => [selector, job]);
-  const args = ['run', 'pre-push', '--force', ...selected];
+  const args = ['run', 'pre-push', '--force', ...selected, ctx.config.remote, url];
   const [bin = 'lefthook', ...pre] = ctx.config.lefthook.split(/\s+/);
-  const result = await runLogged(ctx, 'lefthook', bin, [...pre, ...args], ctx.worktree);
+  const result = await runLogged(
+    ctx,
+    'lefthook',
+    bin,
+    [...pre, ...args],
+    ctx.worktree,
+    prePushStdin(ctx, base, evidence.sha),
+  );
   const passed = passedJobs(result.output);
   // Measured, not inferred: exit 0 with a job missing from the summary is a silent skip.
   const missing = jobs.filter((j) => !passed.has(j));
@@ -459,6 +478,7 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
     ctx,
     todo.filter(isLefthookGate).map((g) => g.name),
     evidence,
+    base,
   );
   for (const gate of todo) {
     if (gate.run === undefined) continue;
