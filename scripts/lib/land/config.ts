@@ -10,6 +10,8 @@ export const CONFIG_FILE = 'land.config.json';
 export interface GateConfig {
   name: string;
   run?: string;
+  /** Where a command gate runs: the landing worktree (default) or the invoking checkout, which the applied ref cannot alter. */
+  cwd?: 'worktree' | 'source';
   /** Command gates that share a lane run one after another, never concurrently (for example two suites that starve each other). Omitted: its own lane. */
   lane?: string;
   /** As CheckConfig.retryOnOutput, for a command gate. */
@@ -147,19 +149,45 @@ function requireRegex(value: unknown, label: string): string {
   return value;
 }
 
+function requireCwd(value: unknown, label: string): 'worktree' | 'source' {
+  if (value !== 'worktree' && value !== 'source')
+    return fail(`${label}.cwd must be worktree|source`);
+  return value;
+}
+
+function requireString(value: unknown, label: string): string {
+  if (typeof value !== 'string') return fail(`${label} must be a string`);
+  return value;
+}
+
+/** Optional gate fields: parsed by key, so adding one costs a table row, not a branch. */
+const GATE_OPTIONS: Record<string, (gate: GateConfig, value: unknown, label: string) => void> = {
+  run: (gate, value, label) => {
+    gate.run = requireString(value, `${label}.run`);
+  },
+  retryOnOutput: (gate, value, label) => {
+    gate.retryOnOutput = requireRegex(value, `${label}.retryOnOutput`);
+  },
+  cwd: (gate, value, label) => {
+    gate.cwd = requireCwd(value, label);
+  },
+  lane: (gate, value, label) => {
+    gate.lane = requireName(value, `${label}.lane`);
+  },
+  when: (gate, value, label) => {
+    gate.when = requireStringArray(value, `${label}.when`);
+  },
+  requires: (gate, value, label) => {
+    gate.requires = requireStringArray(value, `${label}.requires`);
+  },
+};
+
 function parseGate(raw: unknown, label: string): GateConfig {
   if (!isRecord(raw)) return fail(`${label} must be an object`);
   const gate: GateConfig = { name: requireName(raw.name, `${label}.name`) };
-  if (raw.run !== undefined) {
-    if (typeof raw.run !== 'string') return fail(`${label}.run must be a string`);
-    gate.run = raw.run;
+  for (const [key, apply] of Object.entries(GATE_OPTIONS)) {
+    if (raw[key] !== undefined) apply(gate, raw[key], label);
   }
-  if (raw.retryOnOutput !== undefined)
-    gate.retryOnOutput = requireRegex(raw.retryOnOutput, `${label}.retryOnOutput`);
-  if (raw.lane !== undefined) gate.lane = requireName(raw.lane, `${label}.lane`);
-  if (raw.when !== undefined) gate.when = requireStringArray(raw.when, `${label}.when`);
-  if (raw.requires !== undefined)
-    gate.requires = requireStringArray(raw.requires, `${label}.requires`);
   if (PROTECTED_JOBS.includes(gate.name)) {
     return fail(`${label}: ${gate.name} is a guard and may never be skipped at push time`);
   }

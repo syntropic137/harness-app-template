@@ -531,8 +531,8 @@ function gateLanes(
     lanes.push(async () => {
       // Gates in one lane run in order; the first failure stops the lane.
       for (const gate of gates) {
-        const { name, run, retryOnOutput } = gate;
-        await runCheck(ctx, { name, run, cwd: 'worktree', retryOnOutput }, vars);
+        const { name, run, retryOnOutput, cwd } = gate;
+        await runCheck(ctx, { name, run, cwd: cwd ?? 'worktree', retryOnOutput }, vars);
         evidence.passed.set(name, evidence.sha);
       }
     });
