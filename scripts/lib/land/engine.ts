@@ -255,17 +255,15 @@ async function waitForLoad(ctx: Ctx): Promise<void> {
 
 async function fetchRemote(ctx: Ctx): Promise<void> {
   const { remote, targetBranch } = ctx.config;
-  for (let attempt = 1; ; attempt += 1) {
+  const attempts = 3;
+  let failure = '';
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const result = await git(ctx, ['fetch', '--prune', remote, targetBranch], ctx.sourceRoot);
     if (succeeded(result)) return;
-    if (attempt >= 3) {
-      throw new Abort(
-        `fetch ${remote} failed (${describeExit(result)})\n${tail(result.output)}`,
-        EXIT.push,
-      );
-    }
-    await ctx.deps.sleep(2000 * attempt);
+    failure = `fetch ${remote} failed (${describeExit(result)})\n${tail(result.output)}`;
+    if (attempt < attempts) await ctx.deps.sleep(2000 * attempt);
   }
+  throw new Abort(failure, EXIT.push);
 }
 
 const remoteTip = (ctx: Ctx): Promise<string> =>
@@ -444,9 +442,10 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   await ensureWorktree(ctx, base);
   await applyTarget(ctx, base, target);
   const sha = await gitOut(ctx, ['rev-parse', 'HEAD']);
+  // Evidence belongs to one SHA: a different SHA starts empty unless inheritance is provable.
   const evidence =
-    prev === null || prev.sha === sha
-      ? { sha, passed: new Map(prev?.passed ?? []) }
+    prev === null
+      ? { sha, passed: new Map<string, string>() }
       : inheritEvidence(prev, sha, await changedFiles(ctx, prev.sha, sha), ctx.config);
   const c = classify(await changedFiles(ctx, base, sha), ctx.config);
   const { selected, scopedOut } = planGates(ctx.config, c);
@@ -589,7 +588,7 @@ export async function land(
 ): Promise<number> {
   const seed = { deps, options, config } as Ctx;
   seed.logDir = '';
-  let handle: Awaited<ReturnType<typeof acquireLock>> | null = null;
+  let release: () => void = () => undefined;
   try {
     const sourceRoot = await gitOut(seed, ['rev-parse', '--show-toplevel'], deps.cwd);
     const commonDir = await gitOut(
@@ -611,11 +610,12 @@ export async function land(
     };
     for (const check of config.preflight)
       await runCheck(ctx, check, { base: '', head: '', worktree: '', source: sourceRoot });
-    handle = await acquireLock(
+    const handle = await acquireLock(
       deps.lock,
       { pid: process.pid, repo: sourceRoot, ref: options.ref, user: deps.user() },
       (options.waitSeconds ?? config.lockWaitMaxSeconds) * 1000,
     );
+    release = () => handle.release();
     await waitForLoad(ctx);
     await runAttempts(ctx);
     return EXIT.ok;
@@ -627,6 +627,6 @@ export async function land(
     deps.error(error instanceof Error ? error.message : String(error));
     return error instanceof Abort ? error.code : EXIT.gate;
   } finally {
-    handle?.release();
+    release();
   }
 }
