@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import {
+  appendFileSync,
   existsSync,
   linkSync,
   mkdirSync,

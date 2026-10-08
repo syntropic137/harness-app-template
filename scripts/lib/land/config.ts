@@ -10,6 +10,8 @@ export const CONFIG_FILE = 'land.config.json';
 export interface GateConfig {
   name: string;
   run?: string;
+  /** As CheckConfig.retryOnOutput, for a command gate. */
+  retryOnOutput?: string;
   when?: string[];
   /** Programs that must be on PATH. Many hooks soft-skip when a tool is missing; landing must not. */
   requires?: string[];
@@ -20,6 +22,8 @@ export interface CheckConfig {
   run: string;
   /** Where the command runs. `source` is the invoking checkout, never the applied ref. */
   cwd?: 'worktree' | 'source';
+  /** Regex; when the command fails and its output matches, it is run once more (for example a known flaky infrastructure timeout). */
+  retryOnOutput?: string;
 }
 
 export interface LandConfig {
@@ -131,6 +135,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function requireRegex(value: unknown, label: string): string {
+  if (typeof value !== 'string') return fail(`${label} must be a string`);
+  try {
+    new RegExp(value);
+  } catch {
+    return fail(`${label} must be a valid regular expression`);
+  }
+  return value;
+}
+
 function parseGate(raw: unknown, label: string): GateConfig {
   if (!isRecord(raw)) return fail(`${label} must be an object`);
   const gate: GateConfig = { name: requireName(raw.name, `${label}.name`) };
@@ -138,6 +152,8 @@ function parseGate(raw: unknown, label: string): GateConfig {
     if (typeof raw.run !== 'string') return fail(`${label}.run must be a string`);
     gate.run = raw.run;
   }
+  if (raw.retryOnOutput !== undefined)
+    gate.retryOnOutput = requireRegex(raw.retryOnOutput, `${label}.retryOnOutput`);
   if (raw.when !== undefined) gate.when = requireStringArray(raw.when, `${label}.when`);
   if (raw.requires !== undefined)
     gate.requires = requireStringArray(raw.requires, `${label}.requires`);
@@ -151,7 +167,10 @@ function parseCheck(raw: unknown, label: string): CheckConfig {
   if (!isRecord(raw) || typeof raw.run !== 'string') return fail(`${label} needs a run string`);
   const cwd = raw.cwd ?? 'worktree';
   if (cwd !== 'worktree' && cwd !== 'source') return fail(`${label}.cwd must be worktree|source`);
-  return { name: requireName(raw.name, `${label}.name`), run: raw.run, cwd };
+  const check: CheckConfig = { name: requireName(raw.name, `${label}.name`), run: raw.run, cwd };
+  if (raw.retryOnOutput !== undefined)
+    check.retryOnOutput = requireRegex(raw.retryOnOutput, `${label}.retryOnOutput`);
+  return check;
 }
 
 function parseList<T>(raw: unknown, label: string, parse: (v: unknown, l: string) => T): T[] {

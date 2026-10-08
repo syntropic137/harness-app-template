@@ -474,7 +474,16 @@ export async function runLanes(lanes: Array<() => Promise<void>>, limit: number)
 
 async function runCheck(ctx: Ctx, check: CheckConfig, vars: Vars): Promise<void> {
   const cwd = check.cwd === 'source' ? ctx.sourceRoot : ctx.worktree;
-  const result = await runLogged(ctx, check.name, 'sh', ['-c', expand(check.run, vars)], cwd);
+  const command = expand(check.run, vars);
+  let result = await runLogged(ctx, check.name, 'sh', ['-c', command], cwd);
+  if (
+    !succeeded(result) &&
+    check.retryOnOutput !== undefined &&
+    new RegExp(check.retryOnOutput).test(result.output)
+  ) {
+    ctx.deps.log(`${check.name}: output matched /${check.retryOnOutput}/; retrying once`);
+    result = await runLogged(ctx, `${check.name}-retry`, 'sh', ['-c', command], cwd);
+  }
   if (!succeeded(result)) {
     throw new Abort(
       `${check.name} failed (${describeExit(result)})\n${tail(result.output)}`,
@@ -532,7 +541,11 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
     if (gate.run === undefined) continue;
     const run = gate.run;
     lanes.push(async () => {
-      await runCheck(ctx, { name: gate.name, run, cwd: 'worktree' }, vars);
+      await runCheck(
+        ctx,
+        { name: gate.name, run, cwd: 'worktree', retryOnOutput: gate.retryOnOutput },
+        vars,
+      );
       evidence.passed.set(gate.name, sha);
     });
   }
