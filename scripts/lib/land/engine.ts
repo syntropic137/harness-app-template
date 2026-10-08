@@ -135,6 +135,9 @@ export interface Receipt {
   stateDir: string | null;
   sha: string | null;
   waitedSeconds: number;
+  /** sampleCommand output at lease time and at the end of the run (null when unset or before the lease). */
+  sampleStart: string | null;
+  sampleEnd: string | null;
   steps: { name: string; seconds: number; ok: boolean }[];
 }
 
@@ -695,10 +698,22 @@ async function landHoldingLease(
     (options.waitSeconds ?? config.lockWaitMaxSeconds) * 1000,
   );
   receipt.release = () => handle.release();
+  receipt.sampleStart = await samplePressure(deps, config);
   await waitForLoad(ctx);
   receipt.waitedSeconds = Math.round((deps.now() - queuedAt) / 1000);
   await runAttempts(ctx);
   return EXIT.ok;
+}
+
+/** One-line output of the configured sampler, or a note on why there is none. Never throws, never gates. */
+async function samplePressure(deps: EngineDeps, config: LandConfig): Promise<string | null> {
+  if (config.sampleCommand === null) return null;
+  const result = await deps.run('sh', ['-c', config.sampleCommand], {
+    cwd: deps.cwd,
+    env: deps.env,
+  });
+  const line = result.output.trim().split('\n').join(' ').slice(0, 500);
+  return succeeded(result) ? line : `sample failed (${describeExit(result)}): ${line}`;
 }
 
 /** Append this run to <state>/runs.jsonl. A receipt that cannot be written never changes the outcome. */
@@ -718,6 +733,8 @@ function recordRun(
     exit,
     totalSeconds: Math.round((deps.now() - startedAt) / 1000),
     waitedSeconds: receipt.waitedSeconds,
+    sampleStart: receipt.sampleStart,
+    sampleEnd: receipt.sampleEnd,
     steps: receipt.steps,
   });
   try {
@@ -741,12 +758,15 @@ export async function land(
     stateDir: null,
     sha: null,
     waitedSeconds: 0,
+    sampleStart: null,
+    sampleEnd: null,
     steps: [],
   };
   const code = await landHoldingLease(deps, options, config, receipt).catch((error: unknown) =>
     failureCode(deps, error),
   );
   receipt.release();
+  receipt.sampleEnd = receipt.stateDir === null ? null : await samplePressure(deps, config);
   recordRun(deps, options, receipt, code, startedAt);
   return code;
 }

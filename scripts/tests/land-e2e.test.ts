@@ -201,6 +201,8 @@ interface RunLine {
   dryRun: boolean;
   totalSeconds: number;
   waitedSeconds: number;
+  sampleStart: string | null;
+  sampleEnd: string | null;
   steps: { name: string; seconds: number; ok: boolean }[];
 }
 
@@ -407,6 +409,31 @@ describe('land engine end to end (real git, local bare origin)', () => {
     expect(runs[1]).toMatchObject({ ref: 'feat10', exit: 1, dryRun: true });
     expect(runs[1]?.steps[0]).toMatchObject({ name: 'lefthook', ok: false });
     expect(typeof runs[0]?.totalSeconds).toBe('number');
+  });
+
+  test('sampleCommand output is recorded at lease time and at the end, and never gates', async () => {
+    const f = fixture();
+    branch(f, 'crates/x.rs');
+    const sample = 'echo "pressure $(date +%s)"; echo second line';
+    expect(await land(f.deps, OPTS, f.config({ sampleCommand: sample }))).toBe(EXIT.ok);
+    sh(f.src, 'git checkout -q -B feat13 main');
+    f.commit(f.src, 'crates/s2.rs');
+    sh(f.src, 'git checkout -q main');
+    expect(
+      await land(
+        f.deps,
+        { ...OPTS, ref: 'feat13' },
+        f.config({ sampleCommand: 'echo broke; exit 3' }),
+      ),
+    ).toBe(EXIT.ok);
+    const state = join(f.home, readdirSync(f.home).find((d) => d.startsWith('src-')) ?? '');
+    const runs = readFileSync(join(state, 'runs.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => parseRun(line));
+    expect(runs[0]?.sampleStart).toMatch(/^pressure \d+ second line$/);
+    expect(runs[0]?.sampleEnd).toMatch(/^pressure \d+ second line$/);
+    expect(runs[1]?.sampleStart).toBe('sample failed (exit status 3): broke');
   });
 
   test('a run receipt that cannot be written never changes the outcome', async () => {
