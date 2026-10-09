@@ -42,6 +42,8 @@ Forks inherit these records as a baseline. Keep them, then add new numbered ADRs
 | [Fitness-metric size-invariance](ADR-0029-fitness-metric-size-invariance.md) | A hard gate may only enforce a metric that healthy growth cannot move; per-module maxima stay enforcing (ratchet-clamped at the designed threshold), global composite ratios and module-scaling counts are demoted; the "new well-designed module" admission test |
 | [APSS 0.3.0 cognitive re-enable](ADR-0030-apss-030-cognitive-re-enable.md) | Upgrade code-topology 0.2.x→0.3.0 (SonarSource-faithful cognitive complexity, AgentParadise #90+#112) and restore APSS function values as an MT01 max-cognitive/max-cyclomatic source; surgically re-derive the two floors (8→15, 6→9) for the Rust functions newly back in scope; recovers Rust cognitive gating lost during the PR #55 interim |
 | [Issue Tracker: br to bd](ADR-0032-issue-tracker-br-to-bd.md) | Migrate the issue store from `br` (beads_rust 0.2.11, a deliberate frozen fork) to `bd` (gastownhall/beads 1.0.4) behind a reversible transform (`scripts/beads-migrate.ts`); records the three atomic-import blockers, the irreversible losses, and the four unrequested side effects of `bd init` |
+| [Gated landing flow](ADR-0033-gated-landing-flow.md) | Gate once before the network in an isolated persistent worktree, land with a SHA-bound fast push, decide success by origin containing the SHA; project specifics live in land.config.json |
+| [Land v2: merge queue and input-keyed gate cache](ADR-0034-land-v2-merge-queue-and-gate-cache.md) | A merge queue verifies branches speculatively and records gate evidence keyed by declared inputs; land only checks that evidence and fast-forwards main (target under 5 s) |
 
 ## Adding Records
 
