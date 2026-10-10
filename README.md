@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="harness-app-template" width="760">
+  <img src="assets/banner.svg" alt="Syntropic137 Harness Template" width="100%">
 </p>
 
 <p align="center">
