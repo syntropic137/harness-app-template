@@ -1,11 +1,10 @@
-import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { chdir, cwd as processCwd } from 'node:process';
 import { describe, expect, test } from 'vitest';
 import { initProject, parseCli, validateProjectName } from '../init';
-import { withoutLocalGitEnv } from '../lib/git';
+import { fixtureGit } from './helpers/git-env';
 
 function write(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -13,15 +12,7 @@ function write(path: string, content: string): void {
 }
 
 function git(cwd: string, args: string[]): string {
-  // `-c core.hooksPath=/dev/null` silences any host-installed hooks
-  // (e.g. apss's managed global pre-commit) so temp git repos created
-  // by these tests can commit without inheriting unrelated host
-  // validation against a directory that has no project structure.
-  return execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
-    cwd,
-    env: withoutLocalGitEnv(),
-    encoding: 'utf8',
-  }).trim();
+  return fixtureGit(args, { cwd }).trim();
 }
 
 function initRepo(cwd: string): void {
