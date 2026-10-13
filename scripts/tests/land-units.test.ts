@@ -405,9 +405,23 @@ describe('land cli helpers', () => {
         () => {
           throw new Error('no /proc');
         },
+        () => ' 1933DDD6-FD6D-418B-BDBB-2D5C63FACDFB\n',
+      ),
+    ).toBe('1933DDD6-FD6D-418B-BDBB-2D5C63FACDFB');
+    expect(
+      readBootId(
+        () => ' \n',
+        () => 'session-uuid',
+      ),
+    ).toBe('session-uuid');
+    expect(
+      readBootId(
+        () => {
+          throw new Error('no /proc');
+        },
         () => '{ sec = 17, usec = 5 } Sun',
       ),
-    ).toBe('boottime-17');
+    ).toBe('unknown');
     expect(
       readBootId(
         () => {

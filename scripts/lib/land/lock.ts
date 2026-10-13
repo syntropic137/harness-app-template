@@ -49,17 +49,16 @@ export function parseHolder(text: string | null): LockHolder | null {
 export const UNKNOWN_BOOT_ID = 'unknown';
 
 /**
- * macOS `kern.boottime` is `{ sec = S, usec = U } <date>`; its usec drifts within one boot, so only
- * `sec` is kept. Unparseable input is unknown.
+ * Older builds derived the boot id from macOS `kern.boottime` (raw `{ sec = S, usec = U } <date>`,
+ * or normalised `boottime-S`). That value is wall clock minus uptime, so it moves whenever the clock
+ * is adjusted within ONE boot, seconds included. It cannot prove a reboot, so it reads as unknown.
  */
-export function normaliseBootTime(raw: string): string {
-  const sec = /sec\s*=\s*(\d+)/.exec(raw)?.[1];
-  return sec === undefined ? UNKNOWN_BOOT_ID : `boottime-${sec}`;
-}
-
-/** Lock files written by older builds hold the raw boottime string; compare them in normalised form. */
-function canonicalBootId(id: string): string {
-  return id.includes('sec') ? normaliseBootTime(id) : id;
+export function canonicalBootId(id: string): string {
+  const trimmed = id.trim();
+  if (trimmed === '' || /sec\s*=/.test(trimmed) || trimmed.startsWith('boottime-')) {
+    return UNKNOWN_BOOT_ID;
+  }
+  return trimmed;
 }
 
 /** True only when BOTH boot ids are known and differ; an unknown id on either side cannot prove a reboot. */
@@ -160,7 +159,10 @@ export async function acquireLock(
     if (deps.createExclusive(deps.lockPath, JSON.stringify(mine))) return makeHandle(deps, mine);
     const holder = parseHolder(deps.read(deps.lockPath));
     if (judgeHolder(deps, holder) === 'reap') {
-      if (!reapStale(deps, mine)) await deps.sleep(POLL_MS);
+      if (reapStale(deps, mine)) continue;
+      // Another live process is reaping; waiting on it is still waiting, so the deadline applies.
+      if (deps.now() >= deadline) throw timeoutFor(deps, holder);
+      await deps.sleep(POLL_MS);
       continue;
     }
     if (deps.now() >= deadline) throw timeoutFor(deps, holder);
