@@ -11,59 +11,6 @@ status: proposed
 **Supersedes:** none (builds on [ADR-0033](./ADR-0033-gated-landing-flow.md), which stays the verification engine)
 **Next review:** 2027-04-09
 
-## The contract: what land guarantees
-
-This section comes first because it is the first thing the operator asked for:
-"we need to define what land is supposed to accomplish and stop foot gunning
-ourselves" (typos corrected; the verbatim text is in the DreamShip KMS capture
-`areas/planning/2026-10-09-operator-verbatim-land-merge-queue-under-5s.md`).
-Everything else in this ADR is a way to keep these promises faster. A check that
-serves none of them does not belong in land.
-
-When `just land` reports **landed** for a ref, all of the following hold:
-
-1. **C1. Main moved by exactly one verified step.** `origin/<target>` was
-   updated from the exact tip `M` that land checked to a commit `C` that
-   descends from `M`, by a compare-and-swap push that fails if the tip is no
-   longer `M`. No merge, rebase or cherry-pick happens inside land; those happen
-   during verification, which produced `C`.
-2. **C2. Every required gate passed for that commit and its verification
-   base.** `C` was verified as one speculative chain built on a base `B` (the
-   main tip when the chain was built), and every commit in `B..M` is a queue
-   commit of that same chain. For every gate and check in the required set
-   declared **on `B`** that applies to `B..C`, an evidence record exists whose
-   input key matches `C` and `B` (decision 3). The record came from a real run
-   of that gate, on `C` or on inputs with the same key.
-3. **C3. No numeric pass criterion was weakened.** The cache and the queue
-   decide *whether a gate must run again*, never *what passing means*. No
-   threshold, floor or ratchet held in a declared policy file differs from what
-   `B` declares, and a candidate cannot relax the policy that judges it
-   (decision 4 states the limit of this). Two acceptance changes are deliberate
-   and stated, not hidden: the preview stops blocking (decision 5), and a
-   quarantined test stops blocking within the bounds of decision 9.
-4. **C4. The push guards ran on the actual push.** `guard-main-push`,
-   `push-scope-guard` and `versioning-release-check` ran inside the pre-push
-   hook, each failing closed on its own (a missing tool refuses the push),
-   against the real ref update, from a checkout of `C`. They are a
-   default-closer, not a boundary (decision 6).
-5. **C5. Success is observed, not inferred.** As in ADR-0033: after the push,
-   `git merge-base --is-ancestor C origin/<target>`, whatever the push's exit
-   status said. If `C` was already on main before this run pushed anything,
-   land reports **already landed** (exit 0, no push, distinct message), never
-   **landed**.
-6. **C6. Every run leaves a receipt.** One `runs.jsonl` line per stage run, with
-   per-step seconds, cache hits and outcome. A receipt that cannot be written is
-   reported loudly; as in ADR-0033 it never changes an outcome that has already
-   happened on the remote.
-
-What land does **not** promise: that the change boots in a preview (a post-land
-check, decision 5), that the required gate set is complete (known gaps are
-listed in Details), or that a bypass is impossible (C4).
-
-Time budget for the land stage alone, in the operator's words: "land should take
-<5 seconds ... <5 min is like the bare minimum, 20 minutes is critical". Under
-5 s is the target, 5 min the bare minimum, 20 min critical.
-
 ## Context
 
 ADR-0033 moved gates out of `git push`, ran them once in a persistent worktree
@@ -121,6 +68,62 @@ without lowering any gate?**
 
 ## Decision
 
+### The contract: what land guarantees
+
+The contract opens the decision because it is the first thing the operator
+asked for:
+"we need to define what land is supposed to accomplish and stop foot gunning
+ourselves" (typos corrected; the verbatim text is in the DreamShip KMS capture
+`areas/planning/2026-10-09-operator-verbatim-land-merge-queue-under-5s.md`).
+Everything else in this ADR is a way to keep these promises faster. A check that
+serves none of them does not belong in land.
+
+When `just land` reports **landed** for a ref, all of the following hold:
+
+1. **C1. Main moved by exactly one verified step.** `origin/<target>` was
+   updated from the exact tip `M` that land checked to a commit `C` that
+   descends from `M`, by a compare-and-swap push that fails if the tip is no
+   longer `M`. No merge, rebase or cherry-pick happens inside land; those happen
+   during verification, which produced `C`.
+2. **C2. Every required gate passed for that commit and its verification
+   base.** `C` was verified as one speculative chain built on a base `B` (the
+   main tip when the chain was built), and every commit in `B..M` is a queue
+   commit of that same chain. For every gate and check in the required set
+   declared **on `B`**, and, when `C` changes the gate config, also in the set
+   declared on `C`, that applies to `B..C`, an evidence record exists whose
+   input key matches `C`, `B` and the declaration it was judged under
+   (decision 3). The record came from a real run
+   of that gate, on `C` or on inputs with the same key.
+3. **C3. No numeric pass criterion was weakened.** The cache and the queue
+   decide *whether a gate must run again*, never *what passing means*. No
+   threshold, floor or ratchet held in a declared policy file differs from what
+   `B` declares, and a candidate cannot relax the policy that judges it
+   (decision 4 states the limit of this). Two acceptance changes are deliberate
+   and stated, not hidden: the preview stops blocking (decision 5), and a
+   quarantined test stops blocking within the bounds of decision 9.
+4. **C4. The push guards ran on the actual push.** `guard-main-push`,
+   `push-scope-guard` and `versioning-release-check` ran inside the pre-push
+   hook, each failing closed on its own (a missing tool refuses the push),
+   against the real ref update, from a checkout of `C`. They are a
+   default-closer, not a boundary (decision 6).
+5. **C5. Success is observed, not inferred.** As in ADR-0033: after the push,
+   `git merge-base --is-ancestor C origin/<target>`, whatever the push's exit
+   status said. If `C` was already on main before this run pushed anything,
+   land reports **already landed** (exit 0, no push, distinct message), never
+   **landed**.
+6. **C6. Every run leaves a receipt.** One `runs.jsonl` line per stage run, with
+   per-step seconds, cache hits and outcome. A receipt that cannot be written is
+   reported loudly; as in ADR-0033 it never changes an outcome that has already
+   happened on the remote.
+
+What land does **not** promise: that the change boots in a preview (a post-land
+check, decision 5), that the required gate set is complete (known gaps are
+listed in Details), or that a bypass is impossible (C4).
+
+Time budget for the land stage alone, in the operator's words: "land should take
+<5 seconds ... <5 min is like the bare minimum, 20 minutes is critical". Under
+5 s is the target, 5 min the bare minimum, 20 min critical.
+
 Split the act in two. **Verification** produces evidence and may take as long as
 the gates take, off the agent's critical path. **Land** consumes evidence and
 does nothing else.
@@ -137,9 +140,12 @@ worktree:
    Refuse with a distinct exit code ("not verified on current main") unless
    `M` is an ancestor of `C`, `B` is an ancestor of `M`, and every commit in
    `B..M` belongs to the same queue chain as `C`. Land never runs gates.
-3. Read the required set from `B`'s `land.config.json`. For every required gate
-   and check that applies to `B..C`, look up the evidence record for its input
-   key (decision 3). A missing record refuses and names the gate.
+3. Read the required set from `B`'s `land.config.json` and, when `C` changes
+   that file, also from `C`'s (decision 4). For every required gate and check
+   in either set that applies to `B..C`, look up the evidence record for its
+   input key, computed with the declaration from the set that requires it
+   (decision 3), so a gate declared differently on `B` and `C` needs a record
+   for each. A missing record refuses and names the gate and the set.
 4. Check out `C` in the push checkout and push it with
    `--force-with-lease=refs/heads/<target>:<M>`, so the update is a
    compare-and-swap on the exact `M` that step 3 checked (a plain push would
@@ -148,12 +154,18 @@ worktree:
    `excludedJobs` rule (jobs with evidence on `C` plus jobs inapplicable to
    `M..C`), and the guards are never in it (decision 6).
 5. Fetch and check `merge-base --is-ancestor C origin/<target>` (C5). Append the
-   receipt (C6).
+   receipt (C6). Land reports **landed** only when its own compare-and-swap
+   push in step 4 was accepted **and** the ancestry check holds. A rejected
+   push followed by a passing ancestry check means another lander moved main to
+   (or past) `C`: that is **already landed**, never **landed**. A rejected push
+   with `C` absent from main refuses ("main moved"), and the entry goes back to
+   the queue.
 
-The lease is held for steps 1-5, all of which take seconds, so the
-already-landed lookup, the evidence check and the push see one consistent
-state, and a land that finds its `C` pushed meanwhile by another land reports
-**already landed**, not **landed**. It guards the push checkout. Verification worktrees are owned by the worker (decision 7),
+The lease is held for steps 1-5, all of which take seconds. It guards the push
+checkout on one machine; it is a per-machine lease, so it does not serialise
+lands across machines. Across machines the compare-and-swap in step 4 is what
+keeps C1, and the outcome rule in step 5 is what keeps C5: only the lander
+whose push was accepted reports **landed**. Verification worktrees are owned by the worker (decision 7),
 not by the lease, and `--local` (below) keeps today's lease-for-the-whole-run
 behaviour because it uses the shared landing worktree.
 
@@ -193,7 +205,13 @@ and Zuul's dependent pipeline:
   Main then sits at `S_1`, which is part of the chain, so `S_2`'s evidence on
   base `B` still satisfies C2 and it needs no re-verification. The chain is
   rebuilt only when main moves to something that is not its own commit (an
-  outside push or an ejection). Main may also fast-forward straight to `S_k`
+  outside push or an ejection), or when a policy change lands (next item).
+- **A policy change is a queue barrier.** An entry that changes
+  `land.config.json` or a declared `policyFiles` path (decision 4) ends its
+  chain. Once it lands, every entry behind it is rebuilt with `S_0` set to the
+  new main tip and re-verified under the newly landed policy, so a later entry
+  can never land on evidence judged by a policy main no longer holds (for
+  example `S_1` adds a required gate and `S_2` removes it again). Main may also fast-forward straight to `S_k`
   (bors batching), but only on `S_k`'s own complete evidence set; green
   intermediate entries are not a substitute.
 - **Order is FIFO by enqueue time**, stored by the queue, not decided by who
@@ -233,7 +251,8 @@ vocabulary (gate, check, scope, `when`, lane, lease, evidence, run receipt).
   - `cache: false` for gates whose answer depends on time, network or state
     outside the tree (for example a CVE audit).
 - **Input key.** `K(g, C, B)` is a hash of:
-  - the gate's canonical config entry, read from `B`;
+  - the gate's canonical config entry, read from the set that requires it
+    (`B`'s, or `C`'s when `C` changes the gate config, decision 4);
   - the git tree entries (path, mode, object id) of `lefthook.yml`,
     `land.config.json` and the land engine (`ALWAYS_FULL_GLOBS`);
   - the **execution environment**: the worker's OS and architecture, the
@@ -289,10 +308,14 @@ its key omits, a stale pass can satisfy C2. Defences:
    the ambient environment minus the variables ADR-0033 strips. Those caches are
    assumed outcome-neutral; the audit run is what tests that assumption.
 3. **The audit run.** On a schedule (default: nightly, and after every N lands),
-   the worker re-runs **every** required gate, and the quarantine gate, on the
-   current main tip with the cache disabled, in a fresh worktree with no ignored
-   caches, and compares each result with the cached record for the same input
-   key. A cached pass that the uncached run fails, and that fails again on a
+   the worker replays cached records: for each sampled record (every gate,
+   including the quarantine gate, is sampled each run) it checks out the
+   record's own `C`, injects the record's own `B` as the hook base, recomputes
+   the input key in the audit environment, and re-runs the gate with the cache
+   disabled, in a fresh worktree with no ignored caches. A record whose key the
+   audit cannot reproduce (for example a different tool version) is reported
+   as **unmatched**, separately, never counted as agreement. Each comparable
+   result is compared with the cached record. A cached pass that the uncached run fails, and that fails again on a
    re-run (to separate it from a flake), is an under-declared input. That gate
    becomes `cache: false` and its existing records are invalidated until its
    declaration is fixed, and a tracking issue is filed. Results go to
@@ -432,10 +455,13 @@ Quarantine is the second deliberate acceptance change (C3), so it is bounded:
   first-time-on-main for a code change is about one verification (minutes, the
   ~5 min floor measured above) plus its queue position. The 5 s is the land
   stage, not the end-to-end latency, and receipts report both.
-- **Queue throughput is bounded by whole-repo and base-dependent gates.** They
-  are invalidated whenever main moves, so each landed code change re-runs them for every entry
-  behind it. At the measured 250-550 s for DreamShip's sensors gate, a serial
-  queue lands roughly 7-14 code changes an hour. Batching (decision 2) is the
+- **Queue throughput is bounded by whole-repo and base-dependent gates.** Every
+  speculative `S_k` has its own tree, so each entry runs them once on its own
+  candidate; landing the head does not re-run them for entries behind it
+  (decision 2). They re-run for every entry behind when the chain is rebuilt:
+  an outside push, an ejection, or a policy barrier. At the measured 250-550 s
+  for DreamShip's sensors gate, one serial verifier gets through roughly 7-14
+  code changes an hour, fewer when rebuilds are frequent. Batching (decision 2) is the
   mitigation; a faster sensors gate is the real fix.
 - **Ejection costs re-verification.** A failure at position `j` re-verifies
   every entry behind it. The cache limits this to changed keys, but it is still
@@ -466,7 +492,7 @@ C3.
 
 | # | Slice | Done when | Measured by |
 |---|---|---|---|
-| 1 | Gate input declarations (`inputs`, `versions`, `wholeRepo`, `cache`) and the persistent evidence store keyed on them, used by today's land: `inheritUnaffectedEvidence` reads and writes the store across runs. Ships with the audit run and its comparison, and caching stays off by default until one audit run is clean. | A land whose gates' keys are unchanged skips them, and an audit run reports zero mismatches. | Per-step `cacheHit` and `key` in `runs.jsonl`; hit rate per gate; audit mismatches. |
+| 1 | Gate input declarations (`inputs`, `versions`, `wholeRepo`, `cache`) and the persistent evidence store keyed on them, used by today's land: `inheritUnaffectedEvidence` reads and writes the store across runs. Ships with the audit run and its comparison, and caching stays off by default until one audit run is clean. | A land whose gates' keys are unchanged skips them, and an audit run compares at least one record per cached gate and reports zero mismatches (unmatched records listed separately). | Per-step `cacheHit` and `key` in `runs.jsonl`; hit rate per gate; audit mismatches. |
 | 2 | Land checks evidence only. `just verify <ref>` (today's land, minus the push) produces `C` and its evidence; `just land` does decision 1 (compare-and-swap push from a push checkout, already-landed outcome) and refuses when evidence is missing. Land reads the required set from the base `B` and refuses unapproved `policyFiles` changes (decision 4). `versioning-release-check` joins `PROTECTED_JOBS` and fails closed at push, with consumer configs migrated in the same change. | Land on a verified ref succeeds without running a gate. | `stage: "land"` `totalSeconds` p50/p90 against the 5 s / 5 min / 20 min budgets. |
 | 3 | Queue worker behind the worker and evidence-store ports, local adapter in the template: FIFO, speculative trees, ejection and re-verification, rebasing on outside main moves. | Two queued branches land in order; an injected failure ejects one and the other still lands. | `stage: "queue"`: enqueue-to-landed seconds, ejections, re-verifications, queue depth. |
 | 4 | Preview moved post-land, with teardown owned by the post-land runner. | No `landing-evidence`-style step in any `stage: "land"` or `"verify"` receipt. | `stage: "postland"` duration and red rate. |
@@ -490,10 +516,13 @@ measured before slice 1.
    behind one lease on the agent's own machine.
 2. **Per-branch CI (GitHub Actions or similar).** Verify each branch on push.
    It is out of budget for the consumers this engine serves (ADR-0022's route
-   assumes paid Actions and branch protection). It also verifies against a stale
-   base: two individually green branches can still break main together, which is
-   exactly the problem a merge queue solves. GitHub's own merge queue needs both
-   Actions and branch protection.
+   runs its required checks as GitHub Actions jobs, behind branch protection).
+   It also verifies against a stale base: two individually green branches can
+   still break main together, which is exactly the problem a merge queue
+   solves. GitHub's own merge queue accepts external CI status checks, so it
+   does not need Actions, but it needs branch protection (a ruleset with
+   required checks) on `main`, which the consumer's plan does not provide here,
+   and an external CI to report those checks.
 3. **Trust the branch's own pre-push.** Accept the developer's local hook run as
    evidence. It ran on a different base, often on a loaded workstation, can be
    skipped with `--no-verify`, and its result is not bound to the tree that
