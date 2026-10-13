@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { basename, join } from 'node:path';
 import type { CheckConfig, GateConfig, LandConfig } from './config';
 import { describeExit, type RunOptions, type RunResult, succeeded } from './exec';
-import { acquireLock, type LockDeps, LockTimeout } from './lock';
+import { acquireLock, type LockDeps, type LockHandle, LockTimeout } from './lock';
 import { type Classification, classify, gateApplies, matchesAny } from './scope';
 
 export type LandMode = 'auto' | 'ff-only' | 'cherry-pick' | 'merge';
@@ -693,6 +693,29 @@ function failureCode(deps: EngineDeps, error: unknown): number {
   return error instanceof Abort ? error.code : EXIT.gate;
 }
 
+/**
+ * Second line of defence behind the lease: the persistent landing worktree (kept for its node_modules
+ * and target/ caches) must never have two users. The lease should already serialise lands, but if it
+ * ever fails to (a live holder wrongly reaped), a second land refuses at once instead of resetting a
+ * worktree another land is gating in. Same holder/staleness rules as the lease; never waits.
+ */
+async function guardWorktree(deps: EngineDeps, ctx: Ctx): Promise<LockHandle> {
+  const guard: LockDeps = { ...deps.lock, lockPath: join(ctx.stateDir, 'worktree.lock') };
+  deps.mkdirp(ctx.stateDir);
+  try {
+    return await acquireLock(
+      guard,
+      { pid: process.pid, repo: ctx.sourceRoot, ref: ctx.options.ref, user: deps.user() },
+      0,
+    );
+  } catch (error) {
+    if (!(error instanceof LockTimeout)) throw error;
+    throw new LockTimeout(
+      `the landing worktree ${ctx.worktree} is in use: ${error.message.replace('landing lock is held by ', '').replace('; not waiting', '')}; refusing a second land on it`,
+    );
+  }
+}
+
 /** Everything between taking the lease and finishing; `hold.release` is set once the lease is held. */
 async function landHoldingLease(
   deps: EngineDeps,
@@ -730,6 +753,11 @@ async function landHoldingLease(
     (options.waitSeconds ?? config.lockWaitMaxSeconds) * 1000,
   );
   receipt.release = () => handle.release();
+  const worktreeGuard = await guardWorktree(deps, ctx);
+  receipt.release = () => {
+    worktreeGuard.release();
+    handle.release();
+  };
   receipt.sampleStart = await samplePressure(deps, config);
   await waitForLoad(ctx);
   receipt.waitedSeconds = Math.round((deps.now() - queuedAt) / 1000);

@@ -45,9 +45,32 @@ export function parseHolder(text: string | null): LockHolder | null {
   return null;
 }
 
-/** A holder is stale when its boot is over or its process is gone. */
+/** Boot id used when the machine cannot tell us; it proves nothing about which boot a holder was in. */
+export const UNKNOWN_BOOT_ID = 'unknown';
+
+/**
+ * macOS `kern.boottime` is `{ sec = S, usec = U } <date>`; its usec drifts within one boot, so only
+ * `sec` is kept. Unparseable input is unknown.
+ */
+export function normaliseBootTime(raw: string): string {
+  const sec = /sec\s*=\s*(\d+)/.exec(raw)?.[1];
+  return sec === undefined ? UNKNOWN_BOOT_ID : `boottime-${sec}`;
+}
+
+/** Lock files written by older builds hold the raw boottime string; compare them in normalised form. */
+function canonicalBootId(id: string): string {
+  return id.includes('sec') ? normaliseBootTime(id) : id;
+}
+
+/** True only when BOTH boot ids are known and differ; an unknown id on either side cannot prove a reboot. */
+export function bootsProvablyDiffer(a: string, b: string): boolean {
+  const [x, y] = [canonicalBootId(a), canonicalBootId(b)];
+  return x !== UNKNOWN_BOOT_ID && y !== UNKNOWN_BOOT_ID && x !== y;
+}
+
+/** A holder is stale only when its pid is dead, or both boot ids are known and different. */
 export function holderIsStale(holder: LockHolder, deps: LockDeps): boolean {
-  return holder.bootId !== deps.bootId() || !deps.pidAlive(holder.pid);
+  return !deps.pidAlive(holder.pid) || bootsProvablyDiffer(holder.bootId, deps.bootId());
 }
 
 export function describeHolder(holder: LockHolder, nowMs: number): string {

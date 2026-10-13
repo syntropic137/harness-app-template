@@ -15,7 +15,7 @@ import { isMainEntry } from './lib/entrypoint';
 import { loadConfig } from './lib/land/config';
 import { type EngineDeps, EXIT, type LandMode, type LandOptions, land } from './lib/land/engine';
 import { runProcess } from './lib/land/exec';
-import type { LockDeps } from './lib/land/lock';
+import { type LockDeps, normaliseBootTime, UNKNOWN_BOOT_ID } from './lib/land/lock';
 
 export const USAGE = `usage: just land <branch-or-commit> [-- options]
 
@@ -127,13 +127,20 @@ export function landHome(env: Record<string, string | undefined>, home: string):
   return env.HARNESS_LAND_HOME ?? join(home, '.cache', 'harness-land');
 }
 
-/** Identifies this boot of the machine so a lock from before a reboot reads as stale. */
+/**
+ * Identifies this boot of the machine so a lock from before a reboot reads as stale.
+ * macOS `kern.boottime` is `{ sec = S, usec = U } <date>`; its usec part drifts as the clock is
+ * adjusted within ONE boot, so only `sec` is kept. Anything unparseable is 'unknown', which the
+ * lock treats as "cannot prove a different boot" (staleness then rests on pid liveness alone).
+ */
 export function readBootId(read: (p: string) => string, probe: () => string): string {
   try {
-    return read('/proc/sys/kernel/random/boot_id').trim();
+    const id = read('/proc/sys/kernel/random/boot_id').trim();
+    if (id !== '') return id;
   } catch {
-    return probe();
+    // Not Linux: fall through to the macOS probe.
   }
+  return normaliseBootTime(probe());
 }
 
 export function pidAlive(
@@ -178,7 +185,7 @@ function realLockDeps(lockPath: string, log: (m: string) => void): LockDeps {
           try {
             return execFileSync('sysctl', ['-n', 'kern.boottime'], { encoding: 'utf8' }).trim();
           } catch {
-            return 'unknown';
+            return UNKNOWN_BOOT_ID;
           }
         },
       ),

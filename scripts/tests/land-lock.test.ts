@@ -5,7 +5,9 @@ import {
   holderIsStale,
   type LockHolder,
   LockTimeout,
+  normaliseBootTime,
   parseHolder,
+  UNKNOWN_BOOT_ID,
 } from '../lib/land/lock';
 import { memoryLock } from './helpers/memory-lock';
 
@@ -190,5 +192,60 @@ describe('landing lock', () => {
     ).toMatch(/0 min ago/);
     expect(parseHolder(null)).toBeNull();
     expect(parseHolder('{"pid":"x"}')).toBeNull();
+  });
+});
+
+describe('holder staleness', () => {
+  const holder = (bootId: string, pid = 100) =>
+    parseHolder(holderJson({ bootId, pid })) as LockHolder;
+
+  test('usec drift within one boot is not stale', () => {
+    const a = normaliseBootTime('{ sec = 1791777218, usec = 681881 } Sun Oct 11 20:53:38 2026');
+    const b = normaliseBootTime('{ sec = 1791777218, usec = 549541 } Sun Oct 11 20:53:38 2026');
+    expect(a).toBe(b);
+    const m = memoryLock({ boot: b, alive: new Set([100]) });
+    expect(holderIsStale(holder(a), m.deps)).toBe(false);
+  });
+
+  test('an unknown boot id on either side with a live pid is not stale', () => {
+    const live = new Set([100]);
+    expect(
+      holderIsStale(holder(UNKNOWN_BOOT_ID), memoryLock({ boot: 'b2', alive: live }).deps),
+    ).toBe(false);
+    expect(
+      holderIsStale(holder('b1'), memoryLock({ boot: UNKNOWN_BOOT_ID, alive: live }).deps),
+    ).toBe(false);
+    expect(
+      holderIsStale(
+        holder(UNKNOWN_BOOT_ID),
+        memoryLock({ boot: UNKNOWN_BOOT_ID, alive: live }).deps,
+      ),
+    ).toBe(false);
+  });
+
+  test('a dead pid is stale whatever the boot ids say', () => {
+    const none = new Set<number>();
+    expect(holderIsStale(holder('b1'), memoryLock({ boot: 'b1', alive: none }).deps)).toBe(true);
+    expect(
+      holderIsStale(holder(UNKNOWN_BOOT_ID), memoryLock({ boot: 'b1', alive: none }).deps),
+    ).toBe(true);
+  });
+
+  test('a known different boot is stale even with a live pid', () => {
+    expect(
+      holderIsStale(holder('b1'), memoryLock({ boot: 'b2', alive: new Set([100]) }).deps),
+    ).toBe(true);
+  });
+
+  test('a lock written by an older build with a raw boottime string is compared in normalised form', () => {
+    const raw = '{ sec = 1791777218, usec = 681881 } Sun Oct 11 20:53:38 2026';
+    const m = memoryLock({ boot: normaliseBootTime(raw), alive: new Set([100]) });
+    expect(holderIsStale(holder(raw), m.deps)).toBe(false);
+    expect(holderIsStale(holder('{ sec = 5, usec = 1 } x'), m.deps)).toBe(true);
+  });
+
+  test('an unparseable boottime normalises to unknown', () => {
+    expect(normaliseBootTime('')).toBe(UNKNOWN_BOOT_ID);
+    expect(normaliseBootTime('garbage')).toBe(UNKNOWN_BOOT_ID);
   });
 });

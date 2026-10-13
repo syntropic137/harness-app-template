@@ -348,7 +348,7 @@ describe('land engine end to end (real git, local bare origin)', () => {
     f.env.CARGO_TARGET_DIR = '/shared/target';
     const probe = {
       name: 'cargo',
-      run: 'echo "${CARGO_TARGET_DIR-unset}" > "$FAKE_STATE/cargo.log"',
+      run: `echo "\${CARGO_TARGET_DIR-unset}" > "$FAKE_STATE/cargo.log"`,
     };
     expect(await land(f.deps, OPTS, f.config({ checks: [probe] }))).toBe(EXIT.ok);
     expect(readFileSync(join(f.state, 'cargo.log'), 'utf8').trim()).toBe('unset');
@@ -888,6 +888,61 @@ describe('land engine end to end (real git, local bare origin)', () => {
     expect(await land(f.deps, { ...OPTS, ref: 'busy' }, f.config())).toBe(EXIT.busy);
     expect(f.errors.join('\n')).toMatch(/held by pid 100/);
     expect(f.clock.t).toBeLessThan(2_000_000);
+  });
+});
+
+describe('landing worktree guard', () => {
+  test('a second land on the same worktree refuses even when the lease wrongly let it through', async () => {
+    const f = fixture();
+    branch(f, 'crates/g.rs');
+    const guarded = memoryLock();
+    const realRead = guarded.deps.read;
+    // The lease is free (it was wrongly reaped), but a live land already holds the worktree guard.
+    guarded.deps.read = (p) =>
+      p.endsWith('worktree.lock')
+        ? JSON.stringify({
+            pid: 100,
+            bootId: 'boot1',
+            startedAt: new Date(f.clock.t).toISOString(),
+            repo: '/o',
+            ref: 'first',
+            user: 'u',
+          })
+        : realRead(p);
+    const realCreate = guarded.deps.createExclusive;
+    guarded.deps.createExclusive = (p, c) =>
+      p.endsWith('worktree.lock') ? false : realCreate(p, c);
+    f.deps.lock = guarded.deps;
+    expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.busy);
+    expect(guarded.files.has('/l')).toBe(false); // the refused land does not leak the lease
+    expect(f.errors.join('\n')).toMatch(
+      /landing worktree .* is in use: pid 100 .*refusing a second land/,
+    );
+  });
+
+  test('a guard that cannot be taken for another reason fails the land and still releases the lease', async () => {
+    const f = fixture();
+    branch(f, 'crates/i.rs');
+    const guarded = memoryLock();
+    const realCreate = guarded.deps.createExclusive;
+    guarded.deps.createExclusive = (p, c) => {
+      if (p.endsWith('worktree.lock')) throw new Error('disk full');
+      return realCreate(p, c);
+    };
+    f.deps.lock = guarded.deps;
+    expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.gate);
+    expect(guarded.files.has('/l')).toBe(false);
+    expect(f.errors.join('\n')).toMatch(/disk full/);
+  });
+
+  test('two lands in turn from one cwd each take and release the guard', async () => {
+    const f = fixture();
+    branch(f, 'crates/h.rs');
+    expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.ok);
+    sh(f.src, 'git checkout -q -B h2 main');
+    f.commit(f.src, 'crates/h2.rs');
+    sh(f.src, 'git checkout -q main');
+    expect(await land(f.deps, { ...OPTS, ref: 'h2' }, f.config())).toBe(EXIT.ok);
   });
 });
 

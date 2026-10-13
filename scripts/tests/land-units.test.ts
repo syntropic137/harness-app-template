@@ -405,9 +405,17 @@ describe('land cli helpers', () => {
         () => {
           throw new Error('no /proc');
         },
-        () => 'probe',
+        () => '{ sec = 17, usec = 5 } Sun',
       ),
-    ).toBe('probe');
+    ).toBe('boottime-17');
+    expect(
+      readBootId(
+        () => {
+          throw new Error('no /proc');
+        },
+        () => 'unknown',
+      ),
+    ).toBe('unknown');
     expect(pidAlive(1, () => undefined)).toBe(true);
     expect(
       pidAlive(1, () => {
