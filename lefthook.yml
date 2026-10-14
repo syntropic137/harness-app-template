@@ -240,11 +240,6 @@ pre-commit:
         '
 
     ubs-staged:
-      # Only when a language ubs scans is staged: on a commit of YAML, JSON or Markdown alone, ubs
-      # exits 3 ("nothing scanned"), which failed every config- or docs-only commit.
-      glob:
-        - "*.{js,jsx,mjs,cjs,ts,tsx,py,rs,go,sh}"
-        - "**/*.{js,jsx,mjs,cjs,ts,tsx,py,rs,go,sh}"
       run: |
         sh -eu -c '
           if ! command -v ubs >/dev/null 2>&1; then
@@ -257,7 +252,10 @@ pre-commit:
           # findings -- a gate that can never go red. `--staged` takes no value,
           # so the bogus flag was silently swallowed rather than mis-parsed as a
           # filename (contrast the `--files`-form invocation below).
-          mkdir -p .beads && ubs --staged --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl
+          # A commit that stages no language ubs scans (YAML, JSON or Markdown alone) makes ubs exit 3,
+          # "nothing scanned". That is not a finding: UBS_ALLOW_NO_SCAN=1, the switch ubs names for this, passes it,
+          # while every staged file in a supported language is still scanned.
+          mkdir -p .beads && UBS_ALLOW_NO_SCAN=1 ubs --staged --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl
         '
 
     python-ruff-format:
