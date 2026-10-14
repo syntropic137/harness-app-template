@@ -23,6 +23,8 @@ import {
   CONFIG_KEY_PATHS,
   configKeyFromLsTree,
   judgePass,
+  LEFTHOOK_CONFIG_FILES,
+  LEFTHOOK_INCLUDE_GREP,
   LOCAL_PASSES,
   PASS_FORMAT,
   type PassRecord,
@@ -189,6 +191,8 @@ export async function recordPass(ctx: Ctx, input: PassInput): Promise<PassRecord
     ref_sha: input.refSha,
     C: input.c,
     B: input.base,
+    mode: ctx.options.mode,
+    message: ctx.options.message,
     config_key: key,
     gates: summariseGates(receipt.steps),
     passed: input.passed,
@@ -236,6 +240,20 @@ async function configAt(ctx: Ctx, commit: string): Promise<LandConfig | string> 
   }
 }
 
+/** The first lefthook config at any of `commits` that uses extends or remotes (`<commit>:<path>`), or null. */
+async function hookIncludes(ctx: Ctx, commits: string[]): Promise<string | null> {
+  for (const commit of commits) {
+    const found = await git(
+      ctx,
+      ['grep', '-l', '-E', LEFTHOOK_INCLUDE_GREP, commit, '--', ...LEFTHOOK_CONFIG_FILES],
+      ctx.sourceRoot,
+    );
+    // git grep exits 1 when nothing matches.
+    if (succeeded(found)) return found.output.split('\n')[0] as string;
+  }
+  return null;
+}
+
 async function readPass(ctx: Ctx, source: PassSource, c: string): Promise<PassRecord | null> {
   const note = await git(ctx, ['notes', `--ref=${source.notes}`, 'show', c], ctx.sourceRoot);
   const read = succeeded(note) ? parsePass(note.output) : null;
@@ -280,6 +298,8 @@ export async function passVerdict(ctx: Ctx): Promise<PassVerdict> {
     changed: succeeded(diff) ? diff.output.split('\n').filter((l) => l.trim() !== '') : null,
     cExists,
     cOnMain: cExists && (await isAncestor(ctx, c, main)),
+    requested: { mode: ctx.options.mode, message: ctx.options.message },
+    hookIncludes: await hookIncludes(ctx, cExists ? [main, c] : [main]),
   });
 }
 
@@ -380,7 +400,7 @@ async function installPrePush(ctx: Ctx): Promise<RunResult> {
  * bootstrap once and retry; then refuse. The installed hook is checked (exists, executable,
  * invokes the runner) and every pushRequires tool must be on PATH.
  */
-async function requireGuards(ctx: Ctx, provision: () => Promise<void>): Promise<void> {
+export async function requireGuards(ctx: Ctx, provision: () => Promise<void>): Promise<void> {
   let installed = await installPrePush(ctx);
   if (!succeeded(installed)) {
     ctx.deps.log(

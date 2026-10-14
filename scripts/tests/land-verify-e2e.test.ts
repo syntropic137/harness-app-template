@@ -64,7 +64,9 @@ describe('just verify: gate on fresh main, record a pass, push nothing', () => {
     const c = verifiedC(f, refSha);
     expect(c).toBe(refSha); // fast-forward: C is the ref itself
     expect(note(f, c)).toMatchObject({
-      format: 1,
+      format: 2,
+      mode: 'auto',
+      message: null,
       ref_sha: refSha,
       C: c,
       B: before,

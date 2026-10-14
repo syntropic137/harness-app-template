@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { type GateConfig, type LandConfig, PROTECTED_JOBS } from './config';
-import { excludedJobs, planGates } from './core';
+import { excludedJobs, LAND_MODES, type LandMode, planGates } from './core';
 import { classify } from './scope';
 
 /**
@@ -10,15 +10,39 @@ import { classify } from './scope';
  */
 
 /** Bump when the record's shape or meaning changes; a record of another format is ignored. */
-export const PASS_FORMAT = 1;
+export const PASS_FORMAT = 2;
+
+const LEFTHOOK_NAMES = ['lefthook', '.lefthook', 'lefthook-local', '.lefthook-local'];
+const LEFTHOOK_EXTS = ['yml', 'yaml', 'json', 'jsonc', 'toml'];
+
+/**
+ * Every file lefthook reads its configuration from: the main and local configs in each format, at
+ * the root and under .config/ (lefthook merges a local file over the main one, so a candidate that
+ * adds `lefthook-local.yml` could replace a gate's command), plus the `.lefthook` and
+ * `.lefthook-local` script directories its jobs run.
+ */
+export const LEFTHOOK_CONFIG_FILES: readonly string[] = LEFTHOOK_NAMES.flatMap((name) =>
+  LEFTHOOK_EXTS.flatMap((ext) => [`${name}.${ext}`, `.config/${name}.${ext}`]),
+);
+export const LEFTHOOK_CONFIG_PATHS: readonly string[] = [
+  ...LEFTHOOK_CONFIG_FILES,
+  '.lefthook',
+  '.lefthook-local',
+];
 
 /** Paths whose git tree ids decide which gates run and how: a change to any of them invalidates a pass. */
-export const CONFIG_KEY_PATHS = [
+export const CONFIG_KEY_PATHS: readonly string[] = [
   'land.config.json',
-  'lefthook.yml',
+  ...LEFTHOOK_CONFIG_PATHS,
   'scripts/lib/land',
   'scripts/land.ts',
-] as const;
+];
+
+/**
+ * A lefthook config that pulls rules from elsewhere (`extends` files, `remotes` repositories) has
+ * inputs no key over these paths can bind, so a land from a pass refuses it.
+ */
+export const LEFTHOOK_INCLUDE_GREP = '^[[:space:]]*"?(extends|remotes)"?[[:space:]]*[:=]';
 
 export interface PassGate {
   name: string;
@@ -34,6 +58,9 @@ export interface PassRecord {
   C: string;
   /** origin/<target> tip the verification was built and gated on. */
   B: string;
+  /** How the ref was applied onto B (--mode) and the merge message (--message), which made C. */
+  mode: LandMode;
+  message: string | null;
   /** Key of B's land config and engine files (CONFIG_KEY_PATHS). */
   config_key: string;
   /** Gate and check steps with their wall clock; `retried` when a retryOnOutput re-run happened. */
@@ -133,6 +160,8 @@ const FIELDS: Record<keyof PassRecord, (v: unknown) => boolean> = {
   seconds: isSeconds,
   host: isNonEmptyString,
   engine_version: isNonEmptyString,
+  mode: (v) => LAND_MODES.includes(v as LandMode),
+  message: (v) => v === null || typeof v === 'string',
 };
 
 /** A record read from a note, or null when absent, unparseable, of another format or malformed. */
@@ -178,6 +207,10 @@ export interface PassFacts {
   cExists: boolean;
   /** C is reachable from main (already landed). */
   cOnMain: boolean;
+  /** How this land asks to apply the ref: it must be how verify applied it, or C is not what was asked for. */
+  requested: { mode: LandMode; message: string | null };
+  /** A lefthook config at main or C that uses extends or remotes (a path), or null. */
+  hookIncludes: string | null;
 }
 
 const short = (s: string): string => s.slice(0, 12);
@@ -189,7 +222,13 @@ function identityProblem(f: PassFacts, pass: PassRecord): string | null {
   return null;
 }
 
+/** `--mode m` plus ` and --message` when there is one: how a ref is applied onto main. */
+const describeApply = (mode: LandMode, message: string | null): string =>
+  `--mode ${mode}${message === null ? '' : ` and --message "${message}"`}`;
+
 function bindingProblem(f: PassFacts, pass: PassRecord): string | null {
+  if (pass.mode !== f.requested.mode || pass.message !== f.requested.message)
+    return `the pass was verified with ${describeApply(pass.mode, pass.message)}; this land asks for ${describeApply(f.requested.mode, f.requested.message)}`;
   if (pass.B !== f.main)
     return `main moved since verify (verified on ${short(pass.B)}, main is ${short(f.main)})`;
   if (pass.config_key !== f.mainConfigKey) return 'land config changed since verify';
@@ -197,6 +236,8 @@ function bindingProblem(f: PassFacts, pass: PassRecord): string | null {
     return "the land engine and config that ran the verification are not main's";
   if (f.cConfigKey !== f.mainConfigKey)
     return 'the ref changes the land config or engine; land it with the full land';
+  if (f.hookIncludes !== null)
+    return `${f.hookIncludes} pulls lefthook rules from extends or remotes, which a pass cannot bind; land it with the full land`;
   return null;
 }
 

@@ -302,3 +302,120 @@ describe('land from a pass: how the outcome is observed', () => {
     expect(lastRun(f)).toMatchObject({ confirm: 'fetched' });
   });
 });
+
+describe('review pass 1: guards on every push, lefthook overrides, apply mode', () => {
+  test('a runner that cannot install the hook refuses verify, the dry run and the full land', async () => {
+    const f = setup();
+    const before = f.mainTip();
+    branch(f, 'crates/x.rs');
+    f.env.FAKE_INSTALL_FAIL = '1';
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.push);
+    expect(await land(f.deps, { ...OPTS, dryRun: true }, f.config())).toBe(EXIT.push);
+    expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.push);
+    expect(f.errors.join('\n').match(/could not install the pre-push hook/g)).toHaveLength(3);
+    expect(f.mainTip()).toBe(before);
+  });
+
+  test('a removed hook is reinstalled before verify, the dry run and the full land, and its guard refusal stands', async () => {
+    const f = setup();
+    const before = f.mainTip();
+    const refSha = branch(f, 'crates/x.rs');
+    f.env.FAKE_HOOK = 'refuse';
+    const hook = join(f.src, '.git/hooks/pre-push');
+    rmSync(hook);
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.gate);
+    expect(() => sh(f.src, `git rev-parse --verify refs/land/verified/${refSha}`)).toThrow();
+    rmSync(hook);
+    expect(await land(f.deps, { ...OPTS, dryRun: true }, f.config())).toBe(EXIT.gate);
+    expect(f.errors.join('\n')).toMatch(/pre-push guards refused the dry run/);
+    rmSync(hook);
+    expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.push);
+    expect(f.mainTip()).toBe(before);
+  });
+
+  test('a candidate that adds lefthook-local.yml (which could replace a gate) never lands from a pass', async () => {
+    const f = setup();
+    const before = f.mainTip();
+    branch(f, 'lefthook-local.yml');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/the ref changes the land config or engine/);
+    expect(f.mainTip()).toBe(before);
+  });
+
+  test('a main whose lefthook config uses extends never lands from a pass', async () => {
+    const f = fixture();
+    writeFileSync(join(f.src, 'lefthook.yml'), 'extends:\n  - hooks/more.yml\n');
+    sh(f.src, 'git add lefthook.yml && git commit -qm hooks && git push -q origin HEAD:main');
+    sh(f.other, 'git pull -q origin main');
+    f.publishConfig();
+    branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(
+      /lefthook.yml pulls lefthook rules from extends or remotes/,
+    );
+  });
+
+  test('--mode ff-only after a cherry-picked verify does not land the cherry-pick', async () => {
+    const f = setup();
+    branch(f, 'crates/x.rs');
+    f.commit(f.other, 'docs/adv.md');
+    sh(f.other, 'git push -q origin HEAD:main');
+    const moved = f.mainTip();
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok); // auto: a cherry-pick
+    const ffOnly = { ...OPTS, mode: 'ff-only' as const };
+    expect(await land(f.deps, { ...ffOnly, requirePass: true }, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(
+      /verified with --mode auto; this land asks for --mode ff-only/,
+    );
+    // Without --require-pass the full land runs ff-only, which cannot apply a diverged ref.
+    expect(await land(f.deps, ffOnly, f.config())).toBe(EXIT.gate);
+    expect(f.mainTip()).toBe(moved);
+  });
+
+  test('--mode merge --message binds into the pass: the same request lands it, another is stale', async () => {
+    const f = setup();
+    branch(f, 'crates/x.rs');
+    f.commit(f.other, 'docs/adv.md');
+    sh(f.other, 'git push -q origin HEAD:main');
+    const merge = { ...OPTS, mode: 'merge' as const, message: 'merge it' };
+    expect(await land(f.deps, { ...merge, verify: true }, f.config())).toBe(EXIT.ok);
+    const other = { ...merge, message: 'something else', requirePass: true };
+    expect(await land(f.deps, other, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/--message "merge it"; this land asks for/);
+    expect(await land(f.deps, { ...merge, requirePass: true }, f.config())).toBe(EXIT.ok);
+    expect(sh(f.root, 'git --git-dir=origin.git log -1 --format=%s main')).toBe('merge it');
+  });
+
+  test('ambient LEFTHOOK, LEFTHOOK_CONFIG and LEFTHOOK_BIN cannot switch off the real guards', async () => {
+    const f = fixture();
+    const bin = join(process.cwd(), 'node_modules', '.bin');
+    const real = join(bin, 'lefthook');
+    writeFileSync(
+      join(f.src, 'lefthook.yml'),
+      'pre-push:\n  commands:\n    real-guard:\n      run: echo ran >> "$FAKE_STATE/real-guard.log"\n',
+    );
+    writeFileSync(
+      join(f.root, 'alt.yml'),
+      'pre-push:\n  commands:\n    real-guard:\n      run: "true"\n',
+    );
+    sh(f.src, 'git add lefthook.yml && git commit -qm hooks && git push -q origin HEAD:main');
+    sh(f.other, 'git pull -q origin main');
+    f.publishConfig({ lefthook: real, gates: [] });
+    const refSha = branch(f, 'crates/x.rs');
+    f.env.PATH = `${bin}:${f.env.PATH ?? ''}`;
+    f.env.LEFTHOOK = '0';
+    f.env.LEFTHOOK_CONFIG = join(f.root, 'alt.yml');
+    f.env.LEFTHOOK_BIN = '/usr/bin/true';
+    const config = f.config({ lefthook: real, gates: [] });
+    expect(await land(f.deps, VERIFY, config)).toBe(EXIT.ok);
+    expect(await land(f.deps, STRICT, config)).toBe(EXIT.ok);
+    expect(f.mainTip()).toBe(refSha);
+    // The real guard ran on the verify dry run and on the real push.
+    expect(readFileSync(join(f.state, 'real-guard.log'), 'utf8').trim().split('\n')).toEqual([
+      'ran',
+      'ran',
+    ]);
+  });
+});

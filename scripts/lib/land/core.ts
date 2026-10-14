@@ -7,6 +7,7 @@ import { type Classification, gateApplies } from './scope';
 /** Shared primitives of the land engine: the context, plumbing git, fetch, the landing worktree, the push env. */
 
 export type LandMode = 'auto' | 'ff-only' | 'cherry-pick' | 'merge';
+export const LAND_MODES: readonly LandMode[] = ['auto', 'ff-only', 'cherry-pick', 'merge'];
 
 export interface LandOptions {
   ref: string;
@@ -99,7 +100,13 @@ export interface Ctx {
   logDir: string;
 }
 
-const ENV_STRIP = ['LEFTHOOK', 'LEFTHOOK_EXCLUDE', 'CARGO_TARGET_DIR'];
+const ENV_STRIP = ['CARGO_TARGET_DIR'];
+/**
+ * Every lefthook control variable: LEFTHOOK=0 skips all hooks, LEFTHOOK_CONFIG selects another
+ * config, LEFTHOOK_BIN another runner, LEFTHOOK_EXCLUDE drops jobs. Only the engine may set one
+ * (LEFTHOOK_EXCLUDE, from verified evidence, on the push).
+ */
+const LEFTHOOK_ENV_STRIP = /^LEFTHOOK/;
 /** Ambient git variables that route git to another repository or inject config (core.hooksPath=/dev/null would disarm every guard). */
 const GIT_ENV_STRIP =
   /^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|EXEC_PATH|CEILING_DIRECTORIES|CONFIG.*|HOOK.*)$/;
@@ -169,7 +176,7 @@ export function baseEnv(ctx: Ctx): Record<string, string | undefined> {
   };
   // Sanitize AFTER merging, so neither the ambient environment nor config.env can reintroduce them.
   for (const key of Object.keys(env)) {
-    if (GIT_ENV_STRIP.test(key)) delete env[key];
+    if (GIT_ENV_STRIP.test(key) || LEFTHOOK_ENV_STRIP.test(key)) delete env[key];
   }
   for (const key of [...ENV_STRIP, ctx.config.markerEnv]) delete env[key];
   const { cargoTargetDir } = ctx.config;

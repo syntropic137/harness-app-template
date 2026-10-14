@@ -21,7 +21,6 @@ import {
   pushEnv,
   type Receipt,
   remoteTip,
-  requirePushTools,
   shortSha,
   tail,
 } from './core';
@@ -37,6 +36,7 @@ import {
   landFilesMatch,
   passVerdict,
   recordPass,
+  requireGuards,
 } from './verified';
 
 export type { EngineDeps, Evidence, LandMode, LandOptions, Receipt } from './core';
@@ -442,7 +442,7 @@ async function dryRunHooks(ctx: Ctx, v: Validated, sha: string): Promise<void> {
   const env = pushEnv(ctx, sha, excludedJobs(ctx.config, v.evidence, v.scopedOut));
   const result = await ctx.deps.run(
     'git',
-    ['hook', 'run', '--ignore-missing', `--to-stdin=${stdinFile}`, 'pre-push', '--', remote, url],
+    ['hook', 'run', `--to-stdin=${stdinFile}`, 'pre-push', '--', remote, url],
     { cwd: ctx.worktree, env, onLine: (l) => ctx.deps.log(`  [pre-push] ${l}`) },
   );
   if (!succeeded(result))
@@ -505,7 +505,8 @@ async function runAttempts(ctx: Ctx): Promise<void> {
       prev = v.evidence;
       continue;
     }
-    await requirePushTools(ctx);
+    // Every push and pre-push dry run needs the guards installed: the hook is the only place they run.
+    await requireGuards(ctx, bootstrapProvision(ctx, v.base, sha));
     if (ctx.options.verify === true) {
       await dryRunHooks(ctx, v, sha);
       // Every gate with evidence on C, plus the early checks and checks, which all ran and passed
@@ -664,14 +665,18 @@ async function landFromPass(
     };
   }
   ctx.config = verdict.config;
-  const provision = async (): Promise<void> => {
+  return fastLand(ctx, pass, verdict.exclude, bootstrapProvision(ctx, pass.B, pass.C));
+}
+
+/** Provisioning for requireGuards when the runner cannot install the hook: the configured bootstrap, once. */
+function bootstrapProvision(ctx: Ctx, base: string, head: string): () => Promise<void> {
+  return async () => {
     const { bootstrap } = ctx.config;
     if (bootstrap === null) return;
-    const vars = { base: pass.B, head: pass.C, worktree: ctx.worktree, source: ctx.sourceRoot };
+    const vars = { base, head, worktree: ctx.worktree, source: ctx.sourceRun };
     await runCheck(ctx, { name: 'bootstrap', run: bootstrap.run, cwd: 'worktree' }, vars);
     ctx.deps.writeFile(join(ctx.stateDir, 'bootstrapped'), `${ctx.deps.now()}\n`);
   };
-  return fastLand(ctx, pass, verdict.exclude, provision);
 }
 
 /** `just land`: a current pass lands in seconds; otherwise say why, then the full land (or refuse with --require-pass). */

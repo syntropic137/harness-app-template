@@ -3,8 +3,10 @@ import { describe, expect, test } from 'vitest';
 import { parseConfig } from '../lib/land/config';
 import type { RunResult } from '../lib/land/exec';
 import {
+  CONFIG_KEY_PATHS,
   configKeyFromLsTree,
   judgePass,
+  LEFTHOOK_INCLUDE_GREP,
   LOCAL_PASSES,
   PASS_FORMAT,
   type PassFacts,
@@ -36,6 +38,8 @@ const PASS: PassRecord = {
   ref_sha: sha('a'),
   C: sha('c'),
   B: sha('b'),
+  mode: 'auto',
+  message: null,
   config_key: 'k1',
   gates: [{ name: 'lefthook', seconds: 3, retried: false }],
   passed: ['adr', 'baseline-drift', 'cov-rust', 'host', 'sensors'],
@@ -55,6 +59,8 @@ const facts = (over: Partial<PassFacts> = {}): PassFacts => ({
   changed: ['crates/x.rs'],
   cExists: true,
   cOnMain: false,
+  requested: { mode: 'auto', message: null },
+  hookIncludes: null,
   ...over,
 });
 
@@ -93,6 +99,48 @@ describe('judgePass: when a pass lets land push without gates', () => {
     expect(judgePass(facts({ pass: { ...PASS, engine_version: 'weakened' } }))).toMatchObject(
       stale(/engine and config that ran the verification are not main's/),
     );
+  });
+
+  test('a land that asks for another --mode or --message than verify applied is stale', () => {
+    expect(judgePass(facts({ requested: { mode: 'ff-only', message: null } }))).toMatchObject(
+      stale(/verified with --mode auto; this land asks for --mode ff-only$/),
+    );
+    const merge = { ...PASS, mode: 'merge' as const, message: 'm1' };
+    expect(
+      judgePass(facts({ pass: merge, requested: { mode: 'merge', message: 'm2' } })),
+    ).toMatchObject(
+      stale(
+        /verified with --mode merge and --message "m1"; this land asks for --mode merge and --message "m2"/,
+      ),
+    );
+    expect(
+      judgePass(facts({ pass: merge, requested: { mode: 'merge', message: 'm1' } })),
+    ).toMatchObject({ kind: 'current' });
+  });
+
+  test('a lefthook config that pulls in extends or remotes never lands from a pass', () => {
+    expect(judgePass(facts({ hookIncludes: `${sha('b')}:lefthook.yml` }))).toMatchObject(
+      stale(/lefthook.yml pulls lefthook rules from extends or remotes/),
+    );
+  });
+
+  test('the config key covers every lefthook config and local override, and the include grep finds extends and remotes', () => {
+    for (const path of [
+      'lefthook.yml',
+      'lefthook-local.yml',
+      '.lefthook-local.toml',
+      '.config/lefthook.json',
+      '.lefthook',
+      '.lefthook-local',
+      'land.config.json',
+    ]) {
+      expect(CONFIG_KEY_PATHS).toContain(path);
+    }
+    const grep = new RegExp(LEFTHOOK_INCLUDE_GREP.replaceAll('[[:space:]]', '\\s'), 'm');
+    for (const line of ['extends:', '  remotes:', '"extends": [', 'extends = ["a.toml"]']) {
+      expect(grep.test(line)).toBe(true);
+    }
+    expect(grep.test('# this config extends nothing')).toBe(false);
   });
 
   test('a ref that changes the land config itself never lands from a pass', () => {
@@ -146,6 +194,8 @@ describe('pass record helpers', () => {
       { gates: [{ name: 'x', seconds: 1 }] },
       { gates: [null] },
       { engine_version: '' },
+      { mode: 'rebase' },
+      { message: 7 },
       { host: undefined },
     ];
     for (const change of broken) {
