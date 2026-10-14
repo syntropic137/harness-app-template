@@ -647,3 +647,21 @@ describe('review pass 3: script dirs and overrides written by provisioning', () 
     expect(f.mainTip()).toBe(before);
   });
 });
+
+describe('review pass 4: symlinks in hook script dirs', () => {
+  test('a candidate whose script dir holds a symlink to a file it changes gets no pass', async () => {
+    const f = setup();
+    sh(f.src, 'git checkout -q -B feat main');
+    sh(f.src, 'mkdir -p .lefthook/pre-push scripts');
+    writeFileSync(join(f.src, 'scripts/guard-body.sh'), 'exit 0\n');
+    sh(f.src, 'ln -s ../../scripts/guard-body.sh .lefthook/pre-push/guard.sh');
+    sh(f.src, 'git add -A && git commit -qm "guard script is a symlink"');
+    const refSha = sh(f.src, 'git rev-parse HEAD');
+    sh(f.src, 'git checkout -q main');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(
+      /no pass recorded: a lefthook script dir holds a symlink \(.lefthook\/pre-push\/guard.sh\)/,
+    );
+    expect(() => sh(f.src, `git rev-parse --verify refs/land/verified/${refSha}`)).toThrow();
+  });
+});

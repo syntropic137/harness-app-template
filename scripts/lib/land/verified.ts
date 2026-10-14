@@ -295,6 +295,22 @@ async function effectiveHooksHere(ctx: Ctx): Promise<{ key: string } | { problem
       problem: `the lefthook script dir ${hooks.sourceDir} holds files that are not committed: ${extra.split('\n')[0]}`,
     };
   }
+  // A symlink in a script dir points at content outside the bound trees (a file the candidate may
+  // change), so its tree id would not bind what runs.
+  const listed = await gitOut(ctx, [
+    'ls-tree',
+    '-r',
+    'HEAD',
+    '--',
+    hooks.sourceDir,
+    hooks.sourceDirLocal,
+  ]);
+  const link = listed.split('\n').find((line) => line.startsWith('120000 '));
+  if (link !== undefined) {
+    return {
+      problem: `a lefthook script dir holds a symlink (${link.split('\t')[1]}), whose target a pass cannot bind`,
+    };
+  }
   const [source, local] = [
     await treeAtHead(ctx, hooks.sourceDir),
     await treeAtHead(ctx, hooks.sourceDirLocal),
