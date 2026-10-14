@@ -34,6 +34,13 @@
     "go.work"
   ],
   "bootstrap": { "run": "pnpm install --frozen-lockfile", "when": ["ts"] },
+  "prepare": [
+    {
+      "name": "llvm-cov-clean",
+      "run": "command -v cargo-llvm-cov >/dev/null 2>&1 || exit 0; for m in ws_apps/example-rust/Cargo.toml harness/doc-validator/Cargo.toml harness/versioning/Cargo.toml; do CARGO_TARGET_DIR=\"$PWD/target/coverage-isolated\" cargo llvm-cov clean --workspace --manifest-path \"$m\" || exit 1; done",
+      "when": ["rust"]
+    }
+  ],
   "gates": [
     { "name": "typecheck-affected", "when": ["ts"], "requires": ["pnpm"] },
     { "name": "test-affected", "when": ["ts"], "requires": ["pnpm"] },
