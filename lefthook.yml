@@ -240,6 +240,11 @@ pre-commit:
         '
 
     ubs-staged:
+      # Only when a language ubs scans is staged: on a commit of YAML, JSON or Markdown alone, ubs
+      # exits 3 ("nothing scanned"), which failed every config- or docs-only commit.
+      glob:
+        - "*.{js,jsx,mjs,cjs,ts,tsx,py,rs,go,sh}"
+        - "**/*.{js,jsx,mjs,cjs,ts,tsx,py,rs,go,sh}"
       run: |
         sh -eu -c '
           if ! command -v ubs >/dev/null 2>&1; then
@@ -409,22 +414,16 @@ pre-push:
     versioning-release-check:
       # Mirrors the GitHub Actions versioning workflow. Uses the same
       # just release-check recipe, scoped to commits ahead of the
-      # configured base ref, and soft-skips when the local versioning
-      # toolchain is not present.
+      # configured base ref. It is a push guard (land v2, PROTECTED_JOBS):
+      # a missing tool refuses the push instead of passing it unvalidated.
       run: |
         sh -eu -c '
-          if ! command -v cargo >/dev/null 2>&1; then
-            printf "%s\n" "warning: cargo not found; skipping versioning release check" >&2
-            exit 0
-          fi
-          if ! command -v bun >/dev/null 2>&1; then
-            printf "%s\n" "warning: bun not found; skipping versioning release check" >&2
-            exit 0
-          fi
-          if ! command -v just >/dev/null 2>&1; then
-            printf "%s\n" "warning: just not found; skipping versioning release check" >&2
-            exit 0
-          fi
+          for tool in cargo bun just; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              printf "%s\n" "error: $tool not found; versioning release check refuses the push (install $tool)" >&2
+              exit 1
+            fi
+          done
           base_ref="$(git config harness.hookBaseRef || git config harness.upstreamRef || printf main)"
           base_remote="$(git config harness.hookBaseRemote || printf origin)"
           base="$base_remote/$base_ref"
