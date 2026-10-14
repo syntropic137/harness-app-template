@@ -53,6 +53,8 @@ export interface LandConfig {
   maxAttempts: number;
   /** Gate lanes (the lefthook batch is one lane, each command gate another) run at once. 1 is sequential. */
   parallelGates: number;
+  /** Verification worktrees `just verify` may use at once on this machine (each is a full checkout with its own caches). */
+  verifySlots: number;
   /** Reuse a gate's green result across a re-apply when the SHA delta provably misses its scopes. */
   inheritUnaffectedEvidence: boolean;
   scopes: Record<string, string[]>;
@@ -70,6 +72,8 @@ export interface LandConfig {
   env: Record<string, string>;
   /** Cargo target directory for every gate (a leading ~/ expands to HOME). Null means the landing worktree's own target/. The caller's CARGO_TARGET_DIR is never inherited. */
   cargoTargetDir: string | null;
+  /** Programs the push-time guards need (on PATH before any push or pre-push dry run); a guard that soft-skips on a missing tool must not pass silently. */
+  pushRequires: string[];
 }
 
 export const DEFAULT_CONFIG: LandConfig = {
@@ -87,6 +91,7 @@ export const DEFAULT_CONFIG: LandConfig = {
   lefthookSelector: '--job',
   maxAttempts: 3,
   parallelGates: 1,
+  verifySlots: 3,
   inheritUnaffectedEvidence: false,
   scopes: {},
   full: [],
@@ -99,6 +104,7 @@ export const DEFAULT_CONFIG: LandConfig = {
   checks: [],
   env: {},
   cargoTargetDir: null,
+  pushRequires: [],
 };
 
 /** Guards that must run on every push; listing one as a gate would let the land flow exclude it. */
@@ -106,6 +112,9 @@ export const PROTECTED_JOBS: readonly string[] = [
   'guard-main-push',
   'push-scope-guard.sh',
   'push-scope-guard',
+  // Validates every commit ahead of the base at push time; the job that caught a foreign
+  // non-conventional commit. A verified pass must never exclude it.
+  'versioning-release-check',
 ];
 
 const NAME_RE = /^[A-Za-z0-9._-]+$/;
@@ -241,6 +250,7 @@ const NUMBER_KEYS = [
   'lockWaitMaxSeconds',
   'maxAttempts',
   'parallelGates',
+  'verifySlots',
 ] as const;
 const STRING_KEYS = ['remote', 'targetBranch', 'markerEnv', 'lefthook'] as const;
 
@@ -250,6 +260,9 @@ const PARSERS: Record<string, Parser> = {
   },
   full: (c, v) => {
     c.full = requireStringArray(v, 'full');
+  },
+  pushRequires: (c, v) => {
+    c.pushRequires = requireStringArray(v, 'pushRequires');
   },
   ignoreDirty: (c, v) => {
     c.ignoreDirty = requireStringArray(v, 'ignoreDirty');

@@ -375,6 +375,11 @@ describe('land cli helpers', () => {
       ok: true,
       options: { waitSeconds: 30 },
     });
+    expect(parseArgs(['--verify', 'x'])).toMatchObject({ ok: true, options: { verify: true } });
+    expect(parseArgs(['x', '--require-pass', '--pass-from', 'tower'])).toMatchObject({
+      ok: true,
+      options: { requirePass: true, passFrom: 'tower' },
+    });
     expect(parseArgs(['--help'])).toEqual({ ok: false, message: USAGE, exitCode: 0 });
     expect(parseArgs(['-h'])).toMatchObject({ exitCode: 0 });
     for (const argv of [
@@ -387,6 +392,11 @@ describe('land cli helpers', () => {
       ['x', '--nope'],
       ['x', 'y'],
       ['x', '--message', 'm'],
+      ['x', '--verify', '--dry-run'],
+      ['x', '--verify', '--require-pass'],
+      ['x', '--dry-run', '--pass-from', 'tower'],
+      ['x', '--pass-from', '-evil'],
+      ['x', '--pass-from', 'a b'],
     ]) {
       expect(parseArgs(argv)).toMatchObject({ ok: false, exitCode: 64 });
     }

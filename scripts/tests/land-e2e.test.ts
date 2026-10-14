@@ -1,236 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import {
-  appendFileSync,
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
-import { type LandConfig, parseConfig } from '../lib/land/config';
-import { type EngineDeps, EXIT, type LandOptions, land } from '../lib/land/engine';
-import { runProcess } from '../lib/land/exec';
-import { hermeticGitEnv } from './helpers/land-git-env';
+import { EXIT, land } from '../lib/land/engine';
+import { branch, fixture, OPTS, parseRun, sh } from './helpers/land-fixture';
 import { memoryLock } from './helpers/memory-lock';
 
-const sh = (cwd: string, cmd: string): string =>
-  execFileSync('sh', ['-c', cmd], {
-    cwd,
-    encoding: 'utf8',
-    env: {
-      ...hermeticGitEnv(),
-      GIT_AUTHOR_NAME: 't',
-      GIT_AUTHOR_EMAIL: 't@t',
-      GIT_COMMITTER_NAME: 't',
-      GIT_COMMITTER_EMAIL: 't@t',
-    },
-  }).trim();
-
-interface Fixture {
-  root: string;
-  src: string;
-  origin: string;
-  other: string;
-  home: string;
-  state: string;
-  logs: string[];
-  errors: string[];
-  deps: EngineDeps;
-  env: Record<string, string | undefined>;
-  config: (extra?: Record<string, unknown>) => LandConfig;
-  commit: (dir: string, file: string, text?: string) => string;
-  ran: () => string[];
-  hookSeen: () => string[];
-  mainTip: () => string;
-  clock: { t: number };
-}
-
-const FAKE_LEFTHOOK = `#!/bin/sh
-echo "$@" >> "$FAKE_STATE/lefthook.log"
-cat >> "$FAKE_STATE/lefthook.stdin"
-jobs=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --job|--command) jobs="$jobs $2"; shift;;
-    --jobs|--commands) jobs="$jobs $(echo "$2" | tr ',' ' ')"; shift;;
-  esac
-  shift
-done
-if [ -f "$FAKE_STATE/move-once" ] || [ -f "$FAKE_STATE/move-always" ]; then
-  rm -f "$FAKE_STATE/move-once"
-  c=$(cat "$FAKE_STATE/move-count" 2>/dev/null || echo 0); c=$((c+1)); echo $c > "$FAKE_STATE/move-count"
-  f=$(cat "$FAKE_STATE/move-file" 2>/dev/null || echo moved.txt)
-  [ -f "$FAKE_STATE/move-always" ] && f="moved$c.txt"
-  (cd "$FAKE_OTHER" && git pull -q origin main && mkdir -p "$(dirname "$f")" && echo moved > "$f" && git add -A && git commit -qm "main moved" && git push -q origin HEAD:main)
-fi
-for j in $jobs; do
-  case " $FAKE_FAIL " in *" $j "*) echo "🥊 $j"; exit 1;; esac
-  case " $FAKE_SKIP " in *" $j "*) continue;; esac
-  echo "✔️ $j (0.01 seconds)"
-done
-`;
-
-const HOOK = `#!/bin/sh
-echo "marker=$HARNESS_LAND_GATE exclude=$LEFTHOOK_EXCLUDE stdin=$(cat | tr '\\n' ' ')" >> "$FAKE_STATE/hook.log"
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX
-n=$(cat "$FAKE_STATE/hook-count" 2>/dev/null || echo 0)
-n=$((n+1)); echo $n > "$FAKE_STATE/hook-count"
-case "$FAKE_HOOK" in
-  refuse) echo "guard says no"; exit 1;;
-  kill-first) [ "$n" = 1 ] && kill -9 $PPID;;
-  kill-always) kill -9 $PPID;;
-  land-then-kill) [ "$n" = 1 ] && { git --git-dir="$FAKE_ORIGIN" fetch -q "$PWD" "$HARNESS_LAND_GATE:refs/heads/main"; kill -9 $PPID; };;
-  move-main) [ "$n" = 1 ] && (cd "$FAKE_OTHER" && git pull -q origin main && echo m > m2.txt && git add -A && git commit -qm m2 && git push -q origin HEAD:main) ;;
-esac
-exit 0
-`;
-
-function fixture(): Fixture {
-  const root = mkdtempSync(join(tmpdir(), 'land-e2e-'));
-  const origin = join(root, 'origin.git');
-  const src = join(root, 'src');
-  const other = join(root, 'other');
-  const state = join(root, 'state');
-  const home = join(root, 'home');
-  mkdirSync(state);
-  sh(
-    root,
-    `git init -q --bare -b main origin.git && git clone -q origin.git src 2>/dev/null && git clone -q origin.git other 2>/dev/null`,
-  );
-  writeFileSync(join(src, 'a.txt'), 'a\n');
-  sh(
-    src,
-    'git add -A && git commit -qm init && git push -q origin HEAD:main && git branch -M main',
-  );
-  sh(other, 'git pull -q origin main');
-  const fake = join(root, 'fake-lefthook');
-  writeFileSync(fake, FAKE_LEFTHOOK);
-  chmodSync(fake, 0o755);
-  writeFileSync(join(src, '.git/hooks/pre-push'), HOOK);
-  chmodSync(join(src, '.git/hooks/pre-push'), 0o755);
-  const clock = { t: 1_000_000 };
-  const lock = memoryLock();
-  const logs: string[] = [];
-  const errors: string[] = [];
-  const env: Record<string, string | undefined> = {
-    PATH: process.env.PATH,
-    HOME: root,
-    GIT_DIR: '/nonexistent-ambient-git-dir',
-    FAKE_STATE: state,
-    FAKE_OTHER: other,
-    FAKE_ORIGIN: origin,
-    GIT_AUTHOR_NAME: 't',
-    GIT_AUTHOR_EMAIL: 't@t',
-    GIT_COMMITTER_NAME: 't',
-    GIT_COMMITTER_EMAIL: 't@t',
-  };
-  const deps: EngineDeps = {
-    cwd: src,
-    env,
-    home,
-    run: runProcess,
-    lock: lock.deps,
-    loadavg: () => 1,
-    now: () => clock.t,
-    sleep: async (ms) => {
-      clock.t += ms;
-    },
-    log: (m) => void logs.push(m),
-    error: (m) => void errors.push(m),
-    exists: existsSync,
-    mkdirp: (p) => void mkdirSync(p, { recursive: true }),
-    writeFile: (p, t) => writeFileSync(p, t),
-    appendFile: (p, t) => appendFileSync(p, t),
-    rmrf: (p) => rmSync(p, { recursive: true, force: true }),
-    user: () => 'tester',
-  };
-  const read = (f: string): string[] =>
-    existsSync(join(state, f))
-      ? readFileSync(join(state, f), 'utf8').split('\n').filter(Boolean)
-      : [];
-  return {
-    root,
-    src,
-    origin,
-    other,
-    home,
-    state,
-    logs,
-    errors,
-    deps,
-    env,
-    clock,
-    config: (extra = {}) =>
-      parseConfig({
-        lefthook: fake,
-        scopes: {
-          rust: ['**/*.rs'],
-          ts: ['**/*.ts'],
-          docs: ['**/*.md', 'docs/**'],
-          text: ['**/*.txt'],
-        },
-        gates: [
-          { name: 'cov-rust', when: ['rust'] },
-          { name: 'cov-ts', when: ['ts'] },
-          { name: 'doc-validator', when: ['docs'] },
-          { name: 'adr' },
-        ],
-        ...extra,
-      }),
-    commit(dir, file, text = 'x\n') {
-      mkdirSync(join(dir, file, '..'), { recursive: true });
-      writeFileSync(join(dir, file), text);
-      sh(dir, `git add -A && git commit -qm "touch ${file}"`);
-      return sh(dir, 'git rev-parse HEAD');
-    },
-    ran: () => read('lefthook.log').map((line) => line.replace(/ origin \S+$/, '')),
-    hookSeen: () => read('hook.log'),
-    mainTip: () => sh(root, 'git --git-dir=origin.git rev-parse main'),
-  };
-}
-
-interface RunLine {
-  ref: string;
-  sha: string | null;
-  exit: number;
-  dryRun: boolean;
-  totalSeconds: number;
-  waitedSeconds: number;
-  sampleStart: string | null;
-  sampleEnd: string | null;
-  steps: { name: string; seconds: number; ok: boolean }[];
-}
-
-/** A run receipt line, parsed for assertions. */
-function parseRun(line: string): RunLine {
-  try {
-    return JSON.parse(line) as RunLine;
-  } catch {
-    throw new Error(`unparseable run receipt: ${line}`);
-  }
-}
-
-const OPTS: LandOptions = {
-  ref: 'feat',
-  mode: 'auto',
-  message: null,
-  dryRun: false,
-  bootstrap: true,
-  waitSeconds: null,
-};
-const branch = (f: Fixture, file: string): string => {
-  sh(f.src, 'git checkout -q -B feat main');
-  const sha = f.commit(f.src, file);
-  sh(f.src, 'git checkout -q main');
-  return sha;
-};
-
+// drives the whole land engine against throwaway repos; slowest test about 7.5 s at load ~20 (full run, 2026-10-09).
 vi.setConfig({ testTimeout: 120_000 });
 
 describe('land engine end to end (real git, local bare origin)', () => {
@@ -348,7 +124,7 @@ describe('land engine end to end (real git, local bare origin)', () => {
     f.env.CARGO_TARGET_DIR = '/shared/target';
     const probe = {
       name: 'cargo',
-      run: 'echo "${CARGO_TARGET_DIR-unset}" > "$FAKE_STATE/cargo.log"',
+      run: `echo "\${CARGO_TARGET_DIR-unset}" > "$FAKE_STATE/cargo.log"`,
     };
     expect(await land(f.deps, OPTS, f.config({ checks: [probe] }))).toBe(EXIT.ok);
     expect(readFileSync(join(f.state, 'cargo.log'), 'utf8').trim()).toBe('unset');
@@ -888,6 +664,61 @@ describe('land engine end to end (real git, local bare origin)', () => {
     expect(await land(f.deps, { ...OPTS, ref: 'busy' }, f.config())).toBe(EXIT.busy);
     expect(f.errors.join('\n')).toMatch(/held by pid 100/);
     expect(f.clock.t).toBeLessThan(2_000_000);
+  });
+});
+
+describe('landing worktree guard', () => {
+  test('a second land on the same worktree refuses even when the lease wrongly let it through', async () => {
+    const f = fixture();
+    branch(f, 'crates/g.rs');
+    const guarded = memoryLock();
+    const realRead = guarded.deps.read;
+    // The lease is free (it was wrongly reaped), but a live land already holds the worktree guard.
+    guarded.deps.read = (p) =>
+      p.endsWith('worktree.lock')
+        ? JSON.stringify({
+            pid: 100,
+            bootId: 'boot1',
+            startedAt: new Date(f.clock.t).toISOString(),
+            repo: '/o',
+            ref: 'first',
+            user: 'u',
+          })
+        : realRead(p);
+    const realCreate = guarded.deps.createExclusive;
+    guarded.deps.createExclusive = (p, c) =>
+      p.endsWith('worktree.lock') ? false : realCreate(p, c);
+    f.deps.lock = guarded.deps;
+    expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.busy);
+    expect(guarded.files.has('/l')).toBe(false); // the refused land does not leak the lease
+    expect(f.errors.join('\n')).toMatch(
+      /landing worktree .* is in use: pid 100 .*refusing a second land/,
+    );
+  });
+
+  test('a guard that cannot be taken for another reason fails the land and still releases the lease', async () => {
+    const f = fixture();
+    branch(f, 'crates/i.rs');
+    const guarded = memoryLock();
+    const realCreate = guarded.deps.createExclusive;
+    guarded.deps.createExclusive = (p, c) => {
+      if (p.endsWith('worktree.lock')) throw new Error('disk full');
+      return realCreate(p, c);
+    };
+    f.deps.lock = guarded.deps;
+    expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.gate);
+    expect(guarded.files.has('/l')).toBe(false);
+    expect(f.errors.join('\n')).toMatch(/disk full/);
+  });
+
+  test('two lands in turn from one cwd each take and release the guard', async () => {
+    const f = fixture();
+    branch(f, 'crates/h.rs');
+    expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.ok);
+    sh(f.src, 'git checkout -q -B h2 main');
+    f.commit(f.src, 'crates/h2.rs');
+    sh(f.src, 'git checkout -q main');
+    expect(await land(f.deps, { ...OPTS, ref: 'h2' }, f.config())).toBe(EXIT.ok);
   });
 });
 

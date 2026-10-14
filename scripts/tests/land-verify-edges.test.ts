@@ -1,0 +1,304 @@
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, test, vi } from 'vitest';
+import type { Ctx } from '../lib/land/core';
+import { EXIT, land } from '../lib/land/engine';
+import type { RunResult } from '../lib/land/exec';
+import type { LockDeps } from '../lib/land/lock';
+import { writePassNote } from '../lib/land/verified';
+import { branch, type Fixture, fixture, OPTS, parseRun, sh } from './helpers/land-fixture';
+
+// The failure and race paths of verify and land from a pass, against throwaway repos (the main
+// flows are in land-verify-e2e.test.ts). Same allowance as that file.
+vi.setConfig({ testTimeout: 200_000 });
+
+const VERIFY = { ...OPTS, verify: true };
+const STRICT = { ...OPTS, requirePass: true };
+
+function setup(extra: Record<string, unknown> = {}): Fixture {
+  const f = fixture();
+  f.publishConfig(extra);
+  return f;
+}
+
+const stateDir = (f: Fixture): string => join(f.home, sh(f.home, 'ls -d src-*'));
+
+function lastRun(f: Fixture): ReturnType<typeof parseRun> {
+  const lines = readFileSync(join(stateDir(f), 'runs.jsonl'), 'utf8')
+    .trim()
+    .split('\n');
+  return parseRun(lines.at(-1) as string);
+}
+
+/** A live holder (pid 100 is alive in the fixture's memory lock). */
+const holder = (ref: string): string =>
+  JSON.stringify({
+    pid: 100,
+    bootId: 'boot1',
+    startedAt: '2026-10-08T00:00:00Z',
+    repo: 'r',
+    ref,
+    user: 'u',
+  });
+
+/** Hold the lease; on the first wait, run `meanwhile` (another lander), then release it. */
+function contend(f: Fixture, meanwhile: () => void): void {
+  const lock = f.deps.lock;
+  lock.createExclusive(lock.lockPath, holder('other'));
+  let released = false;
+  const wrapped: LockDeps = {
+    ...lock,
+    sleep: async (ms) => {
+      if (!released) {
+        meanwhile();
+        lock.remove(lock.lockPath);
+        released = true;
+      }
+      await lock.sleep(ms);
+    },
+  };
+  f.deps.lock = wrapped;
+}
+
+function noteCtx(f: Fixture): Ctx {
+  return {
+    deps: f.deps,
+    config: f.config(),
+    options: OPTS,
+    sourceRoot: f.src,
+    receipt: { steps: [] },
+  } as unknown as Ctx;
+}
+
+describe('verify: slots, cargo dir and note writing', () => {
+  test('a configured cargoTargetDir is split per verification slot', async () => {
+    const f = setup();
+    branch(f, 'crates/x.rs');
+    const probe = { name: 'cargo', run: 'echo "$CARGO_TARGET_DIR" > "$FAKE_STATE/cargo.log"' };
+    const config = f.config({ cargoTargetDir: '/abs/t', checks: [probe] });
+    expect(await land(f.deps, VERIFY, config)).toBe(EXIT.ok);
+    expect(readFileSync(join(f.state, 'cargo.log'), 'utf8').trim()).toBe('/abs/t/verify-1');
+  });
+
+  test('a lock failure other than "busy" while taking a slot is reported, not swallowed', async () => {
+    const f = setup();
+    branch(f, 'crates/x.rs');
+    const lock = f.deps.lock;
+    f.deps.lock = {
+      ...lock,
+      createExclusive: (path, text) => {
+        if (path.includes('/verify/')) throw new Error('disk full');
+        return lock.createExclusive(path, text);
+      },
+    };
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.gate);
+    expect(f.errors.join('\n')).toMatch(/disk full/);
+  });
+
+  test('with --wait, busy slots are polled until the deadline, then refused', async () => {
+    const f = setup();
+    branch(f, 'crates/x.rs');
+    const config = f.config({ verifySlots: 1 });
+    expect(await land(f.deps, VERIFY, config)).toBe(EXIT.ok); // creates the state dir
+    f.deps.lock.createExclusive(join(stateDir(f), 'verify', '1', 'worktree.lock'), holder('x'));
+    const before = f.clock.t;
+    expect(await land(f.deps, { ...VERIFY, waitSeconds: 12 }, config)).toBe(EXIT.busy);
+    expect(f.clock.t - before).toBeGreaterThanOrEqual(12_000);
+    expect(f.errors.join('\n')).toMatch(/all 1 verification worktrees are busy/);
+  });
+
+  test('a note that git cannot add (an unresolvable object name) fails the write', async () => {
+    const f = setup();
+    await expect(writePassNote(noteCtx(f), 'no-such-object', 'x\n')).rejects.toThrow(
+      /git notes add failed/,
+    );
+  });
+
+  test('a notes ref that keeps moving gives up after bounded attempts and leaves no scratch ref', async () => {
+    const f = setup();
+    const c = f.commit(f.src, 'n.txt');
+    const ctx = noteCtx(f);
+    const run = f.deps.run;
+    ctx.deps = {
+      ...f.deps,
+      run: async (command, args, options): Promise<RunResult> => {
+        const swap = args.includes('update-ref') && args.at(-3) === 'refs/notes/land-pass';
+        return swap
+          ? { status: 1, signal: null, output: 'lost the race' }
+          : run(command, args, options);
+      },
+    };
+    await expect(writePassNote(ctx, c, 'x\n')).rejects.toThrow(
+      /could not record the pass note: refs\/notes\/land-pass moved during the write \(attempt 8\)/,
+    );
+    expect(sh(f.src, 'git for-each-ref refs/notes/land-pass-write')).toBe('');
+  });
+});
+
+describe('land from a pass: what is read from main and the record', () => {
+  test('main without land.config.json lands from a pass under the defaults', async () => {
+    const f = fixture();
+    // The default runner is `lefthook` on PATH: point it at the fixture's fake runner.
+    const bin = join(f.root, 'bin');
+    sh(f.root, `mkdir -p bin && ln -s ${join(f.root, 'fake-lefthook')} bin/lefthook`);
+    f.env.PATH = `${bin}:${f.env.PATH ?? ''}`;
+    const refSha = branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.ok);
+    expect(f.mainTip()).toBe(refSha);
+  });
+
+  test("an unparsable land.config.json on main is stale, with parseConfig's reason", async () => {
+    const f = setup({ bogusKey: 1 });
+    branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/main's land config is unreadable: .*unknown key bogusKey/);
+  });
+
+  test('a verified ref without a readable note, or with a note for another commit, has no pass', async () => {
+    const f = setup();
+    const refSha = branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    const c = sh(f.src, `git rev-parse refs/land/verified/${refSha}`);
+    const record = sh(f.src, `git notes --ref=refs/notes/land-pass show ${c}`);
+    sh(f.src, `git notes --ref=refs/notes/land-pass remove ${c}`);
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/no pass record for/);
+    const file = join(f.root, 'other.json');
+    writeFileSync(file, record.replace(`"C": "${c}"`, `"C": "${'e'.repeat(40)}"`));
+    sh(f.src, `git notes --ref=refs/notes/land-pass add -f -F ${file} ${c}`);
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.unverified);
+  });
+
+  test('a verified ref that names no commit (here a blob) is not a pass', async () => {
+    const f = setup();
+    const refSha = branch(f, 'crates/x.rs');
+    const blob = sh(f.src, 'echo not-a-commit | git hash-object -w --stdin');
+    sh(f.src, `git update-ref refs/land/verified/${refSha} ${blob}`);
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/no pass record for/);
+  });
+
+  test('a forged record whose C does not descend from main is refused before any push', async () => {
+    const f = setup();
+    const published = f.mainTip();
+    f.commit(f.other, 'docs/adv.md');
+    sh(f.other, 'git push -q origin HEAD:main');
+    // A sibling of main: same land files (it sits on the published config), not a descendant.
+    sh(f.src, `git checkout -q -B sib ${published}`);
+    const x = f.commit(f.src, 'crates/s.rs');
+    sh(f.src, 'git checkout -q main');
+    expect(await land(f.deps, { ...VERIFY, ref: 'sib' }, f.config())).toBe(EXIT.ok);
+    const c = sh(f.src, `git rev-parse refs/land/verified/${x}`);
+    const record = sh(f.src, `git notes --ref=refs/notes/land-pass show ${c}`);
+    const file = join(f.root, 'forged.json');
+    // Claim C is the sibling itself, with evidence for every gate its diff from main selects.
+    const forged = record
+      .replace(`"C": "${c}"`, `"C": "${x}"`)
+      .replace('"passed": [', '"passed": [\n    "doc-validator",');
+    writeFileSync(file, forged);
+    sh(f.src, `git notes --ref=refs/notes/land-pass add -f -F ${file} ${x}`);
+    sh(f.src, `git update-ref refs/land/verified/${x} ${x}`);
+    const before = f.mainTip();
+    expect(await land(f.deps, { ...STRICT, ref: 'sib' }, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/the verified commit \w+ does not descend from main/);
+    expect(f.mainTip()).toBe(before);
+  });
+});
+
+describe('land from a pass: lease, worktree guard and hooks', () => {
+  test('a landing worktree in use refuses, and the lease is released', async () => {
+    const f = setup();
+    branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    f.deps.lock.createExclusive(join(stateDir(f), 'worktree.lock'), holder('x'));
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.busy);
+    expect(f.errors.join('\n')).toMatch(/refusing a second land on it/);
+    expect(f.deps.lock.read(f.deps.lock.lockPath)).toBeNull();
+  });
+
+  test.each([
+    ['noop', /no pre-push hook is installed .* after installing it/],
+    ['noexec', /is not executable, so git would skip it after installing it/],
+    ['norunner', /does not invoke the hook runner \(fake-lefthook\) after installing it/],
+  ])('an install that leaves a bad hook (%s) refuses the push', async (mode, message) => {
+    const f = setup();
+    const before = f.mainTip();
+    branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    rmSync(join(f.src, '.git/hooks/pre-push'));
+    f.env.FAKE_INSTALL_MODE = mode;
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.push);
+    expect(f.errors.join('\n')).toMatch(message);
+    expect(f.mainTip()).toBe(before);
+  });
+
+  test("a runner that cannot install at first is provisioned with main's bootstrap, then lands", async () => {
+    const bootstrap = { run: 'echo boot >> "$FAKE_STATE/land-boot.log"' };
+    const f = setup({ bootstrap });
+    const refSha = branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config({ bootstrap }))).toBe(EXIT.ok);
+    const boots = readFileSync(join(f.state, 'land-boot.log'), 'utf8').split('\n').length;
+    writeFileSync(join(f.state, 'install-fail-once'), '');
+    expect(await land(f.deps, STRICT, f.config({ bootstrap }))).toBe(EXIT.ok);
+    expect(f.mainTip()).toBe(refSha);
+    expect(readFileSync(join(f.state, 'land-boot.log'), 'utf8').split('\n')).toHaveLength(
+      boots + 1,
+    );
+  });
+
+  test('a contended lease re-fetches; nobody else landed, so this run lands', async () => {
+    const f = setup();
+    const refSha = branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    contend(f, () => undefined);
+    expect(await land(f.deps, { ...STRICT, waitSeconds: 60 }, f.config())).toBe(EXIT.ok);
+    expect(f.mainTip()).toBe(refSha);
+    expect(lastRun(f).steps.map((s) => s.name)).toContain('fetch');
+  });
+
+  test('a contended lease that finds main moved elsewhere is stale', async () => {
+    const f = setup();
+    branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    contend(f, () => {
+      f.commit(f.other, 'docs/meanwhile.md');
+      sh(f.other, 'git push -q origin HEAD:main');
+    });
+    expect(await land(f.deps, { ...STRICT, waitSeconds: 60 }, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/main moved while waiting for the lease/);
+  });
+});
+
+describe('land from a pass: how the outcome is observed', () => {
+  test('remote already at C when the push starts: porcelain "up to date" is already landed, no fetch', async () => {
+    const f = setup();
+    const refSha = branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    const run = f.deps.run;
+    f.deps.run = async (command, args, options) => {
+      if (command === 'git' && args.includes('--porcelain') && args.includes('push')) {
+        sh(f.root, `git --git-dir=origin.git fetch -q ${f.src} ${refSha}:refs/heads/main`);
+      }
+      return run(command, args, options);
+    };
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.ok);
+    expect(f.logs.join('\n')).toMatch(/already landed: .* already had .*this push moved nothing/);
+    expect(lastRun(f)).toMatchObject({ confirm: 'porcelain' });
+  });
+
+  test.each([
+    ['noise-dup', /^LANDED /m],
+    ['noise-eq', /already landed: .* contains .* this push moved nothing \(exit status 0/],
+  ])('an ambiguous porcelain report (%s) is confirmed by a fetch', async (mode, message) => {
+    const f = setup();
+    const refSha = branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    f.env.FAKE_HOOK = mode;
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.ok);
+    expect(f.mainTip()).toBe(refSha);
+    expect(f.logs.join('\n')).toMatch(message);
+    expect(lastRun(f)).toMatchObject({ confirm: 'fetched' });
+  });
+});

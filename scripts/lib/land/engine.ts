@@ -1,65 +1,48 @@
 import { createHash } from 'node:crypto';
 import { basename, join } from 'node:path';
 import type { CheckConfig, GateConfig, LandConfig } from './config';
-import { describeExit, type RunOptions, type RunResult, succeeded } from './exec';
-import { acquireLock, type LockDeps, LockTimeout } from './lock';
+import {
+  Abort,
+  baseEnv,
+  type Ctx,
+  type EngineDeps,
+  type Evidence,
+  EXIT,
+  ensureCheckout,
+  ensureWorktree,
+  excludedJobs,
+  fetchRemote,
+  git,
+  gitOut,
+  guardWorktree,
+  isLefthookGate,
+  type LandOptions,
+  planGates,
+  pushEnv,
+  type Receipt,
+  remoteTip,
+  requirePushTools,
+  shortSha,
+  tail,
+} from './core';
+import { describeExit, type RunResult, succeeded } from './exec';
+import { acquireLock, LockTimeout } from './lock';
+import type { PassVerdict } from './pass';
 import { type Classification, classify, gateApplies, matchesAny } from './scope';
+import {
+  acquireVerifySlot,
+  assertLandFilesMatch,
+  type FastOutcome,
+  fastLand,
+  landFilesMatch,
+  passVerdict,
+  recordPass,
+} from './verified';
 
-export type LandMode = 'auto' | 'ff-only' | 'cherry-pick' | 'merge';
+export type { EngineDeps, Evidence, LandMode, LandOptions, Receipt } from './core';
+export { EXIT, excludedJobs, isLefthookGate, planGates } from './core';
 
-export interface LandOptions {
-  ref: string;
-  mode: LandMode;
-  message: string | null;
-  dryRun: boolean;
-  bootstrap: boolean;
-  /** Seconds to queue behind a live lock; null uses the config (default 0: refuse and name the holder). */
-  waitSeconds: number | null;
-}
-
-export const EXIT = { ok: 0, gate: 1, push: 2, usage: 64, busy: 75 } as const;
-
-export interface EngineDeps {
-  cwd: string;
-  env: Record<string, string | undefined>;
-  /** Per-user landing home holding the lock, worktrees and logs. */
-  home: string;
-  run(command: string, args: string[], options?: RunOptions): Promise<RunResult>;
-  lock: LockDeps;
-  loadavg(): number;
-  now(): number;
-  sleep(ms: number): Promise<void>;
-  log(message: string): void;
-  error(message: string): void;
-  exists(path: string): boolean;
-  mkdirp(path: string): void;
-  writeFile(path: string, text: string): void;
-  appendFile(path: string, text: string): void;
-  rmrf(path: string): void;
-  user(): string;
-}
-
-/** Evidence is per exact SHA: a gate counts only if it passed on, or was provably inherited into, this commit. */
-export interface Evidence {
-  sha: string;
-  passed: Map<string, string>;
-}
-
-class Abort extends Error {
-  constructor(
-    message: string,
-    readonly code: number,
-  ) {
-    super(message);
-  }
-}
-
-const ENV_STRIP = ['LEFTHOOK', 'LEFTHOOK_EXCLUDE', 'CARGO_TARGET_DIR'];
-/** Ambient git variables that route git to another repository or inject config (core.hooksPath=/dev/null would disarm every guard). */
-const GIT_ENV_STRIP =
-  /^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|EXEC_PATH|CEILING_DIRECTORIES|CONFIG.*|HOOK.*)$/;
 const PASSED_JOB = /^\s*(?:✔️|✔|✓)\s+(\S+)/u;
-const TAIL_LINES = 30;
 
 export function passedJobs(output: string): Set<string> {
   const jobs = new Set<string>();
@@ -68,18 +51,6 @@ export function passedJobs(output: string): Set<string> {
     if (match?.[1] !== undefined) jobs.add(match[1]);
   }
   return jobs;
-}
-
-export function isLefthookGate(gate: GateConfig): boolean {
-  return gate.run === undefined;
-}
-
-export function planGates(
-  config: LandConfig,
-  c: Classification,
-): { selected: GateConfig[]; scopedOut: GateConfig[] } {
-  const selected = config.gates.filter((g) => gateApplies(g.when, c));
-  return { selected, scopedOut: config.gates.filter((g) => !selected.includes(g)) };
 }
 
 /** Gates whose evidence from `prev` survives into `next`: only when the exact delta between the two SHAs misses their scopes. */
@@ -106,100 +77,8 @@ export function inheritEvidence(
   return evidence;
 }
 
-/** Jobs the final push may skip: those green on this exact SHA, plus jobs the diff makes inapplicable. */
-export function excludedJobs(
-  config: LandConfig,
-  evidence: Evidence,
-  scopedOut: GateConfig[],
-): string[] {
-  const green = config.gates.filter((g) => isLefthookGate(g) && evidence.passed.has(g.name));
-  const na = scopedOut.filter((g) => isLefthookGate(g) && !evidence.passed.has(g.name));
-  return [...green, ...na].map((g) => g.name).sort();
-}
-
 export function repoId(commonDir: string, toplevel: string): string {
   return `${basename(toplevel)}-${createHash('sha1').update(commonDir).digest('hex').slice(0, 10)}`;
-}
-
-function shortSha(sha: string): string {
-  return sha.slice(0, 12);
-}
-
-function tail(output: string): string {
-  return output.split('\n').slice(-TAIL_LINES).join('\n');
-}
-
-/** What one landing leaves behind for p50/p90 measurement: <state>/runs.jsonl, one line per run. */
-export interface Receipt {
-  release: () => void;
-  stateDir: string | null;
-  sha: string | null;
-  waitedSeconds: number;
-  /** sampleCommand output at lease time and at the end of the run (null when unset or before the lease). */
-  sampleStart: string | null;
-  sampleEnd: string | null;
-  steps: { name: string; seconds: number; ok: boolean }[];
-}
-
-interface Ctx {
-  deps: EngineDeps;
-  receipt: Receipt;
-  options: LandOptions;
-  config: LandConfig;
-  sourceRoot: string;
-  worktree: string;
-  stateDir: string;
-  logDir: string;
-}
-
-function baseEnv(ctx: Ctx): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = {
-    ...ctx.deps.env,
-    CI: '1',
-    NO_COLOR: '1',
-    CARGO_TERM_PROGRESS_WHEN: 'never',
-    GIT_TERMINAL_PROMPT: '0',
-    GIT_MERGE_AUTOEDIT: 'no',
-    ...ctx.config.env,
-  };
-  // Sanitize AFTER merging, so neither the ambient environment nor config.env can reintroduce them.
-  for (const key of Object.keys(env)) {
-    if (GIT_ENV_STRIP.test(key)) delete env[key];
-  }
-  for (const key of [...ENV_STRIP, ctx.config.markerEnv]) delete env[key];
-  const { cargoTargetDir } = ctx.config;
-  if (cargoTargetDir !== null) {
-    env.CARGO_TARGET_DIR = cargoTargetDir.startsWith('~/')
-      ? join(ctx.deps.env.HOME ?? '', cargoTargetDir.slice(2))
-      : cargoTargetDir;
-  }
-  // Bind every hook's diff base to the exact base this landing validated against, so an
-  // `affected` job cannot silently diff against another ref and still report green.
-  env.GIT_CONFIG_COUNT = '2';
-  env.GIT_CONFIG_KEY_0 = 'harness.hookBaseRemote';
-  env.GIT_CONFIG_VALUE_0 = ctx.config.remote;
-  env.GIT_CONFIG_KEY_1 = 'harness.hookBaseRef';
-  env.GIT_CONFIG_VALUE_1 = ctx.config.targetBranch;
-  return env;
-}
-
-/** Plumbing git: repo hooks are off so a checkout or reset never fires post-checkout tooling. Push and hook runs call deps.run directly. */
-async function git(ctx: Ctx, args: string[], cwd = ctx.worktree): Promise<RunResult> {
-  return ctx.deps.run('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
-    cwd,
-    env: baseEnv(ctx),
-  });
-}
-
-async function gitOut(ctx: Ctx, args: string[], cwd = ctx.worktree): Promise<string> {
-  const result = await git(ctx, args, cwd);
-  if (!succeeded(result)) {
-    throw new Abort(
-      `git ${args.join(' ')} failed (${describeExit(result)})\n${tail(result.output)}`,
-      EXIT.gate,
-    );
-  }
-  return result.output.trim();
 }
 
 async function runLogged(
@@ -279,42 +158,6 @@ async function waitForLoad(ctx: Ctx): Promise<void> {
     ctx.deps.log(`${reason}; waiting ${loadPollSeconds}s`);
     await ctx.deps.sleep(loadPollSeconds * 1000);
   }
-}
-
-async function fetchRemote(ctx: Ctx): Promise<void> {
-  const { remote, targetBranch } = ctx.config;
-  const attempts = 3;
-  let failure = '';
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const result = await git(ctx, ['fetch', '--prune', remote, targetBranch], ctx.sourceRoot);
-    if (succeeded(result)) return;
-    failure = `fetch ${remote} failed (${describeExit(result)})\n${tail(result.output)}`;
-    if (attempt < attempts) await ctx.deps.sleep(2000 * attempt);
-  }
-  throw new Abort(failure, EXIT.push);
-}
-
-const remoteTip = (ctx: Ctx): Promise<string> =>
-  gitOut(
-    ctx,
-    ['rev-parse', '--verify', `refs/remotes/${ctx.config.remote}/${ctx.config.targetBranch}`],
-    ctx.sourceRoot,
-  );
-
-async function ensureWorktree(ctx: Ctx, base: string): Promise<void> {
-  const healthy = ctx.deps.exists(join(ctx.worktree, '.git'))
-    ? succeeded(await git(ctx, ['rev-parse', 'HEAD']))
-    : false;
-  if (!healthy) {
-    ctx.deps.rmrf(ctx.worktree);
-    await git(ctx, ['worktree', 'prune'], ctx.sourceRoot);
-    ctx.deps.mkdirp(ctx.stateDir);
-    await gitOut(ctx, ['worktree', 'add', '--detach', ctx.worktree, base], ctx.sourceRoot);
-  }
-  await gitOut(ctx, ['checkout', '--detach', '--force', base]);
-  await gitOut(ctx, ['reset', '--hard', base]);
-  // -fd, never -x: ignored caches (node_modules, target/) are the point of a persistent worktree.
-  await gitOut(ctx, ['clean', '-fd']);
 }
 
 async function applyMerge(ctx: Ctx, target: string): Promise<void> {
@@ -473,7 +316,7 @@ export async function runLanes(lanes: Array<() => Promise<void>>, limit: number)
 }
 
 async function runCheck(ctx: Ctx, check: CheckConfig, vars: Vars): Promise<void> {
-  const cwd = check.cwd === 'source' ? ctx.sourceRoot : ctx.worktree;
+  const cwd = check.cwd === 'source' ? ctx.sourceRun : ctx.worktree;
   const command = expand(check.run, vars);
   let result = await runLogged(ctx, check.name, 'sh', ['-c', command], cwd);
   if (
@@ -502,6 +345,8 @@ async function bootstrapIfNeeded(ctx: Ctx, c: Classification, vars: Vars): Promi
 }
 
 interface Validated {
+  /** The commit the ref named. */
+  target: string;
   base: string;
   evidence: Evidence;
   scopedOut: GateConfig[];
@@ -562,7 +407,8 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   const c = classify(await changedFiles(ctx, base, sha), ctx.config);
   const { selected, scopedOut } = planGates(ctx.config, c);
   ctx.deps.log(describePlan(c, selected, scopedOut));
-  const vars = { base, head: sha, worktree: ctx.worktree, source: ctx.sourceRoot };
+  if (ctx.options.verify === true) await useCleanSource(ctx, base);
+  const vars = { base, head: sha, worktree: ctx.worktree, source: ctx.sourceRun };
   for (const check of ctx.config.earlyChecks) await runCheck(ctx, check, vars);
   await bootstrapIfNeeded(ctx, c, vars);
   const todo = selected.filter((g) => !evidence.passed.has(g.name));
@@ -571,14 +417,7 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   await runLanes(lanes, ctx.config.parallelGates);
   for (const check of ctx.config.checks) await runCheck(ctx, check, vars);
   await assertUnchanged(ctx, sha);
-  return { base, evidence, scopedOut };
-}
-
-function pushEnv(ctx: Ctx, sha: string, exclude: string[]): Record<string, string | undefined> {
-  const env = baseEnv(ctx);
-  env[ctx.config.markerEnv] = sha;
-  if (exclude.length > 0) env.LEFTHOOK_EXCLUDE = exclude.join(',');
-  return env;
+  return { target, base, evidence, scopedOut };
 }
 
 async function landed(ctx: Ctx, sha: string): Promise<boolean> {
@@ -666,6 +505,20 @@ async function runAttempts(ctx: Ctx): Promise<void> {
       prev = v.evidence;
       continue;
     }
+    await requirePushTools(ctx);
+    if (ctx.options.verify === true) {
+      await dryRunHooks(ctx, v, sha);
+      // Every gate with evidence on C, plus the early checks and checks, which all ran and passed
+      // to get here. Land requires each one its own reading of main's config makes applicable.
+      const ran = [...ctx.config.earlyChecks, ...ctx.config.checks].map((c) => c.name);
+      await recordPass(ctx, {
+        refSha: v.target,
+        c: sha,
+        base: v.base,
+        passed: [...new Set([...v.evidence.passed.keys(), ...ran])].sort(),
+      });
+      return;
+    }
     if (ctx.options.dryRun) {
       await dryRunHooks(ctx, v, sha);
       ctx.deps.log('dry-run: validated landing and exercised the pre-push guards; nothing pushed');
@@ -693,13 +546,13 @@ function failureCode(deps: EngineDeps, error: unknown): number {
   return error instanceof Abort ? error.code : EXIT.gate;
 }
 
-/** Everything between taking the lease and finishing; `hold.release` is set once the lease is held. */
-async function landHoldingLease(
+/** Resolve the source repo and its landing state; nothing is locked yet. */
+async function makeCtx(
   deps: EngineDeps,
   options: LandOptions,
   config: LandConfig,
   receipt: Receipt,
-): Promise<number> {
+): Promise<Ctx> {
   const seed = { deps, options, config } as Ctx;
   seed.logDir = '';
   const sourceRoot = await gitOut(seed, ['rev-parse', '--show-toplevel'], deps.cwd);
@@ -708,33 +561,158 @@ async function landHoldingLease(
     ['rev-parse', '--path-format=absolute', '--git-common-dir'],
     sourceRoot,
   );
-  const stateDir = join(deps.home, repoId(commonDir, sourceRoot));
+  const repoState = join(deps.home, repoId(commonDir, sourceRoot));
   const stamp = new Date(deps.now()).toISOString().replace(/[:.]/g, '-');
-  receipt.stateDir = stateDir;
-  const ctx: Ctx = {
+  receipt.stateDir = repoState;
+  return {
     deps,
     receipt,
     options,
     config,
     sourceRoot,
-    worktree: join(stateDir, 'worktree'),
-    stateDir,
-    logDir: join(stateDir, 'logs', stamp),
+    sourceRun: sourceRoot,
+    repoState,
+    worktree: join(repoState, 'worktree'),
+    stateDir: repoState,
+    logDir: join(repoState, 'logs', stamp),
   };
-  for (const check of config.preflight)
-    await runCheck(ctx, check, { base: '', head: '', worktree: '', source: sourceRoot });
+}
+
+/**
+ * Verify runs every `cwd: source` step (preflight, early checks, checks, gates) from a clean
+ * slot-owned checkout of B, never the invoking checkout: a local edit to a source-run script cannot
+ * change what a pass says ran. It holds no ignored caches, so such steps must not need them.
+ */
+async function useCleanSource(ctx: Ctx, base: string): Promise<void> {
+  const dir = join(ctx.stateDir, 'source');
+  await ensureCheckout(ctx, dir, base);
+  ctx.sourceRun = dir;
+}
+
+async function runPreflight(ctx: Ctx): Promise<void> {
+  for (const check of ctx.config.preflight)
+    await runCheck(ctx, check, { base: '', head: '', worktree: '', source: ctx.sourceRun });
+}
+
+/** Today's land: under the lease, gate the ref on fresh main in the landing worktree, then push (or dry-run). */
+async function fullLand(ctx: Ctx): Promise<number> {
+  const { deps, options, config, receipt } = ctx;
+  receipt.stage = 'full';
+  await runPreflight(ctx);
   const queuedAt = deps.now();
   const handle = await acquireLock(
     deps.lock,
-    { pid: process.pid, repo: sourceRoot, ref: options.ref, user: deps.user() },
+    { pid: process.pid, repo: ctx.sourceRoot, ref: options.ref, user: deps.user() },
     (options.waitSeconds ?? config.lockWaitMaxSeconds) * 1000,
   );
   receipt.release = () => handle.release();
+  // Second line of defence behind the lease: if a live holder was ever wrongly reaped, a second
+  // land refuses at once instead of resetting a worktree another land is gating in.
+  const worktreeGuard = await guardWorktree(
+    ctx,
+    ctx.stateDir,
+    ctx.worktree,
+    'landing',
+    '; refusing a second land on it',
+  );
+  receipt.release = () => {
+    worktreeGuard.release();
+    handle.release();
+  };
   receipt.sampleStart = await samplePressure(deps, config);
   await waitForLoad(ctx);
   receipt.waitedSeconds = Math.round((deps.now() - queuedAt) / 1000);
   await runAttempts(ctx);
   return EXIT.ok;
+}
+
+/**
+ * `just verify`: the full land's gates and pre-push dry run, minus the push, in a verification
+ * worktree of its own (never the lease), so several refs can verify at once. Records a pass.
+ */
+async function verifyRun(ctx: Ctx): Promise<number> {
+  const { deps, config, receipt } = ctx;
+  receipt.stage = 'verify';
+  // Fail before any gate when this checkout would judge the ref by rules main does not hold.
+  await fetchRemote(ctx);
+  const tip = await remoteTip(ctx);
+  await assertLandFilesMatch(ctx, tip);
+  const queuedAt = deps.now();
+  await acquireVerifySlot(ctx);
+  await useCleanSource(ctx, tip);
+  await runPreflight(ctx);
+  receipt.sampleStart = await samplePressure(deps, config);
+  await waitForLoad(ctx);
+  receipt.waitedSeconds = Math.round((deps.now() - queuedAt) / 1000);
+  await runAttempts(ctx);
+  return EXIT.ok;
+}
+
+/**
+ * Land from a current pass, run entirely under main's validated config (pushRequires, lefthook,
+ * marker, remote, guards), and only from a checkout whose land config and engine are main's: the
+ * same rule verify applies, so a weakened local config can never ride a valid pass.
+ */
+async function landFromPass(
+  ctx: Ctx,
+  verdict: Extract<PassVerdict, { kind: 'current' }>,
+): Promise<FastOutcome> {
+  const { pass } = verdict;
+  if (!(await landFilesMatch(ctx, pass.B))) {
+    return {
+      stale: "this checkout's land config or engine differs from main's (rebase, or restore them)",
+    };
+  }
+  ctx.config = verdict.config;
+  const provision = async (): Promise<void> => {
+    const { bootstrap } = ctx.config;
+    if (bootstrap === null) return;
+    const vars = { base: pass.B, head: pass.C, worktree: ctx.worktree, source: ctx.sourceRoot };
+    await runCheck(ctx, { name: 'bootstrap', run: bootstrap.run, cwd: 'worktree' }, vars);
+    ctx.deps.writeFile(join(ctx.stateDir, 'bootstrapped'), `${ctx.deps.now()}\n`);
+  };
+  return fastLand(ctx, pass, verdict.exclude, provision);
+}
+
+/** `just land`: a current pass lands in seconds; otherwise say why, then the full land (or refuse with --require-pass). */
+async function landFromPassOrFull(ctx: Ctx): Promise<number> {
+  const { deps, options, receipt } = ctx;
+  const verdict = await passVerdict(ctx);
+  let reason: string;
+  if (verdict.kind === 'landed') {
+    receipt.stage = 'land';
+    receipt.sha = verdict.pass.C;
+    deps.log(
+      `already landed: ${shortSha(verdict.pass.C)} (verified from ${shortSha(verdict.pass.ref_sha)}) is on ${ctx.config.remote}/${ctx.config.targetBranch}; nothing pushed`,
+    );
+    return EXIT.ok;
+  }
+  if (verdict.kind === 'current') {
+    const outcome = await landFromPass(ctx, verdict);
+    if (typeof outcome === 'number') return outcome;
+    reason = outcome.stale;
+  } else {
+    reason = verdict.reason;
+  }
+  const line = `not verified on current main: ${reason}; run just verify ${options.ref}`;
+  if (options.requirePass === true) {
+    deps.error(`${line} (--require-pass: refusing the full land)`);
+    return EXIT.unverified;
+  }
+  deps.log(`${line}. Falling back to the full gated land.`);
+  return fullLand(ctx);
+}
+
+async function dispatch(
+  deps: EngineDeps,
+  options: LandOptions,
+  config: LandConfig,
+  receipt: Receipt,
+): Promise<number> {
+  const ctx = await makeCtx(deps, options, config, receipt);
+  if (options.verify === true) return verifyRun(ctx);
+  if (options.dryRun) return fullLand(ctx);
+  return landFromPassOrFull(ctx);
 }
 
 /** One-line output of the configured sampler, or a note on why there is none. Never throws, never gates. */
@@ -760,10 +738,13 @@ function recordRun(
   const line = JSON.stringify({
     at: new Date(startedAt).toISOString(),
     ref: options.ref,
+    stage: receipt.stage,
+    ...(receipt.confirm === undefined ? {} : { confirm: receipt.confirm }),
     dryRun: options.dryRun,
     sha: receipt.sha,
     exit,
-    totalSeconds: Math.round((deps.now() - startedAt) / 1000),
+    // Hundredths: a land from a pass takes seconds, and whole seconds would hide its budget.
+    totalSeconds: Math.round((deps.now() - startedAt) / 10) / 100,
     waitedSeconds: receipt.waitedSeconds,
     sampleStart: receipt.sampleStart,
     sampleEnd: receipt.sampleEnd,
@@ -788,17 +769,22 @@ export async function land(
   const receipt: Receipt = {
     release: () => undefined,
     stateDir: null,
+    stage: 'full',
+    startedAt,
     sha: null,
     waitedSeconds: 0,
     sampleStart: null,
     sampleEnd: null,
     steps: [],
   };
-  const code = await landHoldingLease(deps, options, config, receipt).catch((error: unknown) =>
+  const code = await dispatch(deps, options, config, receipt).catch((error: unknown) =>
     failureCode(deps, error),
   );
   receipt.release();
-  receipt.sampleEnd = receipt.stateDir === null ? null : await samplePressure(deps, config);
+  // The pressure sample explains slow gates; a land from a pass runs none, and the sampler itself
+  // can take a second (iostat), which would be a fifth of that land's budget.
+  const sampled = receipt.stateDir !== null && receipt.stage !== 'land';
+  receipt.sampleEnd = sampled ? await samplePressure(deps, config) : null;
   recordRun(deps, options, receipt, code, startedAt);
   return code;
 }
