@@ -65,7 +65,10 @@ export function coverageTargetDir(root: string): string {
   return join(root, 'target', 'coverage-isolated');
 }
 
-interface RustLane {
+/** The cargo profile every Rust coverage lane builds and measures with. */
+export const COVERAGE_PROFILE = 'cov';
+
+export interface RustLane {
   manifestPath: string;
   packageName: string;
   /** CLI shell binary to prebuild so --lib coverage still ships a runnable bin. */
@@ -122,7 +125,7 @@ export const SENSORS_COVERAGE_FLOOR = {
   functions: 62,
 } as const;
 
-function rustLaneCommands(lane: RustLane, root: string): CoverageCommand[] {
+export function rustLaneCommands(lane: RustLane, root: string): CoverageCommand[] {
   const env = { CARGO_TARGET_DIR: coverageTargetDir(root), CARGO_INCREMENTAL: '0' };
   const commands: CoverageCommand[] = [];
   if (lane.prebuildBin) {
@@ -135,7 +138,7 @@ function rustLaneCommands(lane: RustLane, root: string): CoverageCommand[] {
         '--bin',
         lane.prebuildBin,
         '--profile',
-        'cov',
+        COVERAGE_PROFILE,
       ],
       env,
     });
@@ -147,7 +150,7 @@ function rustLaneCommands(lane: RustLane, root: string): CoverageCommand[] {
     '--package',
     lane.packageName,
     '--profile',
-    'cov',
+    COVERAGE_PROFILE,
   ];
   if (lane.libOnly) {
     args.push('--lib');
@@ -199,19 +202,55 @@ function sensorsCommands(): CoverageCommand[] {
   ];
 }
 
-const LANE_COMMANDS: Record<CoverageLane, (root: string) => CoverageCommand[]> = {
-  rust: (root) => [
-    ...rustLaneCommands(RUST_LANES['example-rust'], root),
-    ...rustLaneCommands(RUST_LANES['doc-validator'], root),
-    ...rustLaneCommands(RUST_LANES.versioning, root),
-  ],
-  'example-rust': (root) => rustLaneCommands(RUST_LANES['example-rust'], root),
-  'doc-validator': (root) => rustLaneCommands(RUST_LANES['doc-validator'], root),
-  versioning: (root) => rustLaneCommands(RUST_LANES.versioning, root),
-  py: () => pythonCommands(),
-  sensors: () => sensorsCommands(),
+/** The Rust lanes each coverage lane runs, in order ([] for the non-Rust lanes). */
+const RUST_LANES_OF: Record<CoverageLane, RustLane[]> = {
+  rust: [RUST_LANES['example-rust'], RUST_LANES['doc-validator'], RUST_LANES.versioning],
+  'example-rust': [RUST_LANES['example-rust']],
+  'doc-validator': [RUST_LANES['doc-validator']],
+  versioning: [RUST_LANES.versioning],
+  py: [],
+  sensors: [],
 };
 
 export function commandsForLane(lane: CoverageLane, root: string): CoverageCommand[] {
-  return LANE_COMMANDS[lane](root);
+  if (lane === 'py') return pythonCommands();
+  if (lane === 'sensors') return sensorsCommands();
+  return RUST_LANES_OF[lane].flatMap((rust) => rustLaneCommands(rust, root));
+}
+
+/**
+ * Commands that clear what earlier coverage runs left in coverageTargetDir() for one Rust lane, so
+ * a reused worktree cannot measure objects built from older source (a stale object once read 85%
+ * against a real 99.9%). `cargo llvm-cov clean --workspace` drops the profraw and profdata but
+ * only the dev and release objects; the lanes build with `--profile cov`, whose objects in
+ * `llvm-cov-target/cov` only `cargo clean --profile cov` removes. Both are scoped to the lane's
+ * workspace members, so dependencies stay built.
+ */
+export function rustCleanCommands(
+  lane: Pick<RustLane, 'manifestPath'>,
+  root: string,
+): CoverageCommand[] {
+  const env = { CARGO_TARGET_DIR: coverageTargetDir(root) };
+  const manifest = ['--manifest-path', lane.manifestPath];
+  return [
+    { command: 'cargo', args: ['llvm-cov', 'clean', '--workspace', ...manifest], env },
+    {
+      command: 'cargo',
+      args: [
+        'clean',
+        '--workspace',
+        ...manifest,
+        '--profile',
+        COVERAGE_PROFILE,
+        '--target-dir',
+        join(coverageTargetDir(root), 'llvm-cov-target'),
+      ],
+      env,
+    },
+  ];
+}
+
+/** The clean commands for every Rust lane `lane` runs ([] for the non-Rust lanes). */
+export function cleanCommandsForLane(lane: CoverageLane, root: string): CoverageCommand[] {
+  return RUST_LANES_OF[lane].flatMap((rust) => rustCleanCommands(rust, root));
 }

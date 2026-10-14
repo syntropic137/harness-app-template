@@ -37,7 +37,7 @@
   "prepare": [
     {
       "name": "llvm-cov-clean",
-      "run": "command -v cargo-llvm-cov >/dev/null 2>&1 || exit 0; for m in ws_apps/example-rust/Cargo.toml harness/doc-validator/Cargo.toml harness/versioning/Cargo.toml; do CARGO_TARGET_DIR=\"$PWD/target/coverage-isolated\" cargo llvm-cov clean --workspace --manifest-path \"$m\" || exit 1; done",
+      "run": "bun run scripts/coverage-clean.ts rust",
       "when": ["rust"]
     }
   ],
