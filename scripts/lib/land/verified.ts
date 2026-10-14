@@ -531,6 +531,21 @@ function upToDate(output: string, targetBranch: string): boolean {
     .some((l) => l.startsWith('=') && l.includes(`refs/heads/${targetBranch}`));
 }
 
+const PORCELAIN_FLAGS: Readonly<Record<string, 'pushed' | 'up-to-date'>> = {
+  ' ': 'pushed',
+  '+': 'pushed',
+  '*': 'pushed',
+  '=': 'up-to-date',
+};
+
+/** The porcelain report lines whose destination is `target` (`:refs/heads/<branch>`). */
+function reportsFor(lines: string[], target: string): string[] {
+  // The flag pattern requires a tab, so the second field always exists.
+  return lines.filter(
+    (l) => /^[ +*=!-]\t/.test(l) && (l.split('\t')[1] as string).endsWith(target),
+  );
+}
+
 /**
  * The remote's verdict on pushing C to the target, from `git push --porcelain`, trusted only when
  * unambiguous: the push exited 0 on its own (not signal-killed), reported `Done`, and has exactly
@@ -542,16 +557,157 @@ export function porcelainOutcome(
   c: string,
   targetBranch: string,
 ): 'pushed' | 'up-to-date' | 'unclear' {
-  if (result.signal !== null || result.status !== 0) return 'unclear';
+  if (!succeeded(result)) return 'unclear';
   const lines = result.output.split('\n').map((l) => l.replace(/\r$/, ''));
   if (!lines.some((l) => l.trim() === 'Done')) return 'unclear';
   const target = `:refs/heads/${targetBranch}`;
-  const refLines = lines.filter((l) => /^[ +*=!-]\t/.test(l) && l.split('\t')[1]?.endsWith(target));
-  if (refLines.length !== 1) return 'unclear';
-  const [flag, spec = ''] = (refLines[0] as string).split('\t');
+  const reports = reportsFor(lines, target);
+  const [flag = '', spec = ''] = reports.length === 1 ? (reports[0] as string).split('\t') : [];
   if (spec !== `${c}${target}`) return 'unclear';
-  if (flag === '=') return 'up-to-date';
-  return flag === ' ' || flag === '+' || flag === '*' ? 'pushed' : 'unclear';
+  return PORCELAIN_FLAGS[flag] ?? 'unclear';
+}
+
+/** Give up the lease and worktree, and call the pass stale for `why`. */
+function staleAfterLease(ctx: Ctx, why: string): FastOutcome {
+  releaseAll(ctx);
+  return { stale: why };
+}
+
+/**
+ * M is the tip passVerdict just fetched and judged equal to B. When this run had to wait for the
+ * lease, another lander may have pushed meanwhile: look again before pushing. Uncontended, the
+ * compare-and-swap push and the up-to-date check below cover the race without a second fetch.
+ * Returns M to push onto, or the outcome when there is nothing to push.
+ */
+async function mainUnderLease(
+  ctx: Ctx,
+  pass: PassRecord,
+  contended: boolean,
+): Promise<string | FastOutcome> {
+  const { remote, targetBranch } = ctx.config;
+  const main = contended
+    ? await timed(ctx, 'fetch', async () => {
+        await fetchRemote(ctx);
+        return remoteTip(ctx);
+      })
+    : pass.B;
+  if (contended && (await isAncestor(ctx, pass.C, main))) {
+    ctx.deps.log(
+      `already landed: ${shortSha(pass.C)} is on ${remote}/${targetBranch} (another lander got there first); nothing pushed`,
+    );
+    return EXIT.ok;
+  }
+  if (main !== pass.B) {
+    return staleAfterLease(
+      ctx,
+      `main moved while waiting for the lease (verified on ${shortSha(pass.B)}, main is ${shortSha(main)})`,
+    );
+  }
+  // Verify builds C on B, so only a forged record fails this; a force-with-lease push of such a C
+  // would rewrite main instead of extending it.
+  if (!(await isAncestor(ctx, main, pass.C))) {
+    return staleAfterLease(
+      ctx,
+      `the verified commit ${shortSha(pass.C)} does not descend from main ${shortSha(main)}`,
+    );
+  }
+  return main;
+}
+
+/** Check out C and require the guards and the verified hook config here; a reason when stale. */
+async function prepareCheckout(
+  ctx: Ctx,
+  pass: PassRecord,
+  provision: () => Promise<void>,
+): Promise<FastOutcome | null> {
+  await timed(ctx, 'checkout', () => ensureWorktree(ctx, pass.C));
+  await timed(ctx, 'guards', () => requireGuards(ctx, provision));
+  // The hooks that run on this push are lefthook's merged view here: it must be the one verified.
+  const here = await timed(ctx, 'hooks', () => effectiveHooksHere(ctx));
+  if ('problem' in here) return staleAfterLease(ctx, here.problem);
+  if (here.key !== pass.hooks_key) {
+    return staleAfterLease(
+      ctx,
+      'the effective lefthook config here (lefthook dump) is not the one verified',
+    );
+  }
+  return null;
+}
+
+/** Push exactly C onto M with a compare-and-swap, the marker and the evidence-derived exclusions. */
+function pushVerified(
+  ctx: Ctx,
+  pass: PassRecord,
+  main: string,
+  exclude: string[],
+): Promise<RunResult> {
+  const { remote, targetBranch } = ctx.config;
+  assertNoLocalHookOverrides(ctx);
+  return timed(ctx, 'push', () =>
+    ctx.deps.run(
+      'git',
+      [
+        'push',
+        '--porcelain',
+        `--force-with-lease=refs/heads/${targetBranch}:${main}`,
+        remote,
+        `${pass.C}:refs/heads/${targetBranch}`,
+      ],
+      {
+        cwd: ctx.worktree,
+        env: pushEnv(ctx, pass.C, exclude),
+        onLine: (l) => ctx.deps.log(`  [push] ${l}`),
+      },
+    ),
+  );
+}
+
+/** Report a landing the remote's own porcelain report settles; null when it is unclear. */
+function reportedOutcome(ctx: Ctx, pass: PassRecord, result: RunResult): FastOutcome | null {
+  const { remote, targetBranch } = ctx.config;
+  const reported = porcelainOutcome(result, pass.C, targetBranch);
+  if (reported === 'unclear') return null;
+  ctx.receipt.confirm = 'porcelain';
+  ctx.deps.log(
+    reported === 'pushed'
+      ? `LANDED ${pass.C} on ${remote}/${targetBranch} (from pass record, no gates re-run)`
+      : `already landed: ${remote}/${targetBranch} already had ${shortSha(pass.C)}; this push moved nothing (another lander got there first)`,
+  );
+  return EXIT.ok;
+}
+
+/** The push's own status is a claim; origin containing C is the fact (C5). */
+async function fetchedOutcome(
+  ctx: Ctx,
+  pass: PassRecord,
+  main: string,
+  result: RunResult,
+): Promise<FastOutcome> {
+  const { remote, targetBranch } = ctx.config;
+  ctx.receipt.confirm = 'fetched';
+  const tip = await timed(ctx, 'confirm', async () => {
+    await fetchRemote(ctx);
+    return remoteTip(ctx);
+  });
+  if (await isAncestor(ctx, pass.C, tip)) {
+    const moved = succeeded(result) && !upToDate(result.output, targetBranch);
+    ctx.deps.log(
+      moved
+        ? `LANDED ${pass.C} on ${remote}/${targetBranch} (from pass record, no gates re-run)`
+        : `already landed: ${remote}/${targetBranch} contains ${shortSha(pass.C)} and this push moved nothing (${describeExit(result)}; another lander got there first)`,
+    );
+    return EXIT.ok;
+  }
+  if (tip !== main) {
+    return staleAfterLease(
+      ctx,
+      `main moved before the push (compare-and-swap on ${shortSha(main)} rejected; main is ${shortSha(tip)})`,
+    );
+  }
+  throw new Abort(
+    `push failed (${describeExit(result)}) and ${remote}/${targetBranch} does not contain ${shortSha(pass.C)}\n${tail(result.output)}`,
+    EXIT.push,
+  );
 }
 
 /**
@@ -565,114 +721,19 @@ export async function fastLand(
   exclude: string[],
   provision: () => Promise<void>,
 ): Promise<FastOutcome> {
-  const { deps, config, receipt } = ctx;
-  const { remote, targetBranch } = config;
-  receipt.stage = 'land';
-  receipt.sha = pass.C;
+  const { remote, targetBranch } = ctx.config;
+  ctx.receipt.stage = 'land';
+  ctx.receipt.sha = pass.C;
   const contended = await timed(ctx, 'lease', () => takeLeaseAndWorktree(ctx));
-  // M is the tip passVerdict just fetched and judged equal to B. When this run had to wait for the
-  // lease, another lander may have pushed meanwhile: look again before pushing. Uncontended, the
-  // compare-and-swap push and the up-to-date check below cover the race without a second fetch.
-  let main = pass.B;
-  if (contended) {
-    main = await timed(ctx, 'fetch', async () => {
-      await fetchRemote(ctx);
-      return remoteTip(ctx);
-    });
-    if (await isAncestor(ctx, pass.C, main)) {
-      deps.log(
-        `already landed: ${shortSha(pass.C)} is on ${remote}/${targetBranch} (another lander got there first); nothing pushed`,
-      );
-      return EXIT.ok;
-    }
-  }
-  if (main !== pass.B) {
-    releaseAll(ctx);
-    return {
-      stale: `main moved while waiting for the lease (verified on ${shortSha(pass.B)}, main is ${shortSha(main)})`,
-    };
-  }
-  // Verify builds C on B, so only a forged record fails this; a force-with-lease push of such a C
-  // would rewrite main instead of extending it.
-  if (!(await isAncestor(ctx, main, pass.C))) {
-    releaseAll(ctx);
-    return {
-      stale: `the verified commit ${shortSha(pass.C)} does not descend from main ${shortSha(main)}`,
-    };
-  }
-  await timed(ctx, 'checkout', () => ensureWorktree(ctx, pass.C));
-  await timed(ctx, 'guards', () => requireGuards(ctx, provision));
-  // The hooks that run on this push are lefthook's merged view here: it must be the one verified.
-  const here = await timed(ctx, 'hooks', () => effectiveHooksHere(ctx));
-  if ('problem' in here || here.key !== pass.hooks_key) {
-    releaseAll(ctx);
-    return {
-      stale:
-        'problem' in here
-          ? here.problem
-          : 'the effective lefthook config here (lefthook dump) is not the one verified',
-    };
-  }
-  deps.log(
+  const main = await mainUnderLease(ctx, pass, contended);
+  if (typeof main !== 'string') return main;
+  const prepared = await prepareCheckout(ctx, pass, provision);
+  if (prepared !== null) return prepared;
+  ctx.deps.log(
     `landing verified ${shortSha(pass.C)} onto ${remote}/${targetBranch} ${shortSha(main)} (jobs skipped, verified on this SHA: ${exclude.join(',') || 'none'})`,
   );
-  assertNoLocalHookOverrides(ctx);
-  const result = await timed(ctx, 'push', () =>
-    deps.run(
-      'git',
-      [
-        'push',
-        '--porcelain',
-        `--force-with-lease=refs/heads/${targetBranch}:${main}`,
-        remote,
-        `${pass.C}:refs/heads/${targetBranch}`,
-      ],
-      {
-        cwd: ctx.worktree,
-        env: pushEnv(ctx, pass.C, exclude),
-        onLine: (l) => deps.log(`  [push] ${l}`),
-      },
-    ),
-  );
+  const result = await pushVerified(ctx, pass, main, exclude);
   // The remote's own per-ref report, from a push that exited 0 on its own, is the observation (C5)
   // and saves a round trip. Anything less clear fetches and checks ancestry.
-  const reported = porcelainOutcome(result, pass.C, targetBranch);
-  if (reported !== 'unclear') {
-    receipt.confirm = 'porcelain';
-    if (reported === 'pushed') {
-      deps.log(`LANDED ${pass.C} on ${remote}/${targetBranch} (from pass record, no gates re-run)`);
-    } else {
-      deps.log(
-        `already landed: ${remote}/${targetBranch} already had ${shortSha(pass.C)}; this push moved nothing (another lander got there first)`,
-      );
-    }
-    return EXIT.ok;
-  }
-  receipt.confirm = 'fetched';
-  // The push's own status is a claim; origin containing C is the fact (C5).
-  const tip = await timed(ctx, 'confirm', async () => {
-    await fetchRemote(ctx);
-    return remoteTip(ctx);
-  });
-  const onMain = await isAncestor(ctx, pass.C, tip);
-  if (onMain && succeeded(result) && !upToDate(result.output, targetBranch)) {
-    deps.log(`LANDED ${pass.C} on ${remote}/${targetBranch} (from pass record, no gates re-run)`);
-    return EXIT.ok;
-  }
-  if (onMain) {
-    deps.log(
-      `already landed: ${remote}/${targetBranch} contains ${shortSha(pass.C)} and this push moved nothing (${describeExit(result)}; another lander got there first)`,
-    );
-    return EXIT.ok;
-  }
-  if (tip !== main) {
-    releaseAll(ctx);
-    return {
-      stale: `main moved before the push (compare-and-swap on ${shortSha(main)} rejected; main is ${shortSha(tip)})`,
-    };
-  }
-  throw new Abort(
-    `push failed (${describeExit(result)}) and ${remote}/${targetBranch} does not contain ${shortSha(pass.C)}\n${tail(result.output)}`,
-    EXIT.push,
-  );
+  return reportedOutcome(ctx, pass, result) ?? fetchedOutcome(ctx, pass, main, result);
 }

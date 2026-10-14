@@ -71,25 +71,36 @@ const FLAG_SETTERS: Record<string, (options: LandOptions) => void> = {
   },
 };
 
-const VALUE_FLAGS = new Set(['--mode', '--message', '--wait', '--pass-from']);
 const REMOTE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-function applyValue(options: LandOptions, arg: string, value: string): Failure | null {
-  if (arg === '--pass-from') {
+/** Value flags: each validates and stores its value, or says why it is invalid. */
+const VALUE_SETTERS: Record<string, (options: LandOptions, value: string) => Failure | null> = {
+  '--pass-from': (o, value) => {
     if (!REMOTE_NAME.test(value)) return bad(`invalid --pass-from remote ${value}`);
-    options.passFrom = value;
-  } else if (arg === '--message') {
-    options.message = value;
-  } else if (arg === '--wait') {
+    o.passFrom = value;
+    return null;
+  },
+  '--message': (o, value) => {
+    o.message = value;
+    return null;
+  },
+  '--wait': (o, value) => {
     const seconds = Number(value);
     if (!Number.isFinite(seconds) || seconds < 0) return bad(`invalid --wait ${value}`);
-    options.waitSeconds = seconds;
-  } else if (MODES.has(value)) {
-    options.mode = value as LandMode;
-  } else {
-    return bad(`invalid --mode ${value}`);
-  }
-  return null;
+    o.waitSeconds = seconds;
+    return null;
+  },
+  '--mode': (o, value) => {
+    if (!MODES.has(value)) return bad(`invalid --mode ${value}`);
+    o.mode = value as LandMode;
+    return null;
+  },
+};
+
+const VALUE_FLAGS = new Set(Object.keys(VALUE_SETTERS));
+
+function applyValue(options: LandOptions, arg: string, value: string): Failure | null {
+  return (VALUE_SETTERS[arg] as (o: LandOptions, v: string) => Failure | null)(options, value);
 }
 
 function parseValueFlag(
@@ -125,6 +136,16 @@ function parseStep(argv: readonly string[], i: number, options: LandOptions): nu
     : parsePositional(arg, i, options);
 }
 
+/** Option combinations that are refused, each with its message. */
+const OPTION_RULES: ReadonlyArray<readonly [(o: LandOptions) => boolean, string]> = [
+  [(o) => o.message !== null && o.mode !== 'merge', '--message is only valid with --mode merge'],
+  [(o) => o.verify === true && o.dryRun, '--dry-run does not apply to verify: verify never pushes'],
+  [
+    (o) => (o.requirePass === true || o.passFrom !== undefined) && (o.verify === true || o.dryRun),
+    '--require-pass and --pass-from apply to a real land only',
+  ],
+];
+
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const options: LandOptions = {
     ref: '',
@@ -140,14 +161,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     i = next;
   }
   if (options.ref === '') return bad(USAGE);
-  if (options.message !== null && options.mode !== 'merge')
-    return bad('--message is only valid with --mode merge');
-  if (options.verify === true && options.dryRun)
-    return bad('--dry-run does not apply to verify: verify never pushes');
-  const landOnly = options.requirePass === true || options.passFrom !== undefined;
-  if (landOnly && (options.verify === true || options.dryRun))
-    return bad('--require-pass and --pass-from apply to a real land only');
-  return { ok: true, options };
+  const broken = OPTION_RULES.find(([invalid]) => invalid(options));
+  return broken === undefined ? { ok: true, options } : bad(broken[1]);
 }
 
 export function landHome(env: Record<string, string | undefined>, home: string): string {
