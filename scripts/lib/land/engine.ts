@@ -343,6 +343,17 @@ async function runCheck(ctx: Ctx, check: CheckConfig, vars: Vars): Promise<void>
   }
 }
 
+/**
+ * Prepare steps run on every land and verify, before anything reads the worktree: a reused
+ * persistent worktree keeps what earlier runs left in its ignored build dirs (bead nlqj9: a stale
+ * coverage object from older source changed a coverage reading).
+ */
+async function runPrepare(ctx: Ctx, c: Classification, vars: Vars): Promise<void> {
+  for (const step of ctx.config.prepare.filter((s) => gateApplies(s.when, c))) {
+    await runCheck(ctx, step, vars);
+  }
+}
+
 async function bootstrapIfNeeded(ctx: Ctx, c: Classification, vars: Vars): Promise<void> {
   const { bootstrap } = ctx.config;
   if (bootstrap === null || !ctx.options.bootstrap) return;
@@ -419,6 +430,7 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   ctx.deps.log(describePlan(c, selected, scopedOut));
   if (ctx.options.verify === true) await useCleanSource(ctx, base);
   const vars = { base, head: sha, worktree: ctx.worktree, source: ctx.sourceRun };
+  await runPrepare(ctx, c, vars);
   for (const check of ctx.config.earlyChecks) await runCheck(ctx, check, vars);
   await bootstrapIfNeeded(ctx, c, vars);
   assertNoLocalHookOverrides(ctx); // the bootstrap may have written one

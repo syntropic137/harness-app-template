@@ -30,6 +30,11 @@ export interface CheckConfig {
   retryOnOutput?: string;
 }
 
+/** A prepare step: a check that runs only when its scopes apply (omit `when` to always run). */
+export interface PrepareConfig extends CheckConfig {
+  when?: string[];
+}
+
 export interface LandConfig {
   remote: string;
   targetBranch: string;
@@ -67,6 +72,12 @@ export interface LandConfig {
   preflight: CheckConfig[];
   /** Checks that run once the plan is printed, before bootstrap and any gate, so a doomed landing fails before it spends minutes. */
   earlyChecks: CheckConfig[];
+  /**
+   * Steps run in the worktree once the ref is applied, before any check or gate, on every land and
+   * verify (a persistent worktree is reused, so what a previous run left in its ignored build dirs
+   * stays): for example cleaning stale coverage objects. `when` scopes them like a gate.
+   */
+  prepare: PrepareConfig[];
   gates: GateConfig[];
   checks: CheckConfig[];
   env: Record<string, string>;
@@ -100,6 +111,7 @@ export const DEFAULT_CONFIG: LandConfig = {
   bootstrap: null,
   preflight: [],
   earlyChecks: [],
+  prepare: [],
   gates: [],
   checks: [],
   env: {},
@@ -213,6 +225,13 @@ function parseCheck(raw: unknown, label: string): CheckConfig {
   return check;
 }
 
+function parsePrepare(raw: unknown, label: string): PrepareConfig {
+  const step: PrepareConfig = parseCheck(raw, label);
+  const when = (raw as Record<string, unknown>).when;
+  if (when !== undefined) step.when = requireStringArray(when, `${label}.when`);
+  return step;
+}
+
 function parseList<T>(raw: unknown, label: string, parse: (v: unknown, l: string) => T): T[] {
   if (!Array.isArray(raw)) return fail(`${label} must be an array`);
   return raw.map((item, i) => parse(item, `${label}[${i}]`));
@@ -278,6 +297,9 @@ const PARSERS: Record<string, Parser> = {
   },
   earlyChecks: (c, v) => {
     c.earlyChecks = parseList(v, 'earlyChecks', parseCheck);
+  },
+  prepare: (c, v) => {
+    c.prepare = parseList(v, 'prepare', parsePrepare);
   },
   gates: (c, v) => {
     c.gates = parseList(v, 'gates', parseGate);

@@ -738,4 +738,48 @@ describe('land v2 finish: shared landing state, prepare steps', () => {
     expect(slots).toHaveLength(2);
     expect(slots[0]?.split(' ')[2]).toBe(slots[1]?.split(' ')[2]); // the same warm slot, reused
   });
+
+  /** A coverage-like gate whose reading goes wrong when an object from an earlier run is left behind. */
+  const coverage = {
+    name: 'cov',
+    run: 'if [ -f target/cov/stale.o ]; then echo "coverage 85% (stale object)"; exit 1; fi; mkdir -p target/cov && touch target/cov/stale.o && echo "coverage 99.9%"',
+    when: ['rust'],
+  };
+
+  test('without a prepare step, a stale object left in a reused slot changes the coverage reading', async () => {
+    const f = await setup();
+    await f.commit(f.src, '.gitignore', 'target/\n');
+    await sh(f.src, 'git push -q origin HEAD:main');
+    await branch(f, 'crates/x.rs');
+    const config = f.config({ gates: [coverage], verifySlots: 1 });
+    expect(await land(f.deps, VERIFY, config)).toBe(EXIT.ok);
+    await sh(f.src, 'git checkout -q -B feat2 main');
+    await f.commit(f.src, 'crates/y.rs');
+    await sh(f.src, 'git checkout -q main');
+    expect(await land(f.deps, { ...VERIFY, ref: 'feat2' }, config)).toBe(EXIT.gate);
+    expect(f.logs.join('\n')).toMatch(/coverage 85% \(stale object\)/);
+  });
+
+  test('a prepare step cleans the reused slot first, so the stale object cannot change the reading (nlqj9)', async () => {
+    const f = await setup();
+    await f.commit(f.src, '.gitignore', 'target/\n');
+    await sh(f.src, 'git push -q origin HEAD:main');
+    await branch(f, 'crates/x.rs');
+    const config = f.config({
+      gates: [coverage],
+      verifySlots: 1,
+      prepare: [
+        { name: 'cov-clean', run: 'rm -rf target/cov', when: ['rust'] },
+        { name: 'docs-only', run: 'echo docs >> "$FAKE_STATE/prepare.log"', when: ['docs'] },
+      ],
+    });
+    expect(await land(f.deps, VERIFY, config)).toBe(EXIT.ok);
+    await sh(f.src, 'git checkout -q -B feat2 main');
+    await f.commit(f.src, 'crates/y.rs');
+    await sh(f.src, 'git checkout -q main');
+    expect(await land(f.deps, { ...VERIFY, ref: 'feat2' }, config)).toBe(EXIT.ok);
+    expect(f.logs.join('\n')).not.toMatch(/stale object/);
+    expect(f.logs.filter((l) => l.startsWith('PASS cov-clean'))).toHaveLength(2);
+    expect(f.logs.some((l) => l.startsWith('PASS docs-only'))).toBe(false); // scoped out for rust
+  });
 });
