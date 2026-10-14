@@ -43,9 +43,9 @@
     { "name": "doc-validator", "when": ["docs"] },
     { "name": "perf-gate", "when": ["ts"], "requires": ["hyperfine", "node"] },
     { "name": "sensors-gate", "when": ["ts", "rust", "python"], "requires": ["node", "npx"] },
-    { "name": "versioning-release-check", "requires": ["cargo"] },
     { "name": "ubs-diff", "when": ["ts", "python", "rust"], "requires": ["ubs"] }
   ],
+  "pushRequires": ["cargo", "bun", "just"],
   "checks": [
     {
       "name": "secret-scan",
