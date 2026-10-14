@@ -88,7 +88,7 @@ describe('verify: slots, cargo dir and note writing', () => {
     f.deps.lock = {
       ...lock,
       createExclusive: (path, text) => {
-        if (path.includes('/verify/')) throw new Error('disk full');
+        if (path.endsWith('worktree.lock')) throw new Error('disk full'); // the slot, not the queue
         return lock.createExclusive(path, text);
       },
     };
