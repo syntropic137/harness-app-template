@@ -660,8 +660,43 @@ describe('review pass 4: symlinks in hook script dirs', () => {
     sh(f.src, 'git checkout -q main');
     expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.unverified);
     expect(f.errors.join('\n')).toMatch(
-      /no pass recorded: a lefthook script dir holds a symlink \(.lefthook\/pre-push\/guard.sh\)/,
+      /no pass recorded: a lefthook script dir holds or sits under a symlink \(.lefthook\/pre-push\/guard.sh\)/,
     );
     expect(() => sh(f.src, `git rev-parse --verify refs/land/verified/${refSha}`)).toThrow();
+  });
+});
+
+describe('review pass 5: symlinked ancestors and script dirs missing from the commit', () => {
+  test('a source_dir reached through a symlinked ancestor (hooks -> scripts) gets no pass', async () => {
+    const f = setup();
+    sh(f.src, 'git checkout -q -B feat main');
+    sh(f.src, 'mkdir -p scripts/guards && ln -s scripts hooks');
+    writeFileSync(join(f.src, 'scripts/guards/guard.sh'), 'exit 0\n');
+    sh(f.src, 'git add -A && git commit -qm "guards behind a symlinked dir"');
+    const refSha = sh(f.src, 'git rev-parse HEAD');
+    sh(f.src, 'git checkout -q main');
+    f.env.FAKE_DUMP = '{"source_dir":"hooks/guards"}';
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(
+      /no pass recorded: a lefthook script dir holds or sits under a symlink \(hooks\)/,
+    );
+    expect(() => sh(f.src, `git rev-parse --verify refs/land/verified/${refSha}`)).toThrow();
+  });
+
+  test('a configured script dir absent from the commit but present on disk gets no pass', async () => {
+    const f = setup();
+    f.commit(f.src, '.gitignore', 'guards/\n');
+    sh(f.src, 'git push -q origin HEAD:main');
+    const refSha = branch(f, 'crates/x.rs');
+    f.env.FAKE_DUMP = '{"source_dir":"guards"}';
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok); // absent everywhere: fine
+    sh(f.src, `git update-ref -d refs/land/verified/${refSha}`);
+    const slot = join(stateDir(f), 'verify', '1', 'worktree');
+    sh(slot, 'mkdir -p guards/pre-push');
+    writeFileSync(join(slot, 'guards/pre-push/guard.sh'), 'exit 0\n');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(
+      /the lefthook script dir guards is not in the commit but exists on disk/,
+    );
   });
 });

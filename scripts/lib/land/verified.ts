@@ -279,6 +279,34 @@ async function effectiveHooksHere(ctx: Ctx): Promise<{ key: string } | { problem
   if (ctx.deps.exists(join(ctx.worktree, hooks.sourceDirLocal))) {
     return { problem: `the local lefthook script dir ${hooks.sourceDirLocal} exists here` };
   }
+  // A symlink in a script dir, or on the way to one (`hooks -> scripts` with `source_dir:
+  // hooks/guards`), points at content outside the bound trees (a file the candidate may change),
+  // so the tree ids would not bind what runs. List every path prefix and everything inside.
+  const dirs = [hooks.sourceDir, hooks.sourceDirLocal];
+  const prefixes = dirs.flatMap((dir) =>
+    dir.split('/').map((_part, i, parts) => parts.slice(0, i + 1).join('/')),
+  );
+  const listed = await gitOut(ctx, ['ls-tree', 'HEAD', '--', ...prefixes]);
+  const inside = await gitOut(ctx, ['ls-tree', '-r', 'HEAD', '--', ...dirs]);
+  const link = `${listed}\n${inside}`.split('\n').find((line) => line.startsWith('120000 '));
+  if (link !== undefined) {
+    return {
+      problem: `a lefthook script dir holds or sits under a symlink (${link.split('\t')[1]}), whose target a pass cannot bind`,
+    };
+  }
+  const [source, local] = [
+    await treeAtHead(ctx, hooks.sourceDir),
+    await treeAtHead(ctx, hooks.sourceDirLocal),
+  ];
+  // Absent from the commit yet present on disk (an ignored dir, or one reached through an ignored
+  // symlink): what runs is not what the key names.
+  if (source === 'absent') {
+    return ctx.deps.exists(join(ctx.worktree, hooks.sourceDir))
+      ? {
+          problem: `the lefthook script dir ${hooks.sourceDir} is not in the commit but exists on disk`,
+        }
+      : { key: hooksKey(hooks, source, local) };
+  }
   // core.fileMode=false: lefthook marks scripts executable when it runs them; only content counts.
   const extra = await gitOut(ctx, [
     '-c',
@@ -295,26 +323,6 @@ async function effectiveHooksHere(ctx: Ctx): Promise<{ key: string } | { problem
       problem: `the lefthook script dir ${hooks.sourceDir} holds files that are not committed: ${extra.split('\n')[0]}`,
     };
   }
-  // A symlink in a script dir points at content outside the bound trees (a file the candidate may
-  // change), so its tree id would not bind what runs.
-  const listed = await gitOut(ctx, [
-    'ls-tree',
-    '-r',
-    'HEAD',
-    '--',
-    hooks.sourceDir,
-    hooks.sourceDirLocal,
-  ]);
-  const link = listed.split('\n').find((line) => line.startsWith('120000 '));
-  if (link !== undefined) {
-    return {
-      problem: `a lefthook script dir holds a symlink (${link.split('\t')[1]}), whose target a pass cannot bind`,
-    };
-  }
-  const [source, local] = [
-    await treeAtHead(ctx, hooks.sourceDir),
-    await treeAtHead(ctx, hooks.sourceDirLocal),
-  ];
   return { key: hooksKey(hooks, source, local) };
 }
 
