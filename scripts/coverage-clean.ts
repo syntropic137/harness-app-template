@@ -50,14 +50,12 @@ export function main(argv: string[], deps: CoverageCleanDeps): number {
   return 0;
 }
 
-/* v8 ignore next 8 */
+/** The real process handles. */
+export function realDeps(): CoverageCleanDeps {
+  return { spawn: spawnSync, stdout: console, stderr: console, cwd: process.cwd() };
+}
+
+/* v8 ignore next 3 */
 if (isMainEntry(import.meta.url)) {
-  process.exit(
-    main(process.argv.slice(2), {
-      spawn: spawnSync,
-      stdout: console,
-      stderr: console,
-      cwd: process.cwd(),
-    }),
-  );
+  process.exit(main(process.argv.slice(2), realDeps()));
 }

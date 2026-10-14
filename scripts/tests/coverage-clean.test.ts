@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { main } from '../coverage-clean';
+import { main, realDeps } from '../coverage-clean';
 import {
   type CoverageCommand,
   cleanCommandsForLane,
@@ -94,6 +94,14 @@ describe('coverage-clean', () => {
     const f = fakeDeps();
     expect(main([], f.deps)).toBe(64);
     expect(f.err.join('\n')).toMatch(/usage: coverage-clean.ts </);
+  });
+
+  test('the real handles run in the current directory', () => {
+    const deps = realDeps();
+    expect(deps.cwd).toBe(process.cwd());
+    expect(deps.stdout).toBe(console);
+    expect(deps.stderr).toBe(console);
+    expect(main(['py'], deps)).toBe(0); // a non-Rust lane: nothing is spawned
   });
 });
 

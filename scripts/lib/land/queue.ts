@@ -98,13 +98,7 @@ async function takeTicket(
   };
   const handle = await acquireLock(alloc, me, maxWaitMs);
   try {
-    for (let seq = highWater(deps, dir) + 1; ; seq += 1) {
-      if (seq > MAX_SEQ) {
-        throw new Error(
-          `the queue in ${dir} has handed out every ticket number up to ${MAX_SEQ}; ` +
-            'remove that directory while nothing is queued to reset it',
-        );
-      }
+    for (let seq = highWater(deps, dir) + 1; seq <= MAX_SEQ; seq += 1) {
       const name = ticketName(seq);
       // Record the high-water mark before the ticket exists, so the number is never handed out
       // again. A failed create means another writer already used it: move past it.
@@ -113,6 +107,10 @@ async function takeTicket(
         if (old < seq) deps.remove(join(dir, `.seq-${ticketName(old)}`));
       if (deps.createExclusive(join(dir, name), JSON.stringify(holder))) return name;
     }
+    throw new Error(
+      `the queue in ${dir} has handed out every ticket number up to ${MAX_SEQ}; ` +
+        'remove that directory while nothing is queued to reset it',
+    );
   } finally {
     handle.release();
   }
