@@ -10,7 +10,7 @@ import { classify } from './scope';
  */
 
 /** Bump when the record's shape or meaning changes; a record of another format is ignored. */
-export const PASS_FORMAT = 2;
+export const PASS_FORMAT = 3;
 
 const LEFTHOOK_NAMES = ['lefthook', '.lefthook', 'lefthook-local', '.lefthook-local'];
 const LEFTHOOK_EXTS = ['yml', 'yaml', 'json', 'jsonc', 'toml'];
@@ -39,10 +39,35 @@ export const CONFIG_KEY_PATHS: readonly string[] = [
 ];
 
 /**
- * A lefthook config that pulls rules from elsewhere (`extends` files, `remotes` repositories) has
- * inputs no key over these paths can bind, so a land from a pass refuses it.
+ * Local overrides lefthook merges over the committed config. Usually gitignored, so neither the key
+ * nor `git clean -fd` sees one: a worktree that runs hooks must not contain any.
  */
-export const LEFTHOOK_INCLUDE_GREP = '^[[:space:]]*"?(extends|remotes)"?[[:space:]]*[:=]';
+export const LEFTHOOK_LOCAL_PATHS: readonly string[] = LEFTHOOK_CONFIG_PATHS.filter((p) =>
+  p.includes('lefthook-local'),
+);
+
+/**
+ * The effective hook configuration, from `lefthook dump --format json` (lefthook's own merge of
+ * the main config, `extends` files and local overrides, in any format): its key, or why a pass
+ * cannot bind it. `remotes` are refused outright: their content is fetched, so the same dump can
+ * stand for different rules on another day or machine.
+ */
+export function effectiveHooks(dump: string): { key: string } | { problem: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(dump);
+  } catch {
+    return { problem: 'lefthook dump did not print JSON' };
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { problem: 'lefthook dump did not print a config object' };
+  }
+  const remotes = (parsed as Record<string, unknown>).remotes;
+  if (Array.isArray(remotes) && remotes.length > 0) {
+    return { problem: 'the lefthook config uses remotes, whose fetched rules a pass cannot bind' };
+  }
+  return { key: createHash('sha1').update(JSON.stringify(parsed)).digest('hex') };
+}
 
 export interface PassGate {
   name: string;
@@ -76,6 +101,8 @@ export interface PassRecord {
    * config_key, and land requires both to equal main's.
    */
   engine_version: string;
+  /** Key of the effective lefthook config (`lefthook dump`) at C, verified equal at B. */
+  hooks_key: string;
 }
 
 /**
@@ -160,6 +187,7 @@ const FIELDS: Record<keyof PassRecord, (v: unknown) => boolean> = {
   seconds: isSeconds,
   host: isNonEmptyString,
   engine_version: isNonEmptyString,
+  hooks_key: isNonEmptyString,
   mode: (v) => LAND_MODES.includes(v as LandMode),
   message: (v) => v === null || typeof v === 'string',
 };
@@ -209,8 +237,6 @@ export interface PassFacts {
   cOnMain: boolean;
   /** How this land asks to apply the ref: it must be how verify applied it, or C is not what was asked for. */
   requested: { mode: LandMode; message: string | null };
-  /** A lefthook config at main or C that uses extends or remotes (a path), or null. */
-  hookIncludes: string | null;
 }
 
 const short = (s: string): string => s.slice(0, 12);
@@ -236,8 +262,6 @@ function bindingProblem(f: PassFacts, pass: PassRecord): string | null {
     return "the land engine and config that ran the verification are not main's";
   if (f.cConfigKey !== f.mainConfigKey)
     return 'the ref changes the land config or engine; land it with the full land';
-  if (f.hookIncludes !== null)
-    return `${f.hookIncludes} pulls lefthook rules from extends or remotes, which a pass cannot bind; land it with the full land`;
   return null;
 }
 

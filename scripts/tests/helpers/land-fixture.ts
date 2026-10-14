@@ -55,6 +55,14 @@ export interface Fixture {
 
 const FAKE_LEFTHOOK = `#!/bin/sh
 [ "$1" = version ] && { echo "fake lefthook 0"; exit 0; }
+if [ "$1" = dump ]; then
+  # A stand-in for lefthook's merged view: the committed config files here, hashed.
+  [ -n "$FAKE_DUMP_FAIL" ] && { echo "dump failed"; exit 1; }
+  [ -n "$FAKE_DUMP" ] && { printf '%s\\n' "$FAKE_DUMP"; exit 0; }
+  grep -q REMOTES lefthook.yml 2>/dev/null && { printf '{"remotes":[{"git_url":"u"}]}\\n'; exit 0; }
+  printf '{"config":"%s"}\\n' "$(cat lefthook.yml lefthook.json 2>/dev/null | git hash-object --stdin)"
+  exit 0
+fi
 if [ "$1" = install ]; then
   echo "$@" >> "$FAKE_STATE/install.log"
   [ -n "$FAKE_INSTALL_FAIL" ] && { echo "install refused"; exit 1; }

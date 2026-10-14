@@ -5,8 +5,9 @@ import type { RunResult } from '../lib/land/exec';
 import {
   CONFIG_KEY_PATHS,
   configKeyFromLsTree,
+  effectiveHooks,
   judgePass,
-  LEFTHOOK_INCLUDE_GREP,
+  LEFTHOOK_LOCAL_PATHS,
   LOCAL_PASSES,
   PASS_FORMAT,
   type PassFacts,
@@ -47,6 +48,7 @@ const PASS: PassRecord = {
   seconds: 12,
   host: 'h',
   engine_version: 'k1',
+  hooks_key: 'h1',
 };
 
 const facts = (over: Partial<PassFacts> = {}): PassFacts => ({
@@ -60,7 +62,6 @@ const facts = (over: Partial<PassFacts> = {}): PassFacts => ({
   cExists: true,
   cOnMain: false,
   requested: { mode: 'auto', message: null },
-  hookIncludes: null,
   ...over,
 });
 
@@ -118,13 +119,25 @@ describe('judgePass: when a pass lets land push without gates', () => {
     ).toMatchObject({ kind: 'current' });
   });
 
-  test('a lefthook config that pulls in extends or remotes never lands from a pass', () => {
-    expect(judgePass(facts({ hookIncludes: `${sha('b')}:lefthook.yml` }))).toMatchObject(
-      stale(/lefthook.yml pulls lefthook rules from extends or remotes/),
-    );
+  test("effectiveHooks keys lefthook's merged view and refuses remotes and non-JSON", () => {
+    const a = effectiveHooks('{"pre-push":{"commands":{"a":{"run":"x"}}}}');
+    const b = effectiveHooks('{\n  "pre-push": {"commands": {"a": {"run": "x"}}}\n}');
+    const c = effectiveHooks('{"pre-push":{"commands":{"a":{"run":"true"}}}}');
+    expect(a).toEqual(b); // the same config, however it is printed
+    expect(a).not.toEqual(c);
+    expect(effectiveHooks('{"extends":["x.yml"],"remotes":[]}')).toHaveProperty('key');
+    expect(effectiveHooks('{"remotes":[{"git_url":"u"}]}')).toEqual({
+      problem: 'the lefthook config uses remotes, whose fetched rules a pass cannot bind',
+    });
+    expect(effectiveHooks('pre-push:\n')).toEqual({ problem: 'lefthook dump did not print JSON' });
+    for (const notObject of ['[]', 'null', '7']) {
+      expect(effectiveHooks(notObject)).toEqual({
+        problem: 'lefthook dump did not print a config object',
+      });
+    }
   });
 
-  test('the config key covers every lefthook config and local override, and the include grep finds extends and remotes', () => {
+  test('the config key covers every lefthook config and local override', () => {
     for (const path of [
       'lefthook.yml',
       'lefthook-local.yml',
@@ -136,11 +149,10 @@ describe('judgePass: when a pass lets land push without gates', () => {
     ]) {
       expect(CONFIG_KEY_PATHS).toContain(path);
     }
-    const grep = new RegExp(LEFTHOOK_INCLUDE_GREP.replaceAll('[[:space:]]', '\\s'), 'm');
-    for (const line of ['extends:', '  remotes:', '"extends": [', 'extends = ["a.toml"]']) {
-      expect(grep.test(line)).toBe(true);
-    }
-    expect(grep.test('# this config extends nothing')).toBe(false);
+    expect(LEFTHOOK_LOCAL_PATHS).toContain('lefthook-local.yml');
+    expect(LEFTHOOK_LOCAL_PATHS).toContain('.config/.lefthook-local.toml');
+    expect(LEFTHOOK_LOCAL_PATHS).toContain('.lefthook-local');
+    expect(LEFTHOOK_LOCAL_PATHS).not.toContain('lefthook.yml');
   });
 
   test('a ref that changes the land config itself never lands from a pass', () => {

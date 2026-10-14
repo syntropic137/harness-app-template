@@ -31,6 +31,8 @@ import { type Classification, classify, gateApplies, matchesAny } from './scope'
 import {
   acquireVerifySlot,
   assertLandFilesMatch,
+  assertNoLocalHookOverrides,
+  bindHooks,
   type FastOutcome,
   fastLand,
   landFilesMatch,
@@ -398,6 +400,8 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   );
   await ensureWorktree(ctx, base);
   await applyTarget(ctx, base, target);
+  // Gates run lefthook here too: an ignored local override would change what they check.
+  assertNoLocalHookOverrides(ctx);
   const sha = await gitOut(ctx, ['rev-parse', 'HEAD']);
   // Evidence belongs to one SHA: a different SHA starts empty unless inheritance is provable.
   const evidence =
@@ -517,6 +521,7 @@ async function runAttempts(ctx: Ctx): Promise<void> {
         c: sha,
         base: v.base,
         passed: [...new Set([...v.evidence.passed.keys(), ...ran])].sort(),
+        hooksKey: await bindHooks(ctx, v.base),
       });
       return;
     }

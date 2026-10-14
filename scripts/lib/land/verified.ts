@@ -22,9 +22,9 @@ import { acquireLock, type LockDeps, LockTimeout } from './lock';
 import {
   CONFIG_KEY_PATHS,
   configKeyFromLsTree,
+  effectiveHooks,
   judgePass,
-  LEFTHOOK_CONFIG_FILES,
-  LEFTHOOK_INCLUDE_GREP,
+  LEFTHOOK_LOCAL_PATHS,
   LOCAL_PASSES,
   PASS_FORMAT,
   type PassRecord,
@@ -130,6 +130,7 @@ export interface PassInput {
   c: string;
   base: string;
   passed: string[];
+  hooksKey: string;
 }
 
 const ZERO_OID = '0'.repeat(40);
@@ -200,6 +201,7 @@ export async function recordPass(ctx: Ctx, input: PassInput): Promise<PassRecord
     seconds: since(ctx, receipt.startedAt),
     host: deps.host(),
     engine_version: key,
+    hooks_key: input.hooksKey,
   };
   await writePassNote(ctx, input.c, `${JSON.stringify(pass, null, 2)}\n`);
   const ref = `${LOCAL_PASSES.verified}${input.refSha}`;
@@ -240,18 +242,50 @@ async function configAt(ctx: Ctx, commit: string): Promise<LandConfig | string> 
   }
 }
 
-/** The first lefthook config at any of `commits` that uses extends or remotes (`<commit>:<path>`), or null. */
-async function hookIncludes(ctx: Ctx, commits: string[]): Promise<string | null> {
-  for (const commit of commits) {
-    const found = await git(
-      ctx,
-      ['grep', '-l', '-E', LEFTHOOK_INCLUDE_GREP, commit, '--', ...LEFTHOOK_CONFIG_FILES],
-      ctx.sourceRoot,
+/**
+ * Refuse when the worktree that runs hooks holds a lefthook local override (tracked, untracked or
+ * ignored): lefthook merges it over the committed rules, and `git clean -fd` keeps ignored files in
+ * a persistent worktree. A plain filesystem test, so ignore rules cannot hide one.
+ */
+export function assertNoLocalHookOverrides(ctx: Ctx): void {
+  const found = LEFTHOOK_LOCAL_PATHS.filter((p) => ctx.deps.exists(join(ctx.worktree, p)));
+  if (found.length === 0) return;
+  throw new Abort(
+    `${found.join(', ')} in ${ctx.worktree} overrides the committed lefthook config, so the hooks run there are not main's; remove it and run again`,
+    EXIT.gate,
+  );
+}
+
+/** The effective hook config of `ctx.worktree` as it stands, from lefthook's own merge. */
+async function effectiveHooksHere(ctx: Ctx): Promise<{ key: string } | { problem: string }> {
+  const dump = await ctx.deps.run('sh', ['-c', `${ctx.config.lefthook} dump --format json`], {
+    cwd: ctx.worktree,
+    env: baseEnv(ctx),
+  });
+  if (!succeeded(dump)) return { problem: `lefthook dump failed (${describeExit(dump)})` };
+  return effectiveHooks(dump.output);
+}
+
+/**
+ * The key of the effective lefthook config that judged C, for the pass: lefthook's merged view
+ * (`lefthook dump`) at C, which must equal the one at B, so a candidate cannot change the hook
+ * rules through any input (an `extends` file, another format) the land-file key does not name.
+ * Leaves the verification worktree at B. Throws when no pass can be recorded.
+ */
+export async function bindHooks(ctx: Ctx, base: string): Promise<string> {
+  const atC = await effectiveHooksHere(ctx);
+  await gitOut(ctx, ['checkout', '--detach', '--force', base]);
+  const atB = await effectiveHooksHere(ctx);
+  const noPass = (why: string): Abort =>
+    new Abort(`no pass recorded: ${why}; land it with the full land`, EXIT.unverified);
+  if ('problem' in atC) throw noPass(atC.problem);
+  if ('problem' in atB) throw noPass(atB.problem);
+  if (atB.key !== atC.key) {
+    throw noPass(
+      'the ref changes the effective lefthook config (lefthook dump differs between main and the verified commit)',
     );
-    // git grep exits 1 when nothing matches.
-    if (succeeded(found)) return found.output.split('\n')[0] as string;
   }
-  return null;
+  return atC.key;
 }
 
 async function readPass(ctx: Ctx, source: PassSource, c: string): Promise<PassRecord | null> {
@@ -299,7 +333,6 @@ export async function passVerdict(ctx: Ctx): Promise<PassVerdict> {
     cExists,
     cOnMain: cExists && (await isAncestor(ctx, c, main)),
     requested: { mode: ctx.options.mode, message: ctx.options.message },
-    hookIncludes: await hookIncludes(ctx, cExists ? [main, c] : [main]),
   });
 }
 
@@ -401,6 +434,7 @@ async function installPrePush(ctx: Ctx): Promise<RunResult> {
  * invokes the runner) and every pushRequires tool must be on PATH.
  */
 export async function requireGuards(ctx: Ctx, provision: () => Promise<void>): Promise<void> {
+  assertNoLocalHookOverrides(ctx);
   let installed = await installPrePush(ctx);
   if (!succeeded(installed)) {
     ctx.deps.log(
@@ -503,6 +537,17 @@ export async function fastLand(
   }
   await timed(ctx, 'checkout', () => ensureWorktree(ctx, pass.C));
   await timed(ctx, 'guards', () => requireGuards(ctx, provision));
+  // The hooks that run on this push are lefthook's merged view here: it must be the one verified.
+  const here = await timed(ctx, 'hooks', () => effectiveHooksHere(ctx));
+  if ('problem' in here || here.key !== pass.hooks_key) {
+    releaseAll(ctx);
+    return {
+      stale:
+        'problem' in here
+          ? here.problem
+          : 'the effective lefthook config here (lefthook dump) is not the one verified',
+    };
+  }
   deps.log(
     `landing verified ${shortSha(pass.C)} onto ${remote}/${targetBranch} ${shortSha(main)} (jobs skipped, verified on this SHA: ${exclude.join(',') || 'none'})`,
   );

@@ -337,24 +337,83 @@ describe('review pass 1: guards on every push, lefthook overrides, apply mode', 
     const f = setup();
     const before = f.mainTip();
     branch(f, 'lefthook-local.yml');
-    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.gate); // the override is in the slot
+    expect(f.errors.join('\n')).toMatch(
+      /lefthook-local.yml in .* overrides the committed lefthook config/,
+    );
     expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.unverified);
-    expect(f.errors.join('\n')).toMatch(/the ref changes the land config or engine/);
+    expect(f.errors.join('\n')).toMatch(/no pass record for/);
     expect(f.mainTip()).toBe(before);
   });
 
-  test('a main whose lefthook config uses extends never lands from a pass', async () => {
+  test('a failing lefthook dump records no pass', async () => {
+    const f = setup();
+    branch(f, 'crates/x.rs');
+    f.env.FAKE_DUMP_FAIL = '1';
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/no pass recorded: lefthook dump failed \(exit status 1\)/);
+  });
+
+  test('main using remotes gives no pass, even when the candidate drops them', async () => {
     const f = fixture();
-    writeFileSync(join(f.src, 'lefthook.yml'), 'extends:\n  - hooks/more.yml\n');
+    writeFileSync(join(f.src, 'lefthook.yml'), '# REMOTES\n');
     sh(f.src, 'git add lefthook.yml && git commit -qm hooks && git push -q origin HEAD:main');
     sh(f.other, 'git pull -q origin main');
     f.publishConfig();
-    branch(f, 'crates/x.rs');
+    sh(f.src, 'git checkout -q -B feat main');
+    writeFileSync(join(f.src, 'lefthook.yml'), '# plain\n');
+    sh(f.src, 'git commit -qam "drop remotes"');
+    sh(f.src, 'git checkout -q main');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/no pass recorded: the lefthook config uses remotes/);
+  });
+
+  test('a dump that is not JSON, or that changes between verify and land, gives no fast land', async () => {
+    const f = setup();
+    const refSha = branch(f, 'crates/x.rs');
+    f.env.FAKE_DUMP = 'not json';
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/no pass recorded: lefthook dump did not print JSON/);
+    f.env.FAKE_DUMP = undefined;
     expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    f.env.FAKE_DUMP = '{"config":"another machine"}';
     expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.unverified);
     expect(f.errors.join('\n')).toMatch(
-      /lefthook.yml pulls lefthook rules from extends or remotes/,
+      /the effective lefthook config here .* is not the one verified/,
     );
+    f.env.FAKE_DUMP = '{"remotes":[{"git_url":"u"}]}';
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/uses remotes, whose fetched rules a pass cannot bind/);
+    expect(f.mainTip()).not.toBe(refSha);
+  });
+
+  test('an ignored lefthook-local.yml left in the verification worktree refuses verify', async () => {
+    const f = setup();
+    f.commit(f.src, '.gitignore', 'lefthook-local.yml\n');
+    sh(f.src, 'git push -q origin HEAD:main');
+    const refSha = branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok); // creates verify slot 1
+    writeFileSync(join(stateDir(f), 'verify', '1', 'worktree', 'lefthook-local.yml'), 'x: 1\n');
+    sh(f.src, `git update-ref -d refs/land/verified/${refSha}`);
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.gate);
+    expect(f.errors.join('\n')).toMatch(
+      /lefthook-local.yml in .*verify\/1\/worktree overrides the committed lefthook config/,
+    );
+    expect(() => sh(f.src, `git rev-parse --verify refs/land/verified/${refSha}`)).toThrow();
+  });
+
+  test('an ignored lefthook-local.yml left in the push checkout refuses the land', async () => {
+    const f = setup();
+    f.commit(f.src, '.gitignore', 'lefthook-local.yml\n');
+    sh(f.src, 'git push -q origin HEAD:main');
+    branch(f, 'crates/x.rs');
+    expect(await land(f.deps, { ...OPTS, dryRun: true }, f.config())).toBe(EXIT.ok); // creates it
+    writeFileSync(join(stateDir(f), 'worktree', 'lefthook-local.yml'), 'x: 1\n');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    const before = f.mainTip();
+    expect(await land(f.deps, STRICT, f.config())).toBe(EXIT.gate);
+    expect(f.errors.join('\n')).toMatch(/lefthook-local.yml in .*\/worktree overrides/);
+    expect(f.mainTip()).toBe(before);
   });
 
   test('--mode ff-only after a cherry-picked verify does not land the cherry-pick', async () => {
@@ -417,5 +476,85 @@ describe('review pass 1: guards on every push, lefthook overrides, apply mode', 
       'ran',
       'ran',
     ]);
+  });
+});
+
+describe('review pass 2: the effective lefthook config, through the real runner', () => {
+  const bin = join(process.cwd(), 'node_modules', '.bin');
+  const real = join(bin, 'lefthook');
+
+  /** Main carries `files` (lefthook configs) and a land config that runs the real lefthook. */
+  function realRunner(files: Record<string, string>): Fixture {
+    const f = fixture();
+    for (const [path, text] of Object.entries(files)) {
+      sh(f.src, `mkdir -p "$(dirname ${path})"`);
+      writeFileSync(join(f.src, path), text);
+    }
+    sh(f.src, 'git add -A && git commit -qm hooks && git push -q origin HEAD:main');
+    sh(f.other, 'git pull -q origin main');
+    f.publishConfig({ lefthook: real, gates: [] });
+    f.env.PATH = `${bin}:${f.env.PATH ?? ''}`;
+    return f;
+  }
+
+  const config = (f: Fixture) => f.config({ lefthook: real, gates: [] });
+
+  test.each([
+    [
+      'JSON {"extends": [...]}',
+      'lefthook.json',
+      '{"extends":["hooks/extra.json"],"pre-push":{"commands":{"main-guard":{"run":"true"}}}}\n',
+      'hooks/extra.json',
+      '{"pre-push":{"commands":{"extra-guard":{"run":"echo guarded"}}}}\n',
+      '{"pre-push":{"commands":{"extra-guard":{"run":"true"}}}}\n',
+    ],
+    [
+      "YAML 'extends': [...]",
+      'lefthook.yml',
+      "'extends': ['hooks/extra.yml']\npre-push:\n  commands:\n    main-guard:\n      run: 'true'\n",
+      'hooks/extra.yml',
+      'pre-push:\n  commands:\n    extra-guard:\n      run: echo guarded\n',
+      "pre-push:\n  commands:\n    extra-guard:\n      run: 'true'\n",
+    ],
+  ])(
+    'a candidate that weakens an %s file gets no pass',
+    async (_n, cfg, cfgText, extra, before, after) => {
+      const f = realRunner({ [cfg]: cfgText, [extra]: before });
+      sh(f.src, 'git checkout -q -B feat main');
+      writeFileSync(join(f.src, extra), after);
+      sh(f.src, 'git commit -qam "weaken the extended guard"');
+      const refSha = sh(f.src, 'git rev-parse HEAD');
+      sh(f.src, 'git checkout -q main');
+      expect(await land(f.deps, VERIFY, config(f))).toBe(EXIT.unverified);
+      expect(f.errors.join('\n')).toMatch(
+        /no pass recorded: the ref changes the effective lefthook config \(lefthook dump differs/,
+      );
+      expect(() => sh(f.src, `git rev-parse --verify refs/land/verified/${refSha}`)).toThrow();
+    },
+  );
+
+  test('a main lefthook.toml with [[remotes]] gets no pass', async () => {
+    const f = realRunner({
+      'lefthook.toml':
+        '[[remotes]]\ngit_url = "file:///nonexistent/remote.git"\nref = "main"\nconfigs = ["lefthook.yml"]\n\n[pre-push.commands.main-guard]\nrun = "true"\n',
+    });
+    const refSha = branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, config(f))).not.toBe(EXIT.ok);
+    expect(f.errors.join('\n')).toMatch(/remotes|could not install/);
+    expect(() => sh(f.src, `git rev-parse --verify refs/land/verified/${refSha}`)).toThrow();
+  });
+
+  test('an unchanged effective config (extends included) lands from the pass', async () => {
+    const f = realRunner({
+      'lefthook.json': '{"extends":["hooks/extra.json"]}\n',
+      'hooks/extra.json':
+        '{"pre-push":{"commands":{"extra-guard":{"run":"echo guarded >> \\"$FAKE_STATE/extra.log\\""}}}}\n',
+    });
+    const refSha = branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, config(f))).toBe(EXIT.ok);
+    expect(await land(f.deps, STRICT, config(f))).toBe(EXIT.ok);
+    expect(f.mainTip()).toBe(refSha);
+    // The extended guard ran on the verify dry run and on the real push.
+    expect(readFileSync(join(f.state, 'extra.log'), 'utf8').trim().split('\n')).toHaveLength(2);
   });
 });

@@ -64,7 +64,7 @@ describe('just verify: gate on fresh main, record a pass, push nothing', () => {
     const c = verifiedC(f, refSha);
     expect(c).toBe(refSha); // fast-forward: C is the ref itself
     expect(note(f, c)).toMatchObject({
-      format: 2,
+      format: 3,
       mode: 'auto',
       message: null,
       ref_sha: refSha,
@@ -160,7 +160,13 @@ describe('just land from a pass', () => {
       sampleEnd: null,
       confirm: 'porcelain', // a clean porcelain "pushed" report needs no confirm fetch
     });
-    expect(receipt?.steps.map((s) => s.name)).toEqual(['lease', 'checkout', 'guards', 'push']);
+    expect(receipt?.steps.map((s) => s.name)).toEqual([
+      'lease',
+      'checkout',
+      'guards',
+      'hooks',
+      'push',
+    ]);
   });
 
   test('a signal-killed push never trusts porcelain: it fetches to confirm', async () => {
@@ -180,6 +186,7 @@ describe('just land from a pass', () => {
       'lease',
       'checkout',
       'guards',
+      'hooks',
       'push',
       'confirm',
     ]);
