@@ -721,3 +721,21 @@ describe('review pass 5: symlinked ancestors and script dirs missing from the co
     );
   });
 });
+
+describe('land v2 finish: shared landing state, prepare steps', () => {
+  test('every worktree of one clone shares one landing state dir and its warm verification slots', async () => {
+    const f = await setup();
+    await sh(f.src, 'git worktree add -q --detach ../wt2 main');
+    const deps2 = { ...f.deps, cwd: join(f.root, 'wt2') };
+    await branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    await sh(f.src, 'git checkout -q -B feat2 main');
+    await f.commit(f.src, 'crates/y.rs');
+    await sh(f.src, 'git checkout -q main');
+    expect(await land(deps2, { ...VERIFY, ref: 'feat2' }, f.config())).toBe(EXIT.ok);
+    expect((await sh(f.home, 'ls')).split('\n')).toHaveLength(1); // one state dir, not one per worktree
+    const slots = f.logs.filter((l) => l.startsWith('verifying in'));
+    expect(slots).toHaveLength(2);
+    expect(slots[0]?.split(' ')[2]).toBe(slots[1]?.split(' ')[2]); // the same warm slot, reused
+  });
+});

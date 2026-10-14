@@ -296,10 +296,11 @@ describe('engine helpers', () => {
     expect([...passedJobs(out)].sort()).toEqual(['a-b', 'cov-ts', 'docs']);
     expect(passedJobs('✔️')).toEqual(new Set());
   });
-  test('repoId is stable and path-sensitive', () => {
-    expect(repoId('/a/.git', '/a')).toBe(repoId('/a/.git', '/a'));
-    expect(repoId('/a/.git', '/a')).not.toBe(repoId('/b/.git', '/a'));
-    expect(repoId('/a/.git', '/x/a')).toMatch(/^a-[0-9a-f]{10}$/);
+  test('repoId is keyed by the git common dir: stable, path-sensitive, shared by every worktree', () => {
+    expect(repoId('/a/.git')).toBe(repoId('/a/.git'));
+    expect(repoId('/a/.git')).not.toBe(repoId('/b/.git'));
+    expect(repoId('/x/a/.git')).toMatch(/^a-[0-9a-f]{10}$/);
+    expect(repoId('/srv/repo.git')).toMatch(/^repo-[0-9a-f]{10}$/); // a bare repository
   });
   test('exclude list names only lefthook jobs that passed on the SHA or are inapplicable', () => {
     const c = cfg();

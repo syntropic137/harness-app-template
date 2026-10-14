@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { CheckConfig, GateConfig, LandConfig } from './config';
 import {
   Abort,
@@ -79,8 +79,14 @@ export function inheritEvidence(
   return evidence;
 }
 
-export function repoId(commonDir: string, toplevel: string): string {
-  return `${basename(toplevel)}-${createHash('sha1').update(commonDir).digest('hex').slice(0, 10)}`;
+/**
+ * The landing state dir name for a repository: keyed by its git common dir, which every worktree
+ * of one clone shares, so agent worktrees share one landing worktree and one set of warm
+ * verification slots instead of a cold copy each.
+ */
+export function repoId(commonDir: string): string {
+  const name = basename(commonDir) === '.git' ? basename(dirname(commonDir)) : basename(commonDir);
+  return `${name.replace(/\.git$/, '')}-${createHash('sha1').update(commonDir).digest('hex').slice(0, 10)}`;
 }
 
 async function runLogged(
@@ -568,7 +574,7 @@ async function makeCtx(
     ['rev-parse', '--path-format=absolute', '--git-common-dir'],
     sourceRoot,
   );
-  const repoState = join(deps.home, repoId(commonDir, sourceRoot));
+  const repoState = join(deps.home, repoId(commonDir));
   const stamp = new Date(deps.now()).toISOString().replace(/[:.]/g, '-');
   receipt.stateDir = repoState;
   return {
