@@ -75,13 +75,25 @@ describe('fair queue in front of the landing lease (bead luyfr.1)', () => {
   test('a caller that will not wait is refused while anyone is queued, even if the lease is free', async () => {
     const lock = memoryLock({ alive: new Set([1, 100, 101]) });
     const release = hold(lock);
-    const waiting = acquireFair(lock.deps, me(100), 600_000);
-    await Promise.resolve();
+    let wake = (): void => undefined;
+    let parked = false;
+    const sleeper = {
+      ...lock.deps,
+      sleep: () => {
+        parked = true;
+        return new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+      },
+    };
+    const waiting = acquireFair(sleeper, me(100), 600_000);
+    while (!parked) await Promise.resolve();
     release();
-    // The lease is free right now, but pid 100 queued first.
+    // The lease is free right now, but pid 100 queued first (and is between polls).
     await expect(acquireFair(lock.deps, me(101), 0)).rejects.toThrow(
       /landing lock is free but 1 waiter\(s\) queued ahead; first: pid 100/,
     );
+    wake();
     (await waiting).release();
     (await acquireFair(lock.deps, me(101), 0)).release(); // queue empty: takes it at once
   });
@@ -290,6 +302,27 @@ describe('fair queue in front of the landing lease (bead luyfr.1)', () => {
     await expect(acquireFair(lock.deps, me(100), 0)).rejects.toThrow(
       /^landing lock is held by pid 1 .*; not waiting$/,
     );
+  });
+
+  test('a caller that will not wait cannot jump a waiter that publishes while it looks', async () => {
+    // B (no wait) finds the queue empty; before it takes the free lease, A publishes a ticket.
+    const lock = memoryLock({ alive: new Set([100, 101]) });
+    let published = false;
+    const racing = {
+      ...lock.deps,
+      list: (dir: string) => {
+        const names = lock.deps.list(dir);
+        if (!published && dir === '/l.queue') {
+          published = true; // A's ticket lands right after B's first look
+          lock.deps.createExclusive('/l.queue/000000000000001', holderOf(100));
+        }
+        return names;
+      },
+    };
+    await expect(acquireFair(racing, me(101), 0)).rejects.toThrow(
+      /landing lock is free but 1 waiter\(s\) queued ahead; first: pid 100/,
+    );
+    expect(lock.deps.read(lock.deps.lockPath)).toBeNull(); // the lease is still free for A
   });
 
   test('a ticket whose file is gone between read and stat is skipped', () => {

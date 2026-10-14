@@ -38,6 +38,8 @@ const SEQ_DIGITS = 15;
 /** A ticket name; anything else in the dir (the allocation lock, temp files) is not a ticket. */
 const TICKET = /^\d{15}$/;
 const ALLOC_POLL_MS = 50;
+/** A caller that will not wait still waits this long for the (milliseconds-long) allocation lock. */
+const NO_WAIT_ALLOC_MS = 10_000;
 const MAX_SEQ = 10 ** SEQ_DIGITS - 1;
 /** The persistent high-water mark: an empty file named after the last number handed out. */
 const SEQ_MARK = /^\.seq-(\d{15})$/;
@@ -143,8 +145,10 @@ function describeQueue(deps: QueueDeps, dir: string, ahead: string[]): string {
 
 /**
  * Wait in `dir`'s queue until it is this caller's turn and `attempt` succeeds (returns non-null),
- * or until `maxWaitMs` passes (`busy` says why). With no wait, a caller with live tickets ahead is
- * refused at once rather than jumping them.
+ * or until `maxWaitMs` passes (`busy` says why). Every caller takes a ticket, one that will not wait
+ * included: a no-wait caller that only scanned the queue could find it empty, lose the race to a
+ * waiter publishing its ticket, and then jump that waiter. With its own ticket it is either ahead
+ * of that waiter or refused at once.
  */
 export async function inTurn<T>(
   deps: QueueDeps,
@@ -154,34 +158,20 @@ export async function inTurn<T>(
   attempt: () => Promise<T | null>,
   busy: (why: string) => LockTimeout,
 ): Promise<T> {
-  if (maxWaitMs <= 0) return withoutWaiting(deps, dir, attempt, busy);
-  const deadline = deps.now() + maxWaitMs;
-  const name = await enqueue(deps, dir, me, maxWaitMs, busy);
+  const waits = maxWaitMs > 0;
+  const deadline = deps.now() + Math.max(0, maxWaitMs);
+  const name = await enqueue(deps, dir, me, waits ? maxWaitMs : NO_WAIT_ALLOC_MS, busy);
   try {
     for (;;) {
       const live = liveTickets(deps, dir, name);
       const got = live[0] === name ? await attempt() : null;
       if (got !== null) return got;
-      if (deps.now() >= deadline) throw busy(whyStillWaiting(deps, dir, live, name));
+      if (deps.now() >= deadline) throw busy(whyStillWaiting(deps, dir, live, name, waits));
       await deps.sleep(POLL_MS);
     }
   } finally {
     deps.remove(join(dir, name));
   }
-}
-
-/** A caller that will not wait: refused while anyone is queued, else one attempt. */
-async function withoutWaiting<T>(
-  deps: QueueDeps,
-  dir: string,
-  attempt: () => Promise<T | null>,
-  busy: (why: string) => LockTimeout,
-): Promise<T> {
-  const ahead = liveTickets(deps, dir);
-  if (ahead.length > 0) throw busy(describeQueue(deps, dir, ahead));
-  const got = await attempt();
-  if (got === null) throw busy('not waiting');
-  return got;
 }
 
 /** Take this caller's ticket; failing to get the allocation lock in time is "busy". */
@@ -206,10 +196,15 @@ async function enqueue(
   }
 }
 
-function whyStillWaiting(deps: QueueDeps, dir: string, live: string[], name: string): string {
-  return live[0] === name
-    ? 'not waiting any longer'
-    : describeQueue(deps, dir, live.slice(0, live.indexOf(name)));
+function whyStillWaiting(
+  deps: QueueDeps,
+  dir: string,
+  live: string[],
+  name: string,
+  waited: boolean,
+): string {
+  if (live[0] !== name) return describeQueue(deps, dir, live.slice(0, live.indexOf(name)));
+  return waited ? 'not waiting any longer' : 'not waiting';
 }
 
 /** acquireLock behind a fair queue in `<lockPath>.queue`. */
