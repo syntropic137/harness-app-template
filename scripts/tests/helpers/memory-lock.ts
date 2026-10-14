@@ -1,4 +1,4 @@
-import type { LockDeps } from '../../lib/land/lock';
+import type { QueueDeps } from '../../lib/land/queue';
 
 export function memoryLock(init: Partial<{ boot: string; alive: Set<number> }> = {}) {
   const files = new Map<string, { text: string; at: number }>();
@@ -8,8 +8,13 @@ export function memoryLock(init: Partial<{ boot: string; alive: Set<number> }> =
     boot: init.boot ?? 'boot1',
     alive: init.alive ?? new Set([100]),
   };
-  const deps: LockDeps = {
+  const deps: QueueDeps = {
     lockPath: '/l',
+    list: (dir) =>
+      [...files.keys()]
+        .filter((p) => p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes('/'))
+        .map((p) => p.slice(dir.length + 1)),
+    mkdirp: () => undefined,
     createExclusive: (p, t) => {
       if (files.has(p)) return false;
       files.set(p, { text: t, at: state.clock });

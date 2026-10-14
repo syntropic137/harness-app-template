@@ -25,8 +25,9 @@ import {
   tail,
 } from './core';
 import { describeExit, type RunResult, succeeded } from './exec';
-import { acquireLock, LockTimeout } from './lock';
+import { LockTimeout } from './lock';
 import type { PassVerdict } from './pass';
+import { acquireFair } from './queue';
 import { type Classification, classify, gateApplies, matchesAny } from './scope';
 import {
   acquireVerifySlot,
@@ -625,7 +626,7 @@ async function fullLand(ctx: Ctx): Promise<number> {
   receipt.stage = 'full';
   await runPreflight(ctx);
   const queuedAt = deps.now();
-  const handle = await acquireLock(
+  const handle = await acquireFair(
     deps.lock,
     { pid: process.pid, repo: ctx.sourceRoot, ref: options.ref, user: deps.user() },
     (options.waitSeconds ?? config.lockWaitMaxSeconds) * 1000,

@@ -18,7 +18,7 @@ import {
   tail,
 } from './core';
 import { describeExit, type RunResult, succeeded } from './exec';
-import { acquireLock, type LockDeps, LockTimeout } from './lock';
+import { LockTimeout } from './lock';
 import {
   CONFIG_KEY_PATHS,
   configKeyFromLsTree,
@@ -36,10 +36,10 @@ import {
   remotePasses,
   summariseGates,
 } from './pass';
+import { acquireFair, inTurn, type QueueDeps } from './queue';
 
 /** Verify (record a pass) and land from a pass: the git side of the harness ADR-0034 verify/land split. */
 
-const SLOT_POLL_MS = 5000;
 const NOTE_ATTEMPTS = 8;
 
 export async function configKeyAt(ctx: Ctx, commit: string): Promise<string> {
@@ -86,44 +86,58 @@ async function timed<T>(ctx: Ctx, name: string, step: () => Promise<T>): Promise
   }
 }
 
+/** Take verification slot `n` (its worktree guard), or say why it is busy. */
+async function takeSlot(ctx: Ctx, n: number, slots: number): Promise<string | null> {
+  const dir = join(ctx.repoState, 'verify', String(n));
+  const worktree = join(dir, 'worktree');
+  try {
+    const handle = await guardWorktree(ctx, dir, worktree, 'verification');
+    ctx.receipt.release = () => handle.release();
+    ctx.stateDir = dir;
+    ctx.worktree = worktree;
+    ctx.logDir = `${ctx.logDir}-verify-${n}`;
+    const target = ctx.config.cargoTargetDir;
+    if (target !== null) ctx.config = { ...ctx.config, cargoTargetDir: `${target}/verify-${n}` };
+    ctx.deps.log(
+      `verifying in ${worktree} (slot ${n} of ${slots}); the landing lease is not taken`,
+    );
+    return null;
+  } catch (error) {
+    if (!(error instanceof LockTimeout)) throw error;
+    return error.message;
+  }
+}
+
 /**
  * Take the first free verification worktree (`<state>/verify/<n>/worktree`, n = 1..verifySlots).
  * Each slot keeps its own node_modules and target/, so concurrent verifies never share a build dir;
- * a configured cargoTargetDir is split per slot for the same reason.
+ * a configured cargoTargetDir is split per slot for the same reason. Waiters queue fairly
+ * (`<state>/verify/queue`): only the earliest live waiter takes the next free slot.
  */
 export async function acquireVerifySlot(ctx: Ctx): Promise<void> {
   const { deps, options, config } = ctx;
   const slots = Math.max(1, Math.floor(config.verifySlots));
-  const deadline = deps.now() + (options.waitSeconds ?? config.lockWaitMaxSeconds) * 1000;
-  for (;;) {
-    const busy: string[] = [];
+  let busy: string[] = [];
+  const attempt = async (): Promise<true | null> => {
+    busy = [];
     for (let n = 1; n <= slots; n += 1) {
-      const dir = join(ctx.repoState, 'verify', String(n));
-      const worktree = join(dir, 'worktree');
-      try {
-        const handle = await guardWorktree(ctx, dir, worktree, 'verification');
-        ctx.receipt.release = () => handle.release();
-        ctx.stateDir = dir;
-        ctx.worktree = worktree;
-        ctx.logDir = `${ctx.logDir}-verify-${n}`;
-        const target = config.cargoTargetDir;
-        if (target !== null) ctx.config = { ...config, cargoTargetDir: `${target}/verify-${n}` };
-        deps.log(
-          `verifying in ${worktree} (slot ${n} of ${slots}); the landing lease is not taken`,
-        );
-        return;
-      } catch (error) {
-        if (!(error instanceof LockTimeout)) throw error;
-        busy.push(error.message);
-      }
+      const why = await takeSlot(ctx, n, slots);
+      if (why === null) return true;
+      busy.push(why);
     }
-    if (deps.now() >= deadline) {
-      throw new LockTimeout(
-        `all ${slots} verification worktrees are busy (verifySlots in land.config.json):\n${busy.join('\n')}`,
-      );
-    }
-    await deps.sleep(SLOT_POLL_MS);
-  }
+    return null;
+  };
+  await inTurn(
+    deps.lock,
+    join(ctx.repoState, 'verify', 'queue'),
+    { pid: process.pid, repo: ctx.sourceRoot, ref: options.ref, user: deps.user() },
+    (options.waitSeconds ?? config.lockWaitMaxSeconds) * 1000,
+    attempt,
+    (why) =>
+      new LockTimeout(
+        `all ${slots} verification worktrees are busy (verifySlots in land.config.json; ${why}):\n${busy.join('\n')}`,
+      ),
+  );
 }
 
 export interface PassInput {
@@ -407,14 +421,14 @@ async function takeLeaseAndWorktree(ctx: Ctx): Promise<boolean> {
   const { deps, options, config, receipt } = ctx;
   const queuedAt = deps.now();
   let waited = false;
-  const lock: LockDeps = {
+  const lock: QueueDeps = {
     ...deps.lock,
     sleep: (ms) => {
       waited = true;
       return deps.lock.sleep(ms);
     },
   };
-  const lease = await acquireLock(
+  const lease = await acquireFair(
     lock,
     { pid: process.pid, repo: ctx.sourceRoot, ref: options.ref, user: deps.user() },
     (options.waitSeconds ?? config.lockWaitMaxSeconds) * 1000,

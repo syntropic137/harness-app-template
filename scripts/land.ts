@@ -4,6 +4,7 @@ import {
   existsSync,
   linkSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -190,6 +191,20 @@ export function pidAlive(
   }
 }
 
+/**
+ * `fn()`, or null when the path it touches is gone (ENOENT). Lock and queue files are removed by
+ * other processes at any moment, so an exists-then-read check races; reading and treating "gone"
+ * as absent does not.
+ */
+export function unlessGone<T>(fn: () => T): T | null {
+  try {
+    return fn();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
 /* v8 ignore start -- thin adapters over node:fs; exercised by scripts/tests/land-e2e.test.ts */
 function realLockDeps(lockPath: string, log: (m: string) => void): LockDeps {
   return {
@@ -209,9 +224,9 @@ function realLockDeps(lockPath: string, log: (m: string) => void): LockDeps {
         rmSync(temp, { force: true });
       }
     },
-    read: (path) => (existsSync(path) ? readFileSync(path, 'utf8') : null),
+    read: (path) => unlessGone(() => readFileSync(path, 'utf8')),
     remove: (path) => rmSync(path, { force: true }),
-    ageMs: (path) => (existsSync(path) ? Date.now() - statSync(path).mtimeMs : null),
+    ageMs: (path) => unlessGone(() => Date.now() - statSync(path).mtimeMs),
     pidAlive: (pid) => pidAlive(pid),
     bootId: () =>
       readBootId(
@@ -239,7 +254,11 @@ export function realDeps(env: NodeJS.ProcessEnv, cwd: string): EngineDeps {
     env,
     home,
     run: runProcess,
-    lock: realLockDeps(env.HARNESS_LAND_LOCK ?? join(home, 'land.lock'), log),
+    lock: {
+      ...realLockDeps(env.HARNESS_LAND_LOCK ?? join(home, 'land.lock'), log),
+      list: (dir) => unlessGone(() => readdirSync(dir)) ?? [],
+      mkdirp: (p) => mkdirSync(p, { recursive: true }),
+    },
     loadavg: () => loadavg()[0] ?? 0,
     now: () => Date.now(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

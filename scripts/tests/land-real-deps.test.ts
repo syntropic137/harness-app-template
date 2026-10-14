@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { realDeps } from '../land';
+import { realDeps, unlessGone } from '../land';
 
 // The real adapters are excluded from coverage (they are thin node:fs wrappers), which is exactly
 // how a missing import once shipped in appendFile. Exercise every one of them once.
@@ -66,5 +66,25 @@ describe('realDeps', () => {
     // no temp files are left behind by createExclusive
     expect(lock.createExclusive(lock.lockPath, 'again')).toBe(true);
     expect(deps.exists(`${lock.lockPath}.${process.pid}`)).toBe(false);
+  });
+
+  test('a lock or queue file removed by another process reads as absent, never as ENOENT', () => {
+    const root = mkdtempSync(join(tmpdir(), 'land-real-gone-'));
+    dirs.push(root);
+    const lock = realDeps(
+      { HARNESS_LAND_HOME: root, HARNESS_LAND_LOCK: join(root, 'g.lock') },
+      root,
+    ).lock;
+    expect(lock.list(join(root, 'no-queue'))).toEqual([]);
+    lock.mkdirp(join(root, 'queue'));
+    expect(lock.list(join(root, 'queue'))).toEqual([]);
+    // The race itself: the path existed when checked and was gone when read.
+    const gone = () => readFileSync(join(root, 'vanished'), 'utf8');
+    expect(unlessGone(gone)).toBeNull();
+    expect(() =>
+      unlessGone(() => {
+        throw Object.assign(new Error('denied'), { code: 'EACCES' });
+      }),
+    ).toThrow('denied'); // only "gone" is absorbed
   });
 });

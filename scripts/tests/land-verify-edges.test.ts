@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from 'vitest';
 import type { Ctx } from '../lib/land/core';
 import { EXIT, land } from '../lib/land/engine';
 import type { RunResult } from '../lib/land/exec';
-import type { LockDeps } from '../lib/land/lock';
+import type { QueueDeps } from '../lib/land/queue';
 import { writePassNote } from '../lib/land/verified';
 import { branch, type Fixture, fixture, OPTS, parseRun, sh } from './helpers/land-fixture';
 
@@ -47,7 +47,7 @@ function contend(f: Fixture, meanwhile: () => Promise<void> | void): void {
   const lock = f.deps.lock;
   lock.createExclusive(lock.lockPath, holder('other'));
   let released = false;
-  const wrapped: LockDeps = {
+  const wrapped: QueueDeps = {
     ...lock,
     sleep: async (ms) => {
       if (!released) {
@@ -105,9 +105,9 @@ describe('verify: slots, cargo dir and note writing', () => {
       join(await stateDir(f), 'verify', '1', 'worktree.lock'),
       holder('x'),
     );
-    const before = f.clock.t;
+    const before = f.deps.lock.now(); // the queue waits on the lease store's clock
     expect(await land(f.deps, { ...VERIFY, waitSeconds: 12 }, config)).toBe(EXIT.busy);
-    expect(f.clock.t - before).toBeGreaterThanOrEqual(12_000);
+    expect(f.deps.lock.now() - before).toBeGreaterThanOrEqual(12_000);
     expect(f.errors.join('\n')).toMatch(/all 1 verification worktrees are busy/);
   });
 

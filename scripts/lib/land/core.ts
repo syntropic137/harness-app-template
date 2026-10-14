@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import type { GateConfig, LandConfig } from './config';
 import { describeExit, type RunOptions, type RunResult, succeeded } from './exec';
 import { acquireLock, type LockDeps, type LockHandle, LockTimeout } from './lock';
+import type { QueueDeps } from './queue';
 import { type Classification, gateApplies } from './scope';
 
 /** Shared primitives of the land engine: the context, plumbing git, fetch, the landing worktree, the push env. */
@@ -34,7 +35,8 @@ export interface EngineDeps {
   /** Per-user landing home holding the lock, worktrees and logs. */
   home: string;
   run(command: string, args: string[], options?: RunOptions): Promise<RunResult>;
-  lock: LockDeps;
+  /** The lease store, with the directory access its fair queue needs. */
+  lock: QueueDeps;
   loadavg(): number;
   now(): number;
   sleep(ms: number): Promise<void>;
