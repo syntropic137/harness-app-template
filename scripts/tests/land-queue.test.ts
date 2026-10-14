@@ -249,4 +249,61 @@ describe('fair queue in front of the landing lease (bead luyfr.1)', () => {
     }
     expect(lock.deps.list('/q')).toEqual(['.seq-000000000000003']);
   });
+
+  test('a number another writer took without the allocation lock is skipped, mark or ticket', async () => {
+    const lock = memoryLock({ alive: new Set([7, 100]) });
+    // A writer that ignores .alloc takes mark 1 and ticket 2 just before this caller does.
+    const racing = {
+      ...lock.deps,
+      createExclusive: (path: string, text: string) => {
+        if (path === '/q/.seq-000000000000001' || path === '/q/000000000000002') {
+          lock.deps.createExclusive(path, path.includes('.seq') ? '' : holderOf(7));
+        }
+        return lock.deps.createExclusive(path, text);
+      },
+    };
+    expect(await ticketOf(racing, 100)).toBe('000000000000003'); // queued behind the writer's 2
+  });
+
+  test('the allocation lock held by a live process past the deadline gives up with a reason', async () => {
+    const lock = memoryLock({ alive: new Set([1, 100]) });
+    lock.deps.createExclusive(
+      '/q/.alloc',
+      JSON.stringify({ ...me(1), bootId: 'boot1', startedAt: 'x' }),
+    );
+    await expect(inTurn(lock.deps, '/q', me(100), 1000, async () => 'x', busy)).rejects.toThrow(
+      /could not take a queue ticket/,
+    );
+  });
+
+  test('a lease error that is not "busy" is raised, and a free queue with a held lease refuses', async () => {
+    const lock = memoryLock({ alive: new Set([1, 100]) });
+    const broken = {
+      ...lock.deps,
+      createExclusive: (path: string, text: string) => {
+        if (path === lock.deps.lockPath) throw new Error('EACCES: lock dir not writable');
+        return lock.deps.createExclusive(path, text);
+      },
+    };
+    await expect(acquireFair(broken, me(100), 0)).rejects.toThrow(/EACCES/);
+    hold(lock);
+    await expect(acquireFair(lock.deps, me(100), 0)).rejects.toThrow(
+      /^landing lock is held by pid 1 .*; not waiting$/,
+    );
+  });
+
+  test('a ticket whose file is gone between read and stat is skipped', () => {
+    const lock = memoryLock({ alive: new Set([100]) });
+    lock.deps.createExclusive('/q/000000000000001', holderOf(100));
+    expect(liveTickets({ ...lock.deps, ageMs: () => null }, '/q')).toEqual([]);
+  });
+
+  test('refusals name an unreadable lock file or first waiter plainly', async () => {
+    const lock = memoryLock({ alive: new Set([100, 101]) });
+    lock.files.set(lock.deps.lockPath, { text: 'torn', at: lock.state.clock });
+    lock.deps.createExclusive('/l.queue/000000000000001', 'torn');
+    await expect(acquireFair(lock.deps, me(101), 0)).rejects.toThrow(
+      /^landing lock is held by an unreadable lock file; 1 waiter\(s\) queued ahead$/,
+    );
+  });
 });

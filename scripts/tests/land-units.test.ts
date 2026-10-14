@@ -120,6 +120,10 @@ describe('config', () => {
         bootstrap: { run: 'x', when: ['ts'] },
         preflight: [{ name: 'p', run: 'true' }],
         earlyChecks: [{ name: 'e', run: 'true', cwd: 'source' }],
+        prepare: [
+          { name: 'clean', run: 'true', when: ['rust'] },
+          { name: 'always', run: 'true' },
+        ],
         checks: [{ name: 'c', run: 'true', cwd: 'source', retryOnOutput: 'x' }],
         gates: [
           {
@@ -147,6 +151,11 @@ describe('config', () => {
     expect(c.gates[0]?.lane).toBe('heavy');
     expect(c.gates[0]?.cwd).toBe('source');
     expect(c.earlyChecks[0]?.name).toBe('e');
+    expect(c.prepare).toMatchObject([
+      { name: 'clean', run: 'true', when: ['rust'] },
+      { name: 'always', run: 'true' },
+    ]);
+    expect(c.prepare[1]).not.toHaveProperty('when');
     expect(c.inheritUnaffectedEvidence).toBe(true);
     expect(c.ignoreDirty).toEqual(['a.log']);
     expect(c.quietCommand).toBe('true');

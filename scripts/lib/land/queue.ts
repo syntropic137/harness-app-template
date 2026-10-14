@@ -134,10 +134,11 @@ function highWater(deps: QueueDeps, dir: string): number {
   return Math.max(0, ...seqMarks(deps, dir), ...tickets(deps, dir).map(Number));
 }
 
-function describeQueue(deps: QueueDeps, dir: string, names: string[]): string {
-  const first = names[0] === undefined ? null : parseHolder(deps.read(join(dir, names[0])));
+/** `ahead` is never empty: callers describe only a queue with someone in it. */
+function describeQueue(deps: QueueDeps, dir: string, ahead: string[]): string {
+  const first = ahead.slice(0, 1).map((name) => parseHolder(deps.read(join(dir, name))))[0] ?? null;
   const head = first === null ? '' : `; first: ${describeHolder(first, deps.now())}`;
-  return `${names.length} waiter(s) queued ahead${head}`;
+  return `${ahead.length} waiter(s) queued ahead${head}`;
 }
 
 /**
