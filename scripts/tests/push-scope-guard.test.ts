@@ -14,9 +14,9 @@ import {
 } from '../push-scope-guard';
 import { fixtureGit, hermeticGitEnv } from './helpers/land-git-env';
 
-// Real git repos per test: about 1 s alone at load ~11, past the 5 s default under full-suite load
-// ~25 (2026-10-14).
-vi.setConfig({ testTimeout: 30_000 });
+// Real git repos per test and per hook: about 1 s alone at load ~11, past the 5 s test default and
+// the 10 s hook default under full-suite load ~25 (2026-10-14).
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 // ADR-0033. lefthook 1.13 skips EVERY pre-push `commands:` job --
 // filtered or not, guard-main-push included -- when its push-file set is empty,
