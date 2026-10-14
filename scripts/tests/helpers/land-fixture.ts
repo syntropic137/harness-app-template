@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import {
   appendFileSync,
   chmodSync,
@@ -16,13 +15,17 @@ import type { EngineDeps, LandOptions } from '../../lib/land/engine';
 import { runProcess } from '../../lib/land/exec';
 import { hermeticGitEnv } from './land-git-env';
 import { memoryLock } from './memory-lock';
+import { spawnAsync } from './spawn-async';
 
 /** A throwaway bare origin, two clones, a fake lefthook and a recording pre-push hook, for driving the land engine. */
 
-export const sh = (cwd: string, cmd: string): string =>
-  execFileSync('sh', ['-c', cmd], {
+// Awaited, never execFileSync: a test runs many fixture git commands back
+// to back, and under a loaded land each costs seconds. Synchronously that is one uninterrupted block
+// of the vitest worker's event loop, long enough to miss birpc's 60 s onTaskUpdate deadline. Throws
+// on a non-zero exit exactly as execFileSync did, so every fixture step still fails loudly.
+export const sh = async (cwd: string, cmd: string): Promise<string> => {
+  const r = await spawnAsync('sh', ['-c', cmd], {
     cwd,
-    encoding: 'utf8',
     env: {
       ...hermeticGitEnv(),
       GIT_AUTHOR_NAME: 't',
@@ -30,7 +33,12 @@ export const sh = (cwd: string, cmd: string): string =>
       GIT_COMMITTER_NAME: 't',
       GIT_COMMITTER_EMAIL: 't@t',
     },
-  }).trim();
+  });
+  if (r.status !== 0) {
+    throw new Error(`sh -c ${cmd} failed with ${r.status ?? r.signal}: ${r.stderr}`);
+  }
+  return r.stdout.trim();
+};
 
 export interface Fixture {
   root: string;
@@ -45,11 +53,11 @@ export interface Fixture {
   env: Record<string, string | undefined>;
   config: (extra?: Record<string, unknown>) => LandConfig;
   /** Commit land.config.json (the base config plus `extra`) to main, as a real repo carries it; returns main's new tip. */
-  publishConfig: (extra?: Record<string, unknown>) => string;
-  commit: (dir: string, file: string, text?: string) => string;
+  publishConfig: (extra?: Record<string, unknown>) => Promise<string>;
+  commit: (dir: string, file: string, text?: string) => Promise<string>;
   ran: () => string[];
   hookSeen: () => string[];
-  mainTip: () => string;
+  mainTip: () => Promise<string>;
   clock: { t: number };
 }
 
@@ -118,7 +126,7 @@ esac
 exit 0
 `;
 
-export function fixture(): Fixture {
+export async function fixture(): Promise<Fixture> {
   const root = mkdtempSync(join(tmpdir(), 'land-e2e-'));
   const origin = join(root, 'origin.git');
   const src = join(root, 'src');
@@ -126,16 +134,16 @@ export function fixture(): Fixture {
   const state = join(root, 'state');
   const home = join(root, 'home');
   mkdirSync(state);
-  sh(
+  await sh(
     root,
     `git init -q --bare -b main origin.git && git clone -q origin.git src 2>/dev/null && git clone -q origin.git other 2>/dev/null`,
   );
   writeFileSync(join(src, 'a.txt'), 'a\n');
-  sh(
+  await sh(
     src,
     'git add -A && git commit -qm init && git push -q origin HEAD:main && git branch -M main',
   );
-  sh(other, 'git pull -q origin main');
+  await sh(other, 'git pull -q origin main');
   const fake = join(root, 'fake-lefthook');
   writeFileSync(fake, FAKE_LEFTHOOK);
   chmodSync(fake, 0o755);
@@ -213,19 +221,19 @@ export function fixture(): Fixture {
     env,
     clock,
     config: (extra = {}) => parseConfig(raw(extra)),
-    publishConfig(extra = {}) {
+    async publishConfig(extra = {}) {
       writeFileSync(join(src, 'land.config.json'), `${JSON.stringify(raw(extra), null, 2)}\n`);
-      sh(
+      await sh(
         src,
         'git add land.config.json && git commit -qm "land config" && git push -q origin HEAD:main',
       );
-      sh(other, 'git pull -q origin main');
+      await sh(other, 'git pull -q origin main');
       return sh(src, 'git rev-parse HEAD');
     },
-    commit(dir, file, text = 'x\n') {
+    async commit(dir, file, text = 'x\n') {
       mkdirSync(join(dir, file, '..'), { recursive: true });
       writeFileSync(join(dir, file), text);
-      sh(dir, `git add -A && git commit -qm "touch ${file}"`);
+      await sh(dir, `git add -A && git commit -qm "touch ${file}"`);
       return sh(dir, 'git rev-parse HEAD');
     },
     ran: () => read('lefthook.log').map((line) => line.replace(/ origin \S+$/, '')),
@@ -263,9 +271,9 @@ export const OPTS: LandOptions = {
   bootstrap: true,
   waitSeconds: null,
 };
-export const branch = (f: Fixture, file: string): string => {
-  sh(f.src, 'git checkout -q -B feat main');
-  const sha = f.commit(f.src, file);
-  sh(f.src, 'git checkout -q main');
+export const branch = async (f: Fixture, file: string): Promise<string> => {
+  await sh(f.src, 'git checkout -q -B feat main');
+  const sha = await f.commit(f.src, file);
+  await sh(f.src, 'git checkout -q main');
   return sha;
 };
