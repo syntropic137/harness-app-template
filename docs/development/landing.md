@@ -45,7 +45,10 @@ format without parsing them. The key also covers the script dirs the dump names 
 include (`source_dir`, default `.lefthook`, and `source_dir_local`, default `.lefthook-local`): their
 committed git tree ids, with the script dir required to hold nothing uncommitted (file modes
 aside, which lefthook changes) and the local one required not to exist. A script dir outside the
-repository gets no pass. A config that uses `remotes` gets no pass (their content is fetched,
+repository, or one holding a symlink (its target lies outside the bound trees), gets no pass. The
+limit that remains (ADR-0034 decision 4): verify's gates and pre-push dry run execute the
+candidate's own hooks and scripts at `C`, exactly as the full land always has, so a pass proves
+those hooks equal main's, not that a gate's other inputs in the candidate are harmless. A config that uses `remotes` gets no pass (their content is fetched,
 so the same dump can stand for different rules later), and neither does a dump that fails or is not
 JSON. Every worktree that runs hooks (a verification slot, the landing worktree) refuses to run
 while it holds any `lefthook-local*` or `.lefthook-local*` file or directory, tracked, untracked or
