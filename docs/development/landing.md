@@ -41,12 +41,17 @@ candidate adding `lefthook-local.yml` could otherwise replace a gate's command.
 The hook rules a pass vouches for are lefthook's own merged view, not file names: verify runs
 `<lefthook> dump --format json` in the verification worktree at `C` and again at `B`, and records a
 pass only when the two are equal (`hooks_key`). That covers `extends` files and every config
-format without parsing them. A config that uses `remotes` gets no pass (their content is fetched,
+format without parsing them. The key also covers the script dirs the dump names but does not
+include (`source_dir`, default `.lefthook`, and `source_dir_local`, default `.lefthook-local`): their
+committed git tree ids, with the script dir required to hold nothing uncommitted (file modes
+aside, which lefthook changes) and the local one required not to exist. A script dir outside the
+repository gets no pass. A config that uses `remotes` gets no pass (their content is fetched,
 so the same dump can stand for different rules later), and neither does a dump that fails or is not
 JSON. Every worktree that runs hooks (a verification slot, the landing worktree) refuses to run
 while it holds any `lefthook-local*` or `.lefthook-local*` file or directory, tracked, untracked or
 ignored: a plain filesystem test, because `git clean -fd` keeps ignored files and ignore rules hide
-them from git.
+them from git. The test runs again after anything that could write one (the bootstrap, the hook
+install, provisioning), immediately before the dump binding, and immediately before the push.
 
 Every push and every pre-push dry run (verify, `--dry-run`, the full land, and a land from a pass)
 first installs the pre-push hook with the configured runner (`<lefthook> install pre-push`; the
