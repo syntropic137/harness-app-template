@@ -23,6 +23,7 @@ import {
   CONFIG_KEY_PATHS,
   configKeyFromLsTree,
   effectiveHooks,
+  hooksKey,
   judgePass,
   LEFTHOOK_LOCAL_PATHS,
   LOCAL_PASSES,
@@ -256,25 +257,63 @@ export function assertNoLocalHookOverrides(ctx: Ctx): void {
   );
 }
 
-/** The effective hook config of `ctx.worktree` as it stands, from lefthook's own merge. */
+/** The git tree id of `dir` in the worktree's HEAD, or `absent`. */
+async function treeAtHead(ctx: Ctx, dir: string): Promise<string> {
+  const tree = await git(ctx, ['rev-parse', '--verify', '--quiet', `HEAD:${dir}`]);
+  return succeeded(tree) ? tree.output.trim() : 'absent';
+}
+
+/**
+ * The key of the effective hook config of `ctx.worktree` as it stands: lefthook's own merge
+ * (`lefthook dump`) plus the committed tree ids of the script dirs it names, which must hold
+ * nothing beyond what is committed. A local script dir must not exist at all.
+ */
 async function effectiveHooksHere(ctx: Ctx): Promise<{ key: string } | { problem: string }> {
   const dump = await ctx.deps.run('sh', ['-c', `${ctx.config.lefthook} dump --format json`], {
     cwd: ctx.worktree,
     env: baseEnv(ctx),
   });
   if (!succeeded(dump)) return { problem: `lefthook dump failed (${describeExit(dump)})` };
-  return effectiveHooks(dump.output);
+  const hooks = effectiveHooks(dump.output);
+  if ('problem' in hooks) return hooks;
+  if (ctx.deps.exists(join(ctx.worktree, hooks.sourceDirLocal))) {
+    return { problem: `the local lefthook script dir ${hooks.sourceDirLocal} exists here` };
+  }
+  // core.fileMode=false: lefthook marks scripts executable when it runs them; only content counts.
+  const extra = await gitOut(ctx, [
+    '-c',
+    'core.fileMode=false',
+    'status',
+    '--porcelain',
+    '--ignored',
+    '--untracked-files=all',
+    '--',
+    hooks.sourceDir,
+  ]);
+  if (extra !== '') {
+    return {
+      problem: `the lefthook script dir ${hooks.sourceDir} holds files that are not committed: ${extra.split('\n')[0]}`,
+    };
+  }
+  const [source, local] = [
+    await treeAtHead(ctx, hooks.sourceDir),
+    await treeAtHead(ctx, hooks.sourceDirLocal),
+  ];
+  return { key: hooksKey(hooks, source, local) };
 }
 
 /**
  * The key of the effective lefthook config that judged C, for the pass: lefthook's merged view
- * (`lefthook dump`) at C, which must equal the one at B, so a candidate cannot change the hook
- * rules through any input (an `extends` file, another format) the land-file key does not name.
- * Leaves the verification worktree at B. Throws when no pass can be recorded.
+ * (`lefthook dump`) and its script dirs at C, which must equal the ones at B, so a candidate cannot
+ * change the hook rules or scripts through any input (an `extends` file, a `source_dir`, another
+ * format) the land-file key does not name. Leaves the verification worktree at B. Throws when no
+ * pass can be recorded.
  */
 export async function bindHooks(ctx: Ctx, base: string): Promise<string> {
+  assertNoLocalHookOverrides(ctx);
   const atC = await effectiveHooksHere(ctx);
   await gitOut(ctx, ['checkout', '--detach', '--force', base]);
+  assertNoLocalHookOverrides(ctx);
   const atB = await effectiveHooksHere(ctx);
   const noPass = (why: string): Abort =>
     new Abort(`no pass recorded: ${why}; land it with the full land`, EXIT.unverified);
@@ -282,7 +321,7 @@ export async function bindHooks(ctx: Ctx, base: string): Promise<string> {
   if ('problem' in atB) throw noPass(atB.problem);
   if (atB.key !== atC.key) {
     throw noPass(
-      'the ref changes the effective lefthook config (lefthook dump differs between main and the verified commit)',
+      'the ref changes the effective lefthook config (lefthook dump or its script dirs differ between main and the verified commit)',
     );
   }
   return atC.key;
@@ -449,6 +488,8 @@ export async function requireGuards(ctx: Ctx, provision: () => Promise<void>): P
       EXIT.push,
     );
   }
+  // The bootstrap or the runner's install may itself have written a local override.
+  assertNoLocalHookOverrides(ctx);
   const problem = await hookProblem(ctx);
   if (problem !== null) {
     throw new Abort(
@@ -551,6 +592,7 @@ export async function fastLand(
   deps.log(
     `landing verified ${shortSha(pass.C)} onto ${remote}/${targetBranch} ${shortSha(main)} (jobs skipped, verified on this SHA: ${exclude.join(',') || 'none'})`,
   );
+  assertNoLocalHookOverrides(ctx);
   const result = await timed(ctx, 'push', () =>
     deps.run(
       'git',

@@ -6,6 +6,7 @@ import {
   CONFIG_KEY_PATHS,
   configKeyFromLsTree,
   effectiveHooks,
+  hooksKey,
   judgePass,
   LEFTHOOK_LOCAL_PATHS,
   LOCAL_PASSES,
@@ -125,7 +126,27 @@ describe('judgePass: when a pass lets land push without gates', () => {
     const c = effectiveHooks('{"pre-push":{"commands":{"a":{"run":"true"}}}}');
     expect(a).toEqual(b); // the same config, however it is printed
     expect(a).not.toEqual(c);
-    expect(effectiveHooks('{"extends":["x.yml"],"remotes":[]}')).toHaveProperty('key');
+    expect(effectiveHooks('{"extends":["x.yml"],"remotes":[]}')).toHaveProperty('config');
+    // Script dirs: defaults, custom ones (trailing slash dropped), and ones outside the tree.
+    expect(effectiveHooks('{}')).toMatchObject({
+      sourceDir: '.lefthook',
+      sourceDirLocal: '.lefthook-local',
+    });
+    expect(
+      effectiveHooks('{"source_dir":"hook-scripts/","source_dir_local":"local/"}'),
+    ).toMatchObject({ sourceDir: 'hook-scripts', sourceDirLocal: 'local' });
+    for (const outside of ['/tmp/x', '../x', 'a/../../x', '/']) {
+      for (const key of ['source_dir', 'source_dir_local']) {
+        expect(effectiveHooks(JSON.stringify({ [key]: outside }))).toEqual({
+          problem: 'a lefthook source_dir lies outside the repository, so a pass cannot bind it',
+        });
+      }
+    }
+    // The key changes with the config and with either script dir's tree.
+    const base = effectiveHooks('{}') as Parameters<typeof hooksKey>[0];
+    expect(hooksKey(base, 't1', 'absent')).toBe(hooksKey(base, 't1', 'absent'));
+    expect(hooksKey(base, 't1', 'absent')).not.toBe(hooksKey(base, 't2', 'absent'));
+    expect(hooksKey(base, 't1', 'absent')).not.toBe(hooksKey(base, 't1', 'l1'));
     expect(effectiveHooks('{"remotes":[{"git_url":"u"}]}')).toEqual({
       problem: 'the lefthook config uses remotes, whose fetched rules a pass cannot bind',
     });

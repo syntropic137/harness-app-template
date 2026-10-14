@@ -46,13 +46,35 @@ export const LEFTHOOK_LOCAL_PATHS: readonly string[] = LEFTHOOK_CONFIG_PATHS.fil
   p.includes('lefthook-local'),
 );
 
+/** The parts of lefthook's merged view a pass binds: the config itself and its script dirs. */
+export interface EffectiveHooks {
+  /** The merged config, canonically serialised. */
+  config: string;
+  /** `source_dir` and `source_dir_local`: script bodies the dump names but does not include. */
+  sourceDir: string;
+  sourceDirLocal: string;
+}
+
+/** A script dir as lefthook reads it, relative to the repo root, or null when it leaves the tree. */
+export function repoRelativeDir(dir: string): string | null {
+  const trimmed = dir.replace(/\/+$/, '');
+  const segments = trimmed.split('/');
+  if (trimmed === '' || trimmed.startsWith('/') || segments.includes('..')) return null;
+  return trimmed;
+}
+
+function scriptDir(value: unknown, fallback: string): string | null {
+  return repoRelativeDir(typeof value === 'string' && value !== '' ? value : fallback);
+}
+
 /**
  * The effective hook configuration, from `lefthook dump --format json` (lefthook's own merge of
- * the main config, `extends` files and local overrides, in any format): its key, or why a pass
- * cannot bind it. `remotes` are refused outright: their content is fetched, so the same dump can
- * stand for different rules on another day or machine.
+ * the main config, `extends` files and local overrides, in any format), or why a pass cannot bind
+ * it. `remotes` are refused outright: their content is fetched, so the same dump can stand for
+ * different rules on another day or machine. Script dirs must stay inside the repository, so their
+ * tree ids can be bound too.
  */
-export function effectiveHooks(dump: string): { key: string } | { problem: string } {
+export function effectiveHooks(dump: string): EffectiveHooks | { problem: string } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(dump);
@@ -62,11 +84,30 @@ export function effectiveHooks(dump: string): { key: string } | { problem: strin
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     return { problem: 'lefthook dump did not print a config object' };
   }
-  const remotes = (parsed as Record<string, unknown>).remotes;
+  const record = parsed as Record<string, unknown>;
+  const remotes = record.remotes;
   if (Array.isArray(remotes) && remotes.length > 0) {
     return { problem: 'the lefthook config uses remotes, whose fetched rules a pass cannot bind' };
   }
-  return { key: createHash('sha1').update(JSON.stringify(parsed)).digest('hex') };
+  const sourceDir = scriptDir(record.source_dir, '.lefthook');
+  const sourceDirLocal = scriptDir(record.source_dir_local, '.lefthook-local');
+  if (sourceDir === null || sourceDirLocal === null) {
+    return {
+      problem: 'a lefthook source_dir lies outside the repository, so a pass cannot bind it',
+    };
+  }
+  return { config: JSON.stringify(parsed), sourceDir, sourceDirLocal };
+}
+
+/** The pass's hooks_key: the merged config plus the git tree ids of its script dirs. */
+export function hooksKey(
+  hooks: EffectiveHooks,
+  sourceTree: string,
+  sourceLocalTree: string,
+): string {
+  return createHash('sha1')
+    .update([hooks.config, sourceTree, sourceLocalTree].join('\n'))
+    .digest('hex');
 }
 
 export interface PassGate {

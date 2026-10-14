@@ -415,6 +415,7 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   const vars = { base, head: sha, worktree: ctx.worktree, source: ctx.sourceRun };
   for (const check of ctx.config.earlyChecks) await runCheck(ctx, check, vars);
   await bootstrapIfNeeded(ctx, c, vars);
+  assertNoLocalHookOverrides(ctx); // the bootstrap may have written one
   const todo = selected.filter((g) => !evidence.passed.has(g.name));
   await requireTools(ctx, todo);
   const lanes = gateLanes(ctx, todo, evidence, vars, base);

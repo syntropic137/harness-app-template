@@ -527,7 +527,7 @@ describe('review pass 2: the effective lefthook config, through the real runner'
       sh(f.src, 'git checkout -q main');
       expect(await land(f.deps, VERIFY, config(f))).toBe(EXIT.unverified);
       expect(f.errors.join('\n')).toMatch(
-        /no pass recorded: the ref changes the effective lefthook config \(lefthook dump differs/,
+        /no pass recorded: the ref changes the effective lefthook config \(lefthook dump or its script dirs differ/,
       );
       expect(() => sh(f.src, `git rev-parse --verify refs/land/verified/${refSha}`)).toThrow();
     },
@@ -556,5 +556,94 @@ describe('review pass 2: the effective lefthook config, through the real runner'
     expect(f.mainTip()).toBe(refSha);
     // The extended guard ran on the verify dry run and on the real push.
     expect(readFileSync(join(f.state, 'extra.log'), 'utf8').trim().split('\n')).toHaveLength(2);
+  });
+});
+
+describe('review pass 3: script dirs and overrides written by provisioning', () => {
+  test('a candidate that replaces a source_dir script (named through extends) with exit 0 gets no pass', async () => {
+    const bin = join(process.cwd(), 'node_modules', '.bin');
+    const real = join(bin, 'lefthook');
+    const f = fixture();
+    const files: Record<string, string> = {
+      'lefthook.yml': 'extends:\n  - hooks/base.yml\n',
+      'hooks/base.yml':
+        'source_dir: hook-scripts\npre-push:\n  scripts:\n    guard.sh:\n      runner: sh\n',
+      'hook-scripts/pre-push/guard.sh': 'echo guarded >> "$FAKE_STATE/script.log"\n',
+    };
+    for (const [path, text] of Object.entries(files)) {
+      sh(f.src, `mkdir -p "$(dirname ${path})"`);
+      writeFileSync(join(f.src, path), text);
+    }
+    sh(f.src, 'git add -A && git commit -qm hooks && git push -q origin HEAD:main');
+    sh(f.other, 'git pull -q origin main');
+    f.publishConfig({ lefthook: real, gates: [] });
+    f.env.PATH = `${bin}:${f.env.PATH ?? ''}`;
+    sh(f.src, 'git checkout -q -B feat main');
+    writeFileSync(join(f.src, 'hook-scripts/pre-push/guard.sh'), 'exit 0\n');
+    sh(f.src, 'git commit -qam "the guard script does nothing"');
+    const refSha = sh(f.src, 'git rev-parse HEAD');
+    sh(f.src, 'git checkout -q main');
+    expect(await land(f.deps, VERIFY, f.config({ lefthook: real, gates: [] }))).toBe(
+      EXIT.unverified,
+    );
+    expect(f.errors.join('\n')).toMatch(/script dirs differ between main and the verified commit/);
+    expect(() => sh(f.src, `git rev-parse --verify refs/land/verified/${refSha}`)).toThrow();
+  });
+
+  test('a source_dir outside the repository gets no pass', async () => {
+    const f = setup();
+    branch(f, 'crates/x.rs');
+    f.env.FAKE_DUMP = '{"source_dir":"/tmp/elsewhere"}';
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/source_dir lies outside the repository/);
+  });
+
+  test('an existing local script dir gets no pass', async () => {
+    const f = setup();
+    f.commit(f.src, 'my-local/pre-push/x.sh', 'exit 0\n');
+    sh(f.src, 'git push -q origin HEAD:main');
+    branch(f, 'crates/x.rs');
+    f.env.FAKE_DUMP = '{"source_dir_local":"my-local"}';
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/the local lefthook script dir my-local exists here/);
+  });
+
+  test('an ignored file in the script dir of the verification worktree gets no pass', async () => {
+    const f = setup();
+    f.commit(f.src, '.lefthook/pre-push/guard.sh', 'echo ok\n');
+    f.commit(f.src, '.gitignore', '.lefthook/pre-push/extra.sh\n');
+    sh(f.src, 'git push -q origin HEAD:main');
+    const refSha = branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok); // creates verify slot 1
+    sh(f.src, `git update-ref -d refs/land/verified/${refSha}`);
+    writeFileSync(
+      join(stateDir(f), 'verify', '1', 'worktree', '.lefthook', 'pre-push', 'extra.sh'),
+      'exit 0\n',
+    );
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(/script dir .lefthook holds files that are not committed/);
+  });
+
+  test('a bootstrap that writes lefthook-local.yml in the verification worktree refuses verify', async () => {
+    const bootstrap = { run: 'touch lefthook-local.yml' };
+    const f = setup({ bootstrap });
+    branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config({ bootstrap }))).toBe(EXIT.gate);
+    expect(f.errors.join('\n')).toMatch(/lefthook-local.yml in .*verify\/1\/worktree overrides/);
+  });
+
+  test('a provisioning bootstrap that writes lefthook-local.yml in the push checkout refuses the land', async () => {
+    const bootstrap = {
+      run: 'if [ -f "$FAKE_STATE/boot-override" ]; then touch lefthook-local.yml; fi',
+    };
+    const f = setup({ bootstrap });
+    branch(f, 'crates/x.rs');
+    expect(await land(f.deps, VERIFY, f.config({ bootstrap }))).toBe(EXIT.ok);
+    writeFileSync(join(f.state, 'boot-override'), '');
+    writeFileSync(join(f.state, 'install-fail-once'), '');
+    const before = f.mainTip();
+    expect(await land(f.deps, STRICT, f.config({ bootstrap }))).toBe(EXIT.gate);
+    expect(f.errors.join('\n')).toMatch(/lefthook-local.yml in .*\/worktree overrides/);
+    expect(f.mainTip()).toBe(before);
   });
 });
