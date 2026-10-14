@@ -6,8 +6,10 @@ import { EXIT, land } from '../lib/land/engine';
 import { branch, fixture, OPTS, parseRun, sh } from './helpers/land-fixture';
 import { memoryLock } from './helpers/memory-lock';
 
-// drives the whole land engine against throwaway repos; slowest test about 7.5 s at load ~20 (full run, 2026-10-09).
-vi.setConfig({ testTimeout: 120_000 });
+// drives the whole land engine against throwaway repos; slowest test about 7.5 s at load ~20 (full
+// run, 2026-10-09). Under coverage (cov-ts runs these suites instrumented) at load ~28 the slowest
+// tests of the three real-git land suites took 135-140 s (2026-10-14), so they all allow 200 s.
+vi.setConfig({ testTimeout: 200_000 });
 
 describe('land engine end to end (real git, local bare origin)', () => {
   test('docs-only land runs only docs and unconditional gates, then pushes with exact-SHA exclusions', async () => {

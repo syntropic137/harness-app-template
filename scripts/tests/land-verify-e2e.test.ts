@@ -8,10 +8,9 @@ import { writePassNote } from '../lib/land/verified';
 import { branch, type Fixture, fixture, OPTS, parseRun, sh } from './helpers/land-fixture';
 import { memoryLock } from './helpers/memory-lock';
 
-// drives verify and land against throwaway repos, like land-e2e.test.ts, with the same allowance:
-// with the fixture awaited, the slowest test of these suites took 74.8 s under taskpolicy -b at
-// load ~15-20 (2026-10-14).
-vi.setConfig({ testTimeout: 120_000 });
+// drives verify and land against throwaway repos, like land-e2e.test.ts, with the same allowance
+// (measured there: 135-140 s under coverage at load ~28).
+vi.setConfig({ testTimeout: 200_000 });
 
 const VERIFY = { ...OPTS, verify: true };
 

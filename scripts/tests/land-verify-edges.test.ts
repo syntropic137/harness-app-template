@@ -10,7 +10,7 @@ import { branch, type Fixture, fixture, OPTS, parseRun, sh } from './helpers/lan
 
 // The failure and race paths of verify and land from a pass, against throwaway repos (the main
 // flows are in land-verify-e2e.test.ts). Same allowance as that file.
-vi.setConfig({ testTimeout: 120_000 });
+vi.setConfig({ testTimeout: 200_000 });
 
 const VERIFY = { ...OPTS, verify: true };
 const STRICT = { ...OPTS, requirePass: true };
