@@ -38,6 +38,16 @@ its rules from: `lefthook`, `.lefthook`, `lefthook-local` and `.lefthook-local` 
 `.lefthook-local` script directories. Lefthook merges a local file over the main one, so a
 candidate adding `lefthook-local.yml` could otherwise replace a gate's command.
 
+The hook rules a pass vouches for are lefthook's own merged view, not file names: verify runs
+`<lefthook> dump --format json` in the verification worktree at `C` and again at `B`, and records a
+pass only when the two are equal (`hooks_key`). That covers `extends` files and every config
+format without parsing them. A config that uses `remotes` gets no pass (their content is fetched,
+so the same dump can stand for different rules later), and neither does a dump that fails or is not
+JSON. Every worktree that runs hooks (a verification slot, the landing worktree) refuses to run
+while it holds any `lefthook-local*` or `.lefthook-local*` file or directory, tracked, untracked or
+ignored: a plain filesystem test, because `git clean -fd` keeps ignored files and ignore rules hide
+them from git.
+
 Every push and every pre-push dry run (verify, `--dry-run`, the full land, and a land from a pass)
 first installs the pre-push hook with the configured runner (`<lefthook> install pre-push`; the
 configured bootstrap runs once if it cannot), then checks the hook exists, is executable and
@@ -49,7 +59,7 @@ stripped from gates, hook runs and the push; only the engine sets `LEFTHOOK_EXCL
 The pass is two git refs, so it travels with git: `refs/land/verified/<ref_sha>` points at `C`
 (keeping it reachable), and the record is a git note on `C` under `refs/notes/land-pass`:
 `{ format, ref_sha, C, B, mode, message, config_key, gates: [{name, seconds, retried}], passed,
-started, seconds, host, engine_version }` (`mode` and `message` are the `--mode` and `--message`
+started, seconds, host, engine_version, hooks_key }` (`mode` and `message` are the `--mode` and `--message`
 the ref was applied with). `config_key` hashes the git tree ids of those land files at `B`;
 `engine_version` is the same key for the files that actually ran (equal to `config_key`, or verify
 would have refused). `passed` names every gate with evidence on `C` plus every early check and
@@ -64,8 +74,7 @@ ran. That checkout has no ignored caches (`node_modules`), so source-run steps m
 **Land** fetches and accepts the ref's pass only when the record is complete and: it asks for the
 same `--mode` and `--message` verify applied (`C` is what that request makes); `B` is the current
 tip `M`; `config_key` and `engine_version` both equal `M`'s key; `C` does not itself change the
-land files; no lefthook config at `M` or `C` pulls rules from `extends` or `remotes` (inputs no key
-can bind); `passed` covers every gate `M`'s `land.config.json` makes applicable to `B..C` plus every
+land files; `passed` covers every gate `M`'s `land.config.json` makes applicable to `B..C` plus every
 early check and check; and the invoking checkout's land files equal `M`'s (the rule verify applies). The fast path then runs entirely under `M`'s validated `land.config.json`
 (`pushRequires`, the hook runner, the marker, the remote), never the invoking checkout's. It does
 only this: take the lease (if it had to wait, fetch again and report **already landed** when
@@ -73,7 +82,7 @@ another lander got there first), check out `C` in the landing worktree, install 
 itself with the configured runner (`<lefthook> install pre-push`, main's config; about 0.3 s), so
 whatever hook was there is replaced by a known one (after one run of the configured bootstrap if
 the runner cannot install; otherwise it refuses), check the installed hook exists, is executable
-and invokes the runner, require every `pushRequires` tool on PATH, push `C` with `--force-with-lease=refs/heads/<target>:<M>`
+and invokes the runner, require every `pushRequires` tool on PATH, require `lefthook dump` here to equal the pass's `hooks_key` (else stale), push `C` with `--force-with-lease=refs/heads/<target>:<M>`
 (a compare-and-swap) and the SHA-bound marker, then observe the outcome. When the push exited 0 on
 its own (not signal-killed) and its `--porcelain` report is unambiguous (`Done`, exactly one line
 for `C:refs/heads/<target>`, flagged pushed or `=` up to date), that remote report is the
@@ -83,7 +92,7 @@ exit, a signal, an unparsable or ambiguous report) fetches and checks
 main's config and the validated evidence, never read from the record, and never names a guard:
 `guard-main-push`, `push-scope-guard` and `versioning-release-check` always run on the real push.
 The receipt line in `runs.jsonl` has `stage: "land"` and per-step seconds (lease, checkout,
-guards, push, and confirm when it fetched).
+guards, hooks, push, and confirm when it fetched).
 
 - `C` already on the target: **already landed**, exit 0, nothing pushed (also when the push moved
   nothing because another lander pushed `C` first).
