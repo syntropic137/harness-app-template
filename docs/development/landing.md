@@ -29,15 +29,28 @@ so several refs verify at once without sharing a build directory (a configured `
 split per slot too). It never takes the landing lease. When every slot is busy it refuses at once
 and names the holders (`--wait <seconds>` queues).
 
-Verify first checks that the invoking checkout's land config and engine (`land.config.json`,
-`lefthook.yml`, `scripts/lib/land/`, `scripts/land.ts`, including uncommitted and untracked changes)
-are identical to `B`'s, and refuses before any gate when they are not: a pass is only ever judged
-by the rules main holds. Rebase, or restore those files, and verify again.
+Verify first checks that the invoking checkout's land files are identical to `B`'s, including
+uncommitted and untracked changes, and refuses before any gate when they are not: a pass is only
+ever judged by the rules main holds. Rebase, or restore those files, and verify again. The land
+files are `land.config.json`, `scripts/lib/land/`, `scripts/land.ts`, and every file lefthook reads
+its rules from: `lefthook`, `.lefthook`, `lefthook-local` and `.lefthook-local` in each format
+(`yml`, `yaml`, `json`, `jsonc`, `toml`), at the root and under `.config/`, plus the `.lefthook` and
+`.lefthook-local` script directories. Lefthook merges a local file over the main one, so a
+candidate adding `lefthook-local.yml` could otherwise replace a gate's command.
+
+Every push and every pre-push dry run (verify, `--dry-run`, the full land, and a land from a pass)
+first installs the pre-push hook with the configured runner (`<lefthook> install pre-push`; the
+configured bootstrap runs once if it cannot), then checks the hook exists, is executable and
+invokes the runner, and that every `pushRequires` tool is on PATH; otherwise it refuses. The hook
+is the only place the push guards run, so a clone without it must not push. Every `LEFTHOOK*`
+variable (`LEFTHOOK=0`, `LEFTHOOK_CONFIG`, `LEFTHOOK_BIN`, an ambient `LEFTHOOK_EXCLUDE`) is
+stripped from gates, hook runs and the push; only the engine sets `LEFTHOOK_EXCLUDE`.
 
 The pass is two git refs, so it travels with git: `refs/land/verified/<ref_sha>` points at `C`
 (keeping it reachable), and the record is a git note on `C` under `refs/notes/land-pass`:
-`{ ref_sha, C, B, config_key, gates: [{name, seconds, retried}], passed, started, seconds, host,
-engine_version }`. `config_key` hashes the git tree ids of those land files at `B`;
+`{ format, ref_sha, C, B, mode, message, config_key, gates: [{name, seconds, retried}], passed,
+started, seconds, host, engine_version }` (`mode` and `message` are the `--mode` and `--message`
+the ref was applied with). `config_key` hashes the git tree ids of those land files at `B`;
 `engine_version` is the same key for the files that actually ran (equal to `config_key`, or verify
 would have refused). `passed` names every gate with evidence on `C` plus every early check and
 check. The note is written with a compare-and-swap on `refs/notes/land-pass`, so concurrent
@@ -48,11 +61,12 @@ Every `cwd: source` step of a verify (preflight, early checks, checks, command g
 from the invoking checkout, so a local edit to a source-run script cannot change what a pass says
 ran. That checkout has no ignored caches (`node_modules`), so source-run steps must not need them.
 
-**Land** fetches and accepts the ref's pass only when the record is complete and: `B` is the
-current tip `M`; `config_key` and `engine_version` both equal `M`'s key; `C` does not itself change
-the land files; `passed` covers every gate `M`'s `land.config.json` makes applicable to `B..C`
-plus every early check and check; and the invoking checkout's land files equal `M`'s (the rule
-verify applies). The fast path then runs entirely under `M`'s validated `land.config.json`
+**Land** fetches and accepts the ref's pass only when the record is complete and: it asks for the
+same `--mode` and `--message` verify applied (`C` is what that request makes); `B` is the current
+tip `M`; `config_key` and `engine_version` both equal `M`'s key; `C` does not itself change the
+land files; no lefthook config at `M` or `C` pulls rules from `extends` or `remotes` (inputs no key
+can bind); `passed` covers every gate `M`'s `land.config.json` makes applicable to `B..C` plus every
+early check and check; and the invoking checkout's land files equal `M`'s (the rule verify applies). The fast path then runs entirely under `M`'s validated `land.config.json`
 (`pushRequires`, the hook runner, the marker, the remote), never the invoking checkout's. It does
 only this: take the lease (if it had to wait, fetch again and report **already landed** when
 another lander got there first), check out `C` in the landing worktree, install the pre-push hook
@@ -110,7 +124,7 @@ When unsure it runs everything: an unmapped path, a path in `full`, an unreadabl
 - A **check** is a shell command that always runs after the gates. Placeholders: `{base}`, `{head}`, `{worktree}`, `{source}`. `cwd` is `worktree` (default) or `source` (the invoking checkout, which the applied ref cannot alter). Project-specific rules (for example "baseline.json must not differ from the base") live here, not in the engine.
 - `preflight` checks run before the lock is taken. `earlyChecks` run once the plan is printed, before bootstrap and any gate (for example: is the evidence host reachable), with the same placeholders as `checks`.
 
-Ambient `LEFTHOOK`, `LEFTHOOK_EXCLUDE`, `CARGO_TARGET_DIR`, the marker variable and git routing or config variables (`GIT_DIR`, `GIT_CONFIG_*`, ...) are stripped from the environment of every gate and the push, after `env` is merged. `harness.hookBaseRemote` and `harness.hookBaseRef` are injected so every diff-scoped hook uses the landing base.
+Every ambient `LEFTHOOK*` variable (`LEFTHOOK`, `LEFTHOOK_CONFIG`, `LEFTHOOK_BIN`, `LEFTHOOK_EXCLUDE`, ...), `CARGO_TARGET_DIR`, the marker variable and git routing or config variables (`GIT_DIR`, `GIT_CONFIG_*`, ...) are stripped from the environment of every gate and the push, after `env` is merged. `harness.hookBaseRemote` and `harness.hookBaseRef` are injected so every diff-scoped hook uses the landing base.
 
 A gate may list `requires` (programs on PATH): many hooks exit 0 when a tool is missing, which a landing must treat as failure. `ignoreDirty` lists tracked paths a gate may rewrite; any other change to the tree, or to HEAD, after gating aborts the land. Gates named `guard-main-push`, `push-scope-guard.sh` or `versioning-release-check` are rejected, so the guards can never be excluded from the push.
 
