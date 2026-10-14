@@ -154,46 +154,62 @@ export async function inTurn<T>(
   attempt: () => Promise<T | null>,
   busy: (why: string) => LockTimeout,
 ): Promise<T> {
-  if (maxWaitMs <= 0) {
-    const ahead = liveTickets(deps, dir);
-    if (ahead.length > 0) throw busy(describeQueue(deps, dir, ahead));
-    const got = await attempt();
-    if (got === null) throw busy('not waiting');
-    return got;
-  }
+  if (maxWaitMs <= 0) return withoutWaiting(deps, dir, attempt, busy);
   const deadline = deps.now() + maxWaitMs;
+  const name = await enqueue(deps, dir, me, maxWaitMs, busy);
+  try {
+    for (;;) {
+      const live = liveTickets(deps, dir, name);
+      const got = live[0] === name ? await attempt() : null;
+      if (got !== null) return got;
+      if (deps.now() >= deadline) throw busy(whyStillWaiting(deps, dir, live, name));
+      await deps.sleep(POLL_MS);
+    }
+  } finally {
+    deps.remove(join(dir, name));
+  }
+}
+
+/** A caller that will not wait: refused while anyone is queued, else one attempt. */
+async function withoutWaiting<T>(
+  deps: QueueDeps,
+  dir: string,
+  attempt: () => Promise<T | null>,
+  busy: (why: string) => LockTimeout,
+): Promise<T> {
+  const ahead = liveTickets(deps, dir);
+  if (ahead.length > 0) throw busy(describeQueue(deps, dir, ahead));
+  const got = await attempt();
+  if (got === null) throw busy('not waiting');
+  return got;
+}
+
+/** Take this caller's ticket; failing to get the allocation lock in time is "busy". */
+async function enqueue(
+  deps: QueueDeps,
+  dir: string,
+  me: Me,
+  maxWaitMs: number,
+  busy: (why: string) => LockTimeout,
+): Promise<string> {
   const holder: LockHolder = {
     ...me,
     bootId: deps.bootId(),
     startedAt: new Date(deps.now()).toISOString(),
   };
   deps.mkdirp(dir);
-  let name: string;
   try {
-    name = await takeTicket(deps, dir, me, holder, maxWaitMs);
+    return await takeTicket(deps, dir, me, holder, maxWaitMs);
   } catch (error) {
     if (error instanceof LockTimeout) throw busy('could not take a queue ticket');
     throw error;
   }
-  try {
-    for (;;) {
-      const live = liveTickets(deps, dir, name);
-      if (live[0] === name) {
-        const got = await attempt();
-        if (got !== null) return got;
-      }
-      if (deps.now() >= deadline) {
-        throw busy(
-          live[0] === name
-            ? 'not waiting any longer'
-            : describeQueue(deps, dir, live.slice(0, live.indexOf(name))),
-        );
-      }
-      await deps.sleep(POLL_MS);
-    }
-  } finally {
-    deps.remove(join(dir, name));
-  }
+}
+
+function whyStillWaiting(deps: QueueDeps, dir: string, live: string[], name: string): string {
+  return live[0] === name
+    ? 'not waiting any longer'
+    : describeQueue(deps, dir, live.slice(0, live.indexOf(name)));
 }
 
 /** acquireLock behind a fair queue in `<lockPath>.queue`. */
