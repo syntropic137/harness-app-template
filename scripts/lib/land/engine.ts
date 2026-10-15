@@ -21,6 +21,7 @@ import {
   pushEnv,
   type Receipt,
   remoteTip,
+  removeOrphanedOutput,
   shortSha,
   tail,
 } from './core';
@@ -473,6 +474,8 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   );
   await ensureWorktree(ctx, base);
   await applyTarget(ctx, base, target);
+  // The candidate may delete a directory B has: drop the ignored output an earlier run left there.
+  await removeOrphanedOutput(ctx, ctx.worktree);
   // Gates run lefthook here too: an ignored local override would change what they check.
   assertNoLocalHookOverrides(ctx);
   const sha = await gitOut(ctx, ['rev-parse', 'HEAD']);

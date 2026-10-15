@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { CONFIG_FILE, DEFAULT_CONFIG, type LandConfig, parseConfig } from './config';
 import {
   Abort,
@@ -334,6 +334,14 @@ export function assertNoLocalHookOverrides(ctx: Ctx): void {
  * (`lefthook dump`) plus the committed tree ids of the script dirs it names, which must hold
  * nothing beyond what is committed. A local script dir must not exist at all.
  */
+/** A repository-relative path as git spells it in a tree: no `./`, no trailing `/`. */
+export function repoPath(path: string): string {
+  return posix
+    .normalize(path)
+    .replace(/^(\.\/)+/, '')
+    .replace(/\/+$/, '');
+}
+
 async function effectiveHooksHere(ctx: Ctx): Promise<{ key: string } | { problem: string }> {
   const dump = await ctx.deps.run('sh', ['-c', `${hookRunner(ctx)} dump --format json`], {
     cwd: ctx.worktree,
@@ -348,7 +356,8 @@ async function effectiveHooksHere(ctx: Ctx): Promise<{ key: string } | { problem
   // A symlink in a script dir, or on the way to one (`hooks -> scripts` with `source_dir:
   // hooks/guards`), points at content outside the bound trees (a file the candidate may change),
   // so the tree ids would not bind what runs. List every path prefix and everything inside.
-  const dirs = [hooks.sourceDir, hooks.sourceDirLocal];
+  // Repository-relative names as git spells them: `./hooks` and `hooks/` are `hooks` in a tree.
+  const dirs = [repoPath(hooks.sourceDir), repoPath(hooks.sourceDirLocal)];
   const prefixes = dirs.flatMap((dir) =>
     dir.split('/').map((_part, i, parts) => parts.slice(0, i + 1).join('/')),
   );
@@ -373,7 +382,7 @@ async function effectiveHooksHere(ctx: Ctx): Promise<{ key: string } | { problem
     };
   }
   const idOf = (dir: string): string => entries.find(({ path }) => path === dir)?.id ?? 'absent';
-  const [source, local] = [idOf(hooks.sourceDir), idOf(hooks.sourceDirLocal)];
+  const [source, local] = dirs.map(idOf) as [string, string];
   // Absent from the commit yet present on disk (an ignored dir, or one reached through an ignored
   // symlink): what runs is not what the key names.
   if (source === 'absent') {

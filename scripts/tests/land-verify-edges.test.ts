@@ -738,6 +738,16 @@ describe('review pass 5: symlinked ancestors and script dirs missing from the co
       /the lefthook script dir guards is not in the commit but exists on disk/,
     );
   });
+
+  test('a committed script dir spelled ./guards/ is found as guards, and the pass is recorded', async () => {
+    const f = await setup();
+    await f.commit(f.src, 'guards/pre-push/guard.sh', 'exit 0\n');
+    await sh(f.src, 'git push -q origin HEAD:main');
+    await branch(f, 'crates/x.rs');
+    f.env.FAKE_DUMP = '{"source_dir":"./guards/"}';
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.ok);
+    expect(f.errors.join('\n')).toBe('');
+  });
 });
 
 describe('land v2 finish: shared landing state, prepare steps', () => {
@@ -928,6 +938,31 @@ describe('land v2 finish: shared landing state, prepare steps', () => {
     expect(f.logs.join('\n')).toMatch(
       /removing contexts\/: ignored output under a directory/, // the fixture main has no contexts/ at all
     );
+  });
+
+  test('a candidate that deletes a directory main has leaves none of its ignored output behind', async () => {
+    const f = await setup();
+    await f.commit(f.src, '.gitignore', '.turbo/\n');
+    await f.commit(f.src, 'contexts/spatial/lib.rs');
+    await sh(f.src, 'git push -q origin HEAD:main');
+    // A first verify leaves ignored output inside the context main tracks.
+    await branch(f, 'crates/x.rs');
+    const build = {
+      name: 'build',
+      run: 'mkdir -p contexts/spatial/.turbo && touch contexts/spatial/.turbo/log',
+    };
+    expect(await land(f.deps, VERIFY, f.config({ gates: [build], verifySlots: 1 }))).toBe(EXIT.ok);
+    // The candidate deletes that context; its gates must not see the directory.
+    await sh(f.src, 'git checkout -q -B feat2 main');
+    await sh(f.src, 'git rm -rq contexts/spatial && git commit -qm "drop the spatial context"');
+    await sh(f.src, 'git checkout -q main');
+    const check = {
+      name: 'build',
+      run: 'if [ -d contexts/spatial ]; then echo "stale context dir"; exit 1; fi',
+    };
+    const config = f.config({ gates: [check], verifySlots: 1 });
+    expect(await land(f.deps, { ...VERIFY, ref: 'feat2' }, config)).toBe(EXIT.ok);
+    expect(f.logs.join('\n')).toMatch(/removing contexts\/: ignored output/); // nothing else is under contexts/
   });
 
   /** A coverage-like gate whose reading goes wrong when an object from an earlier run is left behind. */
