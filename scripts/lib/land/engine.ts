@@ -100,12 +100,13 @@ async function runLogged(
   args: string[],
   cwd: string,
   input?: string,
+  extraEnv: Record<string, string> = {},
 ): Promise<RunResult> {
   const start = ctx.deps.now();
   const lines: string[] = [];
   const result = await ctx.deps.run(command, args, {
     cwd,
-    env: baseEnv(ctx),
+    env: { ...baseEnv(ctx), ...extraEnv },
     input,
     onLine: (line) => {
       lines.push(line);
@@ -279,6 +280,7 @@ async function runLefthookBatch(
   jobs: string[],
   evidence: Evidence,
   base: string,
+  label = 'lefthook',
 ): Promise<void> {
   const url = await gitOut(ctx, ['remote', 'get-url', ctx.config.remote]);
   const selector = ctx.config.lefthookSelector;
@@ -289,7 +291,7 @@ async function runLefthookBatch(
   const [bin = 'lefthook', ...pre] = ctx.config.lefthook.split(/\s+/);
   const result = await runLogged(
     ctx,
-    'lefthook',
+    label,
     bin,
     [...pre, ...args],
     ctx.worktree,
@@ -387,7 +389,11 @@ async function runCheck(ctx: Ctx, check: CheckConfig, vars: Vars): Promise<void>
     new RegExp(check.retryOnOutput).test(result.output)
   ) {
     ctx.deps.log(`${check.name}: output matched /${check.retryOnOutput}/; retrying once`);
-    result = await runLogged(ctx, `${check.name}-retry`, 'sh', ['-c', command], cwd);
+    // A retry pass is flagged (ADR-0034 decision 9): the command sees HARNESS_LAND_RETRY=1, so a
+    // tool with a result cache can replay from it but must not record this pass as a new entry.
+    result = await runLogged(ctx, `${check.name}-retry`, 'sh', ['-c', command], cwd, undefined, {
+      HARNESS_LAND_RETRY: '1',
+    });
   }
   if (!succeeded(result)) {
     throw new Abort(
@@ -438,24 +444,40 @@ function gateLanes(
   base: string,
 ): Array<() => Promise<void>> {
   const lanes: Array<() => Promise<void>> = [];
-  const jobs = todo.filter(isLefthookGate).map((g) => g.name);
+  // Lefthook jobs without a lane share one batch. A lefthook job WITH a lane runs on its own, in
+  // that lane, so it never overlaps a command gate it would collide with (bead kzyyk: two turbo
+  // runs of one task in one worktree write the same .turbo/turbo-<task>.log, and the run that
+  // passed cached the other's failure text).
+  const jobs = todo.filter((g) => isLefthookGate(g) && g.lane === undefined).map((g) => g.name);
   if (jobs.length > 0) lanes.push(() => runLefthookBatch(ctx, jobs, evidence, base));
-  const commandLanes = new Map<string, CommandGate[]>();
-  for (const gate of todo.filter(hasCommand)) {
+  const laned = new Map<string, GateConfig[]>();
+  for (const gate of todo.filter((g) => hasCommand(g) || g.lane !== undefined)) {
     const key = gate.lane ?? `gate:${gate.name}`;
-    commandLanes.set(key, [...(commandLanes.get(key) ?? []), gate]);
+    laned.set(key, [...(laned.get(key) ?? []), gate]);
   }
-  for (const gates of commandLanes.values()) {
+  for (const gates of laned.values()) {
+    // Gates in one lane run in order; the first failure stops the lane.
     lanes.push(async () => {
-      // Gates in one lane run in order; the first failure stops the lane.
-      for (const gate of gates) {
-        const { name, run, retryOnOutput, cwd } = gate;
-        await runCheck(ctx, { name, run, cwd: cwd ?? 'worktree', retryOnOutput }, vars);
-        evidence.passed.set(name, evidence.sha);
-      }
+      for (const gate of gates) await runLaneGate(ctx, gate, evidence, vars, base);
     });
   }
   return lanes;
+}
+
+async function runLaneGate(
+  ctx: Ctx,
+  gate: GateConfig,
+  evidence: Evidence,
+  vars: Vars,
+  base: string,
+): Promise<void> {
+  if (!hasCommand(gate)) {
+    await runLefthookBatch(ctx, [gate.name], evidence, base, `lefthook-${gate.name}`);
+    return;
+  }
+  const { name, run, retryOnOutput, cwd } = gate;
+  await runCheck(ctx, { name, run, cwd: cwd ?? 'worktree', retryOnOutput }, vars);
+  evidence.passed.set(name, evidence.sha);
 }
 
 /**

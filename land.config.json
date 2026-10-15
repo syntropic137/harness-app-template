@@ -7,6 +7,7 @@
   "lefthook": "pnpm exec lefthook",
   "metadataSafe": [],
   "ignoreDirty": [".beads/ubs-findings.jsonl"],
+  "env": { "TURBO_CACHE_DIR": ".turbo/land-cache" },
   "scopes": {
     "ts": [
       "**/*.ts",

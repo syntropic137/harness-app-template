@@ -12,7 +12,7 @@ export interface GateConfig {
   run?: string;
   /** Where a command gate runs: the landing worktree (default) or the invoking checkout, which the applied ref cannot alter. */
   cwd?: 'worktree' | 'source';
-  /** Command gates that share a lane run one after another, never concurrently (for example two suites that starve each other). Omitted: its own lane. */
+  /** Gates that share a lane run one after another, never concurrently (for example two suites that starve each other). Omitted: a command gate gets its own lane; a lefthook gate joins the one lefthook batch. A laned lefthook gate runs alone in its lane (bead kzyyk). */
   lane?: string;
   /** As CheckConfig.retryOnOutput, for a command gate. */
   retryOnOutput?: string;
@@ -68,7 +68,7 @@ export interface LandConfig {
   lefthookSelector: '--job' | '--command' | '--jobs' | '--commands';
   /** Re-apply attempts when the target branch moves during validation. */
   maxAttempts: number;
-  /** Gate lanes (the lefthook batch is one lane, each command gate another) run at once. 1 is sequential. */
+  /** Gate lanes (the lefthook batch is one lane, each command gate or named lane another) run at once. 1 is sequential. */
   parallelGates: number;
   /** Verification worktrees `just verify` may use at once on this machine (each is a full checkout with its own caches). */
   verifySlots: number;

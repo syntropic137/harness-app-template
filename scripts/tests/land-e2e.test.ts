@@ -240,13 +240,18 @@ describe('land engine end to end (real git, local bare origin)', () => {
     // Fails the first time with a matching line, passes the second.
     const flaky = {
       name: 'flaky',
-      run: 'if [ -f "$FAKE_STATE/seen" ]; then echo ok; else touch "$FAKE_STATE/seen"; echo "Timeout calling onTaskUpdate"; exit 1; fi',
+      run: 'echo "retry=$HARNESS_LAND_RETRY" >> "$FAKE_STATE/retry-env"; if [ -f "$FAKE_STATE/seen" ]; then echo ok; else touch "$FAKE_STATE/seen"; echo "Timeout calling onTaskUpdate"; exit 1; fi',
       when: ['rust'],
       retryOnOutput: 'Timeout calling',
     };
     expect(await land(f.deps, OPTS, f.config({ gates: [flaky] }))).toBe(EXIT.ok);
     expect(f.logs.join('\n')).toMatch(/flaky: output matched \/Timeout calling\/; retrying once/);
     expect(f.logs.join('\n')).toMatch(/PASS flaky-retry/);
+    // Only the retry is flagged (ADR-0034 decision 9; bead kzyyk), so a cache can refuse to record it.
+    expect(readFileSync(join(f.state, 'retry-env'), 'utf8').trim().split('\n')).toEqual([
+      'retry=',
+      'retry=1',
+    ]);
     // a non-matching failure is NOT retried
     await sh(f.src, 'git checkout -q -B feat14 main');
     await f.commit(f.src, 'crates/r1.rs');
@@ -265,6 +270,30 @@ describe('land engine end to end (real git, local bare origin)', () => {
     expect(await land(f.deps, { ...OPTS, ref: 'feat15' }, f.config({ gates: [always] }))).toBe(
       EXIT.gate,
     );
+  });
+
+  test('a lefthook gate with a lane leaves the batch and runs in that lane, before its lane mate (bead kzyyk)', async () => {
+    const f = await fixture();
+    await branch(f, 'crates/x.rs');
+    const config = f.config({
+      parallelGates: 3,
+      gates: [
+        { name: 'cov-rust', when: ['rust'], lane: 'heavy' },
+        { name: 'adr' },
+        {
+          name: 'suite',
+          run: 'grep -q cov-rust "$FAKE_STATE/lefthook.log" && echo after-cov-rust >> "$FAKE_STATE/order.log"',
+          lane: 'heavy',
+        },
+      ],
+    });
+    expect(await land(f.deps, OPTS, config)).toBe(EXIT.ok);
+    expect([...f.ran()].sort()).toEqual([
+      'run pre-push --force --job adr',
+      'run pre-push --force --job cov-rust',
+    ]);
+    expect(readFileSync(join(f.state, 'order.log'), 'utf8').trim()).toBe('after-cov-rust');
+    expect(f.logs.join('\n')).toMatch(/PASS lefthook-cov-rust/);
   });
 
   test('lefthook 1.x style comma selectors are supported', async () => {
