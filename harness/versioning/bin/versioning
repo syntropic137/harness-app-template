@@ -9,38 +9,4 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 127
 fi
 
-# Fast path: run the binary built from exactly the crate tree checked out here, without cargo's own
-# startup and freshness check (about 1 s per call measured, more under load; this runs on every
-# push). The stamp binds three things: the crate tree a pristine build was made from, the path of
-# the binary that build produced (as cargo reports it: a cargo config or CARGO_TARGET_DIR may put it
-# anywhere), and that binary's hash. Any later build that replaces it changes the hash, so cargo
-# decides again. The stamp itself lives in this checkout's own target dir.
-stamp="$crate_dir/target/.harness-versioning.stamp"
-# Git run from a hook inherits GIT_DIR and friends, which would override -C: ask the crate's own repo.
-crate_git() { (unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX; git -C "$crate_dir" "$@"); }
-tree="$(crate_git rev-parse --verify --quiet 'HEAD:./' 2>/dev/null || true)"
-# The checked-out crate is exactly that tree: nothing modified, staged or untracked in it.
-pristine() {
-  [ -n "$tree" ] && [ -z "$(crate_git status --porcelain --untracked-files=all -- . 2>/dev/null)" ]
-}
-hash_of() { crate_git hash-object --no-filters -- "$1"; }
-if pristine && [ -f "$stamp" ]; then
-  read -r stamped_tree stamped_hash stamped_bin <"$stamp" || true
-  if [ "${stamped_tree:-}" = "$tree" ] && [ -x "${stamped_bin:-}" ] &&
-    [ "$(hash_of "$stamped_bin")" = "${stamped_hash:-}" ]; then
-    exec "$stamped_bin" "$@"
-  fi
-fi
-if [ -n "$tree" ]; then
-  # The binary cargo built (or found fresh), from its own report: never an assumed path.
-  bin="$(cargo build --quiet --manifest-path "$crate_dir/Cargo.toml" --bin harness-versioning \
-    --message-format=json | grep '"kind":\["bin"\]' |
-    sed -n 's/.*"executable":"\([^"]*\)".*/\1/p' | tail -n 1)"
-  # Stamp only a build of the pristine tree, judged after the build as well as before.
-  if [ -n "$bin" ] && [ -x "$bin" ] && pristine; then
-    mkdir -p "$crate_dir/target"
-    printf '%s %s %s\n' "$tree" "$(hash_of "$bin")" "$bin" >"$stamp"
-    exec "$bin" "$@"
-  fi
-fi
 exec cargo run --quiet --manifest-path "$crate_dir/Cargo.toml" -- "$@"
