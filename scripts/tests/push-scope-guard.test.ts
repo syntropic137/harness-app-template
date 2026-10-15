@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { PushRefLine } from '../guard-main-push';
 import {
   EMPTY_TREE_SHA,
@@ -13,6 +13,10 @@ import {
   runPushScopeGuard,
 } from '../push-scope-guard';
 import { fixtureGit, hermeticGitEnv } from './helpers/land-git-env';
+
+// Real git repos per test and per hook: about 1 s alone at load ~11, past the 5 s test default and
+// the 10 s hook default under full-suite load ~25 (2026-10-14).
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 // ADR-0033. lefthook 1.13 skips EVERY pre-push `commands:` job --
 // filtered or not, guard-main-push included -- when its push-file set is empty,

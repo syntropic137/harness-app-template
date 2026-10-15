@@ -7,6 +7,7 @@
   "lefthook": "pnpm exec lefthook",
   "metadataSafe": [],
   "ignoreDirty": [".beads/ubs-findings.jsonl"],
+  "env": { "TURBO_CACHE_DIR": ".turbo/land-cache" },
   "scopes": {
     "ts": [
       "**/*.ts",
@@ -34,6 +35,13 @@
     "go.work"
   ],
   "bootstrap": { "run": "pnpm install --frozen-lockfile", "when": ["ts"] },
+  "prepare": [
+    {
+      "name": "llvm-cov-clean",
+      "run": "bun run scripts/coverage-clean.ts rust",
+      "when": ["rust"]
+    }
+  ],
   "gates": [
     { "name": "typecheck-affected", "when": ["ts"], "requires": ["pnpm"] },
     { "name": "test-affected", "when": ["ts"], "requires": ["pnpm"] },
@@ -43,9 +51,9 @@
     { "name": "doc-validator", "when": ["docs"] },
     { "name": "perf-gate", "when": ["ts"], "requires": ["hyperfine", "node"] },
     { "name": "sensors-gate", "when": ["ts", "rust", "python"], "requires": ["node", "npx"] },
-    { "name": "versioning-release-check", "requires": ["cargo"] },
     { "name": "ubs-diff", "when": ["ts", "python", "rust"], "requires": ["ubs"] }
   ],
+  "pushRequires": ["cargo", "bun", "just"],
   "checks": [
     {
       "name": "secret-scan",

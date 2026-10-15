@@ -3,9 +3,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { chdir, cwd as processCwd } from 'node:process';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { initProject, parseCli, validateProjectName } from '../init';
 import { withoutLocalGitEnv } from '../lib/git';
+
+// Runs git per test: the slowest took 0.24 s alone at load ~12 but passed the 5 s default under
+// full-suite load ~25 (2026-10-14).
+vi.setConfig({ testTimeout: 30_000 });
 
 function write(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });

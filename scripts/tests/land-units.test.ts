@@ -1,17 +1,38 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
-import { landHome, parseArgs, pidAlive, readBootId, USAGE } from '../land';
+import {
+  idlePercent,
+  landHome,
+  parseArgs,
+  pidAlive,
+  readBootId,
+  readCpus,
+  sampleIdle,
+  USAGE,
+} from '../land';
 import { isMainEntry } from '../lib/entrypoint';
 import { DEFAULT_CONFIG, type GateConfig, loadConfig, parseConfig } from '../lib/land/config';
 import {
+  allOrFirstError,
+  type Ctx,
+  type EngineDeps,
+  hookRunner,
+  requirePushTools,
+} from '../lib/land/core';
+import {
+  admitHeavyLanes,
   excludedJobs,
   inheritEvidence,
   isLefthookGate,
+  LAND_NICENESS,
+  lowerPriority,
   passedJobs,
   planGates,
   repoId,
+  rootAndCommonDir,
   runLanes,
 } from '../lib/land/engine';
 import { describeExit, runProcess, succeeded } from '../lib/land/exec';
@@ -120,6 +141,10 @@ describe('config', () => {
         bootstrap: { run: 'x', when: ['ts'] },
         preflight: [{ name: 'p', run: 'true' }],
         earlyChecks: [{ name: 'e', run: 'true', cwd: 'source' }],
+        prepare: [
+          { name: 'clean', run: 'true', when: ['rust'] },
+          { name: 'always', run: 'true' },
+        ],
         checks: [{ name: 'c', run: 'true', cwd: 'source', retryOnOutput: 'x' }],
         gates: [
           {
@@ -147,6 +172,11 @@ describe('config', () => {
     expect(c.gates[0]?.lane).toBe('heavy');
     expect(c.gates[0]?.cwd).toBe('source');
     expect(c.earlyChecks[0]?.name).toBe('e');
+    expect(c.prepare).toMatchObject([
+      { name: 'clean', run: 'true', when: ['rust'] },
+      { name: 'always', run: 'true' },
+    ]);
+    expect(c.prepare[1]).not.toHaveProperty('when');
     expect(c.inheritUnaffectedEvidence).toBe(true);
     expect(c.ignoreDirty).toEqual(['a.log']);
     expect(c.quietCommand).toBe('true');
@@ -274,7 +304,33 @@ describe('runLanes', () => {
     expect(log.slice(0, 2)).toEqual(['start a', 'start b']);
   });
 
-  test('every lane finishes, and the first failure in lane order is thrown', async () => {
+  test('fail fast: after a failure no queued lane starts (bead luyfr.2)', async () => {
+    const log: string[] = [];
+    await expect(
+      runLanes([lane(log, 'a', true), lane(log, 'b'), lane(log, 'c')], 1),
+    ).rejects.toThrow('a failed');
+    expect(log).toEqual(['start a', 'end a']);
+  });
+
+  test('a lane whose boundary check outlasts another lane failing is not started', async () => {
+    const log: string[] = [];
+    // Worker 2 awaits the boundary check for lane b while lane a fails.
+    const between = () => new Promise<void>((resolve) => setTimeout(resolve, 30));
+    await expect(runLanes([lane(log, 'a', true), lane(log, 'b')], 2, between)).rejects.toThrow(
+      'a failed',
+    );
+    expect(log).toEqual(['start a', 'end a']);
+  });
+
+  test('a gate marked early parses, and anything but a boolean is refused', () => {
+    expect(cfg({ gates: [{ name: 'g', early: true }] }).gates[0]?.early).toBe(true);
+    expect(cfg({ gates: [{ name: 'g' }] }).gates[0]?.early).toBeUndefined();
+    expect(() => cfg({ gates: [{ name: 'g', early: 'yes' }] })).toThrow(
+      /early must be true or false/,
+    );
+  });
+
+  test('every started lane finishes, and the first failure in lane order is thrown', async () => {
     const log: string[] = [];
     await expect(
       runLanes([lane(log, 'a', true), lane(log, 'b', true), lane(log, 'c')], 3),
@@ -296,10 +352,11 @@ describe('engine helpers', () => {
     expect([...passedJobs(out)].sort()).toEqual(['a-b', 'cov-ts', 'docs']);
     expect(passedJobs('✔️')).toEqual(new Set());
   });
-  test('repoId is stable and path-sensitive', () => {
-    expect(repoId('/a/.git', '/a')).toBe(repoId('/a/.git', '/a'));
-    expect(repoId('/a/.git', '/a')).not.toBe(repoId('/b/.git', '/a'));
-    expect(repoId('/a/.git', '/x/a')).toMatch(/^a-[0-9a-f]{10}$/);
+  test('repoId is keyed by the git common dir: stable, path-sensitive, shared by every worktree', () => {
+    expect(repoId('/a/.git')).toBe(repoId('/a/.git'));
+    expect(repoId('/a/.git')).not.toBe(repoId('/b/.git'));
+    expect(repoId('/x/a/.git')).toMatch(/^a-[0-9a-f]{10}$/);
+    expect(repoId('/srv/repo.git')).toMatch(/^repo-[0-9a-f]{10}$/); // a bare repository
   });
   test('exclude list names only lefthook jobs that passed on the SHA or are inapplicable', () => {
     const c = cfg();
@@ -375,6 +432,11 @@ describe('land cli helpers', () => {
       ok: true,
       options: { waitSeconds: 30 },
     });
+    expect(parseArgs(['--verify', 'x'])).toMatchObject({ ok: true, options: { verify: true } });
+    expect(parseArgs(['x', '--require-pass', '--pass-from', 'tower'])).toMatchObject({
+      ok: true,
+      options: { requirePass: true, passFrom: 'tower' },
+    });
     expect(parseArgs(['--help'])).toEqual({ ok: false, message: USAGE, exitCode: 0 });
     expect(parseArgs(['-h'])).toMatchObject({ exitCode: 0 });
     for (const argv of [
@@ -387,6 +449,11 @@ describe('land cli helpers', () => {
       ['x', '--nope'],
       ['x', 'y'],
       ['x', '--message', 'm'],
+      ['x', '--verify', '--dry-run'],
+      ['x', '--verify', '--require-pass'],
+      ['x', '--dry-run', '--pass-from', 'tower'],
+      ['x', '--pass-from', '-evil'],
+      ['x', '--pass-from', 'a b'],
     ]) {
       expect(parseArgs(argv)).toMatchObject({ ok: false, exitCode: 64 });
     }
@@ -424,5 +491,285 @@ describe('land cli helpers', () => {
   test('entrypoint check is false under test', () => {
     expect(isMainEntry('file:///nope')).toBe(false);
     mkdirSync(tmpdir(), { recursive: true });
+  });
+});
+
+describe('land runs at niceness 10 itself', () => {
+  function niceDeps(current: number, refuse = false) {
+    const set: number[] = [];
+    const logs: string[] = [];
+    const deps = {
+      niceness: () => current,
+      setNiceness: (n: number) => {
+        if (refuse) throw new Error('EACCES: permission denied');
+        set.push(n);
+      },
+      log: (m: string) => void logs.push(m),
+    } as unknown as EngineDeps;
+    return { deps, set, logs };
+  }
+
+  test('a process at the default priority is lowered to niceness 10', () => {
+    const n = niceDeps(0);
+    lowerPriority(n.deps);
+    expect(n.set).toEqual([LAND_NICENESS]);
+    expect(LAND_NICENESS).toBe(10);
+  });
+
+  test('a process already at niceness 10 or lower priority is never raised', () => {
+    for (const current of [10, 19]) {
+      const n = niceDeps(current);
+      lowerPriority(n.deps);
+      expect(n.set).toEqual([]);
+    }
+  });
+
+  test('an OS that refuses is logged and the land carries on', () => {
+    const n = niceDeps(0, true);
+    expect(() => lowerPriority(n.deps)).not.toThrow();
+    expect(n.logs.join('\n')).toMatch(
+      /could not lower this process to niceness 10 \(EACCES: permission denied\); running at the current priority/,
+    );
+    const odd = niceDeps(0);
+    (odd.deps as { niceness: () => number }).niceness = () => {
+      const reason: unknown = 'no getpriority';
+      throw reason; // a non-Error throw is reported as text
+    };
+    lowerPriority(odd.deps);
+    expect(odd.logs.join('\n')).toMatch(/\(no getpriority\)/);
+  });
+});
+
+describe('steps together', () => {
+  const later = <T>(value: T, ms = 5) =>
+    new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
+  const failing = (why: string, ms = 5) =>
+    new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error(why)), ms));
+
+  test('every value, in order, when all succeed', async () => {
+    expect(await allOrFirstError([later(1), later('b'), later(null)])).toEqual([1, 'b', null]);
+  });
+
+  test("the first step's error wins, after all have settled", async () => {
+    let secondDone = false;
+    const second = (async () => {
+      const value = await later('b', 20);
+      secondDone = true;
+      return value;
+    })();
+    await expect(allOrFirstError([failing('a'), second])).rejects.toThrow('a');
+    expect(secondDone).toBe(true); // never left running unobserved
+    await expect(allOrFirstError([failing('a', 20), failing('b')])).rejects.toThrow('a');
+  });
+
+  test("a later step's error when only it fails", async () => {
+    await expect(allOrFirstError([later(1), failing('b')])).rejects.toThrow('b');
+  });
+});
+
+describe('land from a pass: fewer and cheaper processes', () => {
+  const ctxWith = (lefthook: string, bins: string[], run?: EngineDeps['run']) =>
+    ({
+      worktree: '/wt',
+      config: { ...DEFAULT_CONFIG, lefthook, pushRequires: ['cargo', 'bun', 'just'] },
+      deps: { exists: (p: string) => bins.includes(p), env: {}, run },
+    }) as unknown as Ctx;
+  const result = (status: number, output: string) =>
+    (async () => ({ status, signal: null, output })) as unknown as EngineDeps['run'];
+
+  test('pnpm exec <bin> runs the worktree bin directly; anything else runs as configured', () => {
+    expect(hookRunner(ctxWith('pnpm exec lefthook', ['/wt/node_modules/.bin/lefthook']))).toBe(
+      "'/wt/node_modules/.bin/lefthook'",
+    );
+    expect(hookRunner(ctxWith('pnpm exec lefthook', []))).toBe('pnpm exec lefthook'); // not provisioned
+    expect(hookRunner(ctxWith('lefthook', ['/wt/node_modules/.bin/lefthook']))).toBe('lefthook');
+    expect(hookRunner(ctxWith('pnpm exec lefthook --verbose', []))).toBe(
+      'pnpm exec lefthook --verbose',
+    );
+    const quoted = ctxWith('pnpm exec lefthook', ["/it's/node_modules/.bin/lefthook"]);
+    expect(hookRunner(quoted, "/it's")).toBe(`'/it'\\''s/node_modules/.bin/lefthook'`);
+  });
+
+  test('every pushRequires tool is probed in one process, and each missing one is named', async () => {
+    const calls: string[][] = [];
+    const run = (async (_cmd: string, args: string[]) => {
+      calls.push(args);
+      return { status: 1, signal: null, output: 'missing:bun\nmissing:just\n' };
+    }) as unknown as EngineDeps['run'];
+    await expect(requirePushTools(ctxWith('lefthook', [], run))).rejects.toThrow(
+      /push guard tool\(s\) not on PATH: bun, just/,
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.slice(-3)).toEqual(['cargo', 'bun', 'just']);
+  });
+
+  test('a probe that fails without naming a tool refuses with every tool unproven', async () => {
+    await expect(
+      requirePushTools(ctxWith('lefthook', [], result(127, 'sh: not found'))),
+    ).rejects.toThrow(/not on PATH: cargo, bun, just/);
+    await expect(requirePushTools(ctxWith('lefthook', [], result(0, '')))).resolves.toBeUndefined();
+    const none = {
+      ...ctxWith('lefthook', [], result(1, 'missing:x')),
+      config: { ...DEFAULT_CONFIG, pushRequires: [] },
+    } as unknown as Ctx;
+    await expect(requirePushTools(none)).resolves.toBeUndefined(); // nothing to probe, nothing run
+  });
+});
+
+describe('admission: heavy lanes wait for idle CPU (bead luyfr.3)', () => {
+  function admitCtx(idles: Array<number | null>, extra: Record<string, number> = {}) {
+    const clock = { t: 0 };
+    const logs: string[] = [];
+    const polls: Array<number | null> = [];
+    const ctx = {
+      config: {
+        ...DEFAULT_CONFIG,
+        admitIdleMin: 40,
+        admitWaitMaxSeconds: 60,
+        loadPollSeconds: 15,
+        ...extra,
+      },
+      deps: {
+        now: () => clock.t,
+        sleep: async (ms: number) => {
+          clock.t += ms;
+        },
+        log: (m: string) => void logs.push(m),
+        cpuIdle: async () => {
+          const idle = idles.length > 0 ? (idles.shift() as number | null) : 0;
+          polls.push(idle);
+          return idle;
+        },
+      },
+    } as unknown as Ctx;
+    return { ctx, logs, polls };
+  }
+
+  test('an idle machine starts at once and says nothing', async () => {
+    const a = admitCtx([72.4]);
+    await admitHeavyLanes(a.ctx);
+    expect(a.logs).toEqual([]);
+    expect(a.polls).toEqual([72.4]);
+  });
+
+  test('a busy machine waits, polling, until idle reaches the threshold', async () => {
+    const a = admitCtx([12.2, 30, 41.6]);
+    await admitHeavyLanes(a.ctx);
+    expect(a.logs).toEqual([
+      'admission: 12% idle CPU; waiting for 40% before the heavy lanes (checking every 15s, at most 60s)',
+      'admission: 42% idle after 30s; starting the heavy lanes',
+    ]);
+  });
+
+  test('after the most it waits it starts anyway, and says so', async () => {
+    const a = admitCtx([5, 5, 5, 5, 5, 5]);
+    await admitHeavyLanes(a.ctx);
+    expect(a.logs.at(-1)).toBe(
+      'admission: still 5% idle after 60s; starting the heavy lanes anyway',
+    );
+    expect(a.polls).toHaveLength(4); // at 0, 15, 30 and 45 s; none at the deadline
+  });
+
+  test('it never waits past the most it may, even when a poll is longer', async () => {
+    const a = admitCtx([5, 5], { admitWaitMaxSeconds: 10, loadPollSeconds: 60 });
+    await admitHeavyLanes(a.ctx);
+    expect(a.logs.at(-1)).toBe(
+      'admission: still 5% idle after 10s; starting the heavy lanes anyway',
+    );
+    expect(a.polls).toEqual([5]); // no sample after the deadline
+  });
+
+  test('idle CPU that cannot be measured starts the heavy lanes, and says so', async () => {
+    const first = admitCtx([null]);
+    await admitHeavyLanes(first.ctx);
+    expect(first.logs).toEqual([
+      'admission: idle CPU could not be measured; starting the heavy lanes',
+    ]);
+    const later = admitCtx([5, null]);
+    await admitHeavyLanes(later.ctx);
+    expect(later.logs.at(-1)).toBe(
+      'admission: idle CPU could not be measured; starting the heavy lanes',
+    );
+  });
+
+  test('a threshold of 0 turns admission off without sampling', async () => {
+    const a = admitCtx([1], { admitIdleMin: 0 });
+    await admitHeavyLanes(a.ctx);
+    expect(a.polls).toEqual([]);
+  });
+
+  const cpu = (idle: number, busy: number) =>
+    ({ model: 'x', speed: 1, times: { user: busy, nice: 0, sys: 0, idle, irq: 0 } }) as never;
+
+  test('idle share between two CPU samples, or none when they cannot be compared', () => {
+    expect(idlePercent([cpu(100, 100), cpu(100, 100)], [cpu(160, 140), cpu(130, 170)])).toBe(45);
+    expect(idlePercent([cpu(1, 1)], [cpu(1, 1)])).toBeNull(); // no time passed
+    expect(idlePercent([cpu(100, 100)], [cpu(160, 140), cpu(1, 1)])).toBeNull(); // CPUs changed
+    expect(idlePercent([cpu(100, 100)], [cpu(50, 300)])).toBeNull(); // a counter went down
+    expect(idlePercent([], [])).toBeNull();
+  });
+
+  test('a pair that cannot be compared is sampled again; none at all gives null', async () => {
+    const reads = [[cpu(100, 100)], [cpu(50, 300)], [cpu(100, 100)], [cpu(150, 150)]];
+    const waits: number[] = [];
+    const wait = async (ms: number) => void waits.push(ms);
+    expect(await sampleIdle(() => reads.shift() ?? [], wait, 7)).toBe(50);
+    expect(waits).toEqual([7, 7]);
+    expect(await sampleIdle(() => [cpu(1, 1)], wait, 7, 2)).toBeNull();
+  });
+
+  // Bun 1.3.14 on macOS arm64 reads an os.cpus() entry's counters when `.times` is first touched,
+  // so a sample read late held the second sample's counters and admission never measured anything.
+  test('a CPU source that reads its counters lazily is pinned at the call by readCpus', async () => {
+    const clock = { idle: 100, busy: 100 };
+    const lazy = () =>
+      [0, 1].map(() => ({
+        model: 'x',
+        speed: 1,
+        get times() {
+          return { user: clock.busy, nice: 0, sys: 0, idle: clock.idle, irq: 0 };
+        },
+      })) as never;
+    const wait = async () => {
+      clock.idle += 30;
+      clock.busy += 10;
+    };
+    expect(await sampleIdle(lazy, wait, 1, 1)).toBeNull(); // the bug: both samples alike
+    expect(await sampleIdle(() => readCpus(lazy), wait, 1, 1)).toBe(75);
+  });
+
+  test('the real adapter returns plain numeric counters, copied at the call', () => {
+    const sample = readCpus();
+    expect(sample.length).toBeGreaterThan(0);
+    for (const cpu of sample) {
+      const times = Object.getOwnPropertyDescriptor(cpu, 'times');
+      expect(times?.get).toBeUndefined();
+      expect(Object.keys(cpu.times).sort()).toEqual(['idle', 'irq', 'nice', 'sys', 'user']);
+      for (const value of Object.values(cpu.times)) expect(Number.isFinite(value)).toBe(true);
+    }
+  });
+});
+
+describe('the checkout root and common dir', () => {
+  test('a path holding a newline is read in one process each, not split', async () => {
+    // Without the GIT_* a pre-push hook exports (GIT_DIR would point every call at the outer repo).
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
+    );
+    const root = mkdtempSync(join(tmpdir(), 'land-newline-'));
+    const repo = join(root, 'a\nb');
+    mkdirSync(repo);
+    execFileSync('git', ['init', '-q', repo], { env });
+    const seed = { deps: { run: runProcess, env }, config: DEFAULT_CONFIG } as unknown as Ctx;
+    const [top, common] = await rootAndCommonDir(seed, repo);
+    expect(top).toBe(realpathSync(repo));
+    expect(common).toBe(join(realpathSync(repo), '.git'));
+    const plain = join(root, 'plain');
+    mkdirSync(plain);
+    execFileSync('git', ['init', '-q', plain], { env });
+    expect(await rootAndCommonDir(seed, plain)).toEqual([
+      realpathSync(plain),
+      join(realpathSync(plain), '.git'),
+    ]);
   });
 });

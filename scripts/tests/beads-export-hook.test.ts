@@ -34,7 +34,11 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// Real git repos and hook runs per test: about 1 s alone at load ~11, but past the 5 s default
+// (and the 10 s hook allowance) under full-suite load ~20-28 (2026-10-14).
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const ROOT = new URL('../../', import.meta.url).pathname;
 const TRACKED = '{"id":"t-1","title":"one"}\n{"id":"t-2","title":"two"}\n';

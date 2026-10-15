@@ -11,9 +11,13 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { chdir, cwd as processCwd } from 'node:process';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { withoutLocalGitEnv } from '../lib/git';
 import { parseCli, updateProject } from '../update';
+
+// Real git repos per test: the slowest took 1.5 s alone at load ~11 but passed the 5 s default
+// under full-suite load ~20-28 (2026-10-14), failing healthy tests.
+vi.setConfig({ testTimeout: 30_000 });
 
 function run(cwd: string, args: string[]): string {
   // `-c core.hooksPath=/dev/null` silences any host-installed hooks

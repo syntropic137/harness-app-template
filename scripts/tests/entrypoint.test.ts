@@ -2,8 +2,12 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { isMainEntry } from '../lib/entrypoint';
+
+// Spawns bun on real scripts: the slowest took 0.3 s alone at load ~6 but passed the 5 s default
+// under full-suite load ~20-30 (2026-10-14).
+vi.setConfig({ testTimeout: 30_000 });
 
 // Path-with-spaces regression: every scripts/*.ts entrypoint compared
 // `import.meta.url` to a raw `file://${process.argv[1]}` template. Bun

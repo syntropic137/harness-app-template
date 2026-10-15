@@ -252,7 +252,10 @@ pre-commit:
           # findings -- a gate that can never go red. `--staged` takes no value,
           # so the bogus flag was silently swallowed rather than mis-parsed as a
           # filename (contrast the `--files`-form invocation below).
-          mkdir -p .beads && ubs --staged --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl
+          # A commit that stages no language ubs scans (YAML, JSON or Markdown alone) makes ubs exit 3,
+          # "nothing scanned". That is not a finding: UBS_ALLOW_NO_SCAN=1, the switch ubs names for this, passes it,
+          # while every staged file in a supported language is still scanned.
+          mkdir -p .beads && UBS_ALLOW_NO_SCAN=1 ubs --staged --fail-on-warning --beads-jsonl .beads/ubs-findings.jsonl
         '
 
     python-ruff-format:
@@ -409,22 +412,16 @@ pre-push:
     versioning-release-check:
       # Mirrors the GitHub Actions versioning workflow. Uses the same
       # just release-check recipe, scoped to commits ahead of the
-      # configured base ref, and soft-skips when the local versioning
-      # toolchain is not present.
+      # configured base ref. It is a push guard (land v2, PROTECTED_JOBS):
+      # a missing tool refuses the push instead of passing it unvalidated.
       run: |
         sh -eu -c '
-          if ! command -v cargo >/dev/null 2>&1; then
-            printf "%s\n" "warning: cargo not found; skipping versioning release check" >&2
-            exit 0
-          fi
-          if ! command -v bun >/dev/null 2>&1; then
-            printf "%s\n" "warning: bun not found; skipping versioning release check" >&2
-            exit 0
-          fi
-          if ! command -v just >/dev/null 2>&1; then
-            printf "%s\n" "warning: just not found; skipping versioning release check" >&2
-            exit 0
-          fi
+          for tool in cargo bun just; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              printf "%s\n" "error: $tool not found; versioning release check refuses the push (install $tool)" >&2
+              exit 1
+            fi
+          done
           base_ref="$(git config harness.hookBaseRef || git config harness.upstreamRef || printf main)"
           base_remote="$(git config harness.hookBaseRemote || printf origin)"
           base="$base_remote/$base_ref"

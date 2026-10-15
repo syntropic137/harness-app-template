@@ -281,7 +281,16 @@ cov-config-manager:
         --fail-under-lines 98 \
         --fail-under-functions 98
 
-# Gated, isolated landing of a branch onto the target branch (ADR-0033).
+# Verify a ref for landing (ADR-0034 slice 2): gate it on fresh main in a
+# verification worktree of its own (no lease; several can run at once), push
+# nothing, and record a pass. Then `just land <ref>` takes seconds.
+[group('release')]
+verify *args:
+    bun run scripts/land.ts --verify {{args}}
+
+# Gated, isolated landing of a branch onto the target branch (ADR-0033). From a
+# current pass (`just verify`): a guarded compare-and-swap push of the verified
+# commit. Without one: says why, then the full gated land.
 [group('release')]
 land *args:
     bun run scripts/land.ts {{args}}

@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { realDeps } from '../land';
+import { realDeps, unlessGone } from '../land';
 
 // The real adapters are excluded from coverage (they are thin node:fs wrappers), which is exactly
 // how a missing import once shipped in appendFile. Exercise every one of them once.
@@ -29,6 +29,12 @@ describe('realDeps', () => {
     expect(deps.exists(file)).toBe(false);
     expect(typeof deps.user()).toBe('string');
     expect(deps.loadavg()).toBeGreaterThanOrEqual(0);
+    const idle = await deps.cpuIdle(); // a real one-second sample
+    expect(idle).toBeGreaterThanOrEqual(0);
+    expect(idle).toBeLessThanOrEqual(100);
+    const nice = deps.niceness();
+    expect(Number.isInteger(nice)).toBe(true);
+    deps.setNiceness(nice); // the same niceness: proves the adapter without renicing the test runner
     expect(deps.now()).toBeGreaterThan(0);
     await deps.sleep(1);
     const logs: string[] = [];
@@ -56,6 +62,10 @@ describe('realDeps', () => {
     expect(lock.read(join(root, 'absent'))).toBeNull();
     expect(lock.ageMs(lock.lockPath)).toBeGreaterThanOrEqual(0);
     expect(lock.ageMs(join(root, 'absent'))).toBeNull();
+    // mtime ahead of the clock (sub-ms mtime vs integer Date.now, or skew) reads as 0, not negative.
+    const future = new Date(Date.now() + 60_000);
+    utimesSync(lock.lockPath, future, future);
+    expect(lock.ageMs(lock.lockPath)).toBe(0);
     expect(lock.pidAlive(process.pid)).toBe(true);
     expect(typeof lock.bootId()).toBe('string');
     expect(lock.now()).toBeGreaterThan(0);
@@ -66,5 +76,25 @@ describe('realDeps', () => {
     // no temp files are left behind by createExclusive
     expect(lock.createExclusive(lock.lockPath, 'again')).toBe(true);
     expect(deps.exists(`${lock.lockPath}.${process.pid}`)).toBe(false);
+  });
+
+  test('a lock or queue file removed by another process reads as absent, never as ENOENT', () => {
+    const root = mkdtempSync(join(tmpdir(), 'land-real-gone-'));
+    dirs.push(root);
+    const lock = realDeps(
+      { HARNESS_LAND_HOME: root, HARNESS_LAND_LOCK: join(root, 'g.lock') },
+      root,
+    ).lock;
+    expect(lock.list(join(root, 'no-queue'))).toEqual([]);
+    lock.mkdirp(join(root, 'queue'));
+    expect(lock.list(join(root, 'queue'))).toEqual([]);
+    // The race itself: the path existed when checked and was gone when read.
+    const gone = () => readFileSync(join(root, 'vanished'), 'utf8');
+    expect(unlessGone(gone)).toBeNull();
+    expect(() =>
+      unlessGone(() => {
+        throw Object.assign(new Error('denied'), { code: 'EACCES' });
+      }),
+    ).toThrow('denied'); // only "gone" is absorbed
   });
 });

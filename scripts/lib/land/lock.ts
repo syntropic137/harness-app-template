@@ -15,7 +15,7 @@ export interface LockDeps {
   createExclusive(path: string, contents: string): boolean;
   read(path: string): string | null;
   remove(path: string): void;
-  /** Age in ms of a file, or null when absent. */
+  /** Age in ms of a file, or null when absent. Never negative. */
   ageMs(path: string): number | null;
   pidAlive(pid: number): boolean;
   bootId(): string;
