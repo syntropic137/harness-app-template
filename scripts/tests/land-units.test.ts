@@ -712,20 +712,21 @@ describe('admission: heavy lanes wait for idle CPU (bead luyfr.3)', () => {
 
 describe('the checkout root and common dir', () => {
   test('a path holding a newline is read in one process each, not split', async () => {
+    // Without the GIT_* a pre-push hook exports (GIT_DIR would point every call at the outer repo).
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
+    );
     const root = mkdtempSync(join(tmpdir(), 'land-newline-'));
     const repo = join(root, 'a\nb');
     mkdirSync(repo);
-    execFileSync('git', ['init', '-q', repo]);
-    const seed = {
-      deps: { run: runProcess, env: process.env },
-      config: DEFAULT_CONFIG,
-    } as unknown as Ctx;
+    execFileSync('git', ['init', '-q', repo], { env });
+    const seed = { deps: { run: runProcess, env }, config: DEFAULT_CONFIG } as unknown as Ctx;
     const [top, common] = await rootAndCommonDir(seed, repo);
     expect(top).toBe(realpathSync(repo));
     expect(common).toBe(join(realpathSync(repo), '.git'));
     const plain = join(root, 'plain');
     mkdirSync(plain);
-    execFileSync('git', ['init', '-q', plain]);
+    execFileSync('git', ['init', '-q', plain], { env });
     expect(await rootAndCommonDir(seed, plain)).toEqual([
       realpathSync(plain),
       join(realpathSync(plain), '.git'),
