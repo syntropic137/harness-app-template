@@ -143,6 +143,13 @@ function timeoutFor(deps: LockDeps, holder: LockHolder | null): LockTimeout {
   return new LockTimeout(`landing lock is held by ${who}; not waiting`);
 }
 
+/** Log who holds the lock at most once per ANNOUNCE_EVERY_MS; returns the new last-announce time. */
+function announceWait(deps: LockDeps, holder: LockHolder | null, lastAnnounce: number): number {
+  if (holder === null || deps.now() - lastAnnounce < ANNOUNCE_EVERY_MS) return lastAnnounce;
+  deps.log(`waiting for the landing lock held by ${describeHolder(holder, deps.now())}`);
+  return deps.now();
+}
+
 export async function acquireLock(
   deps: LockDeps,
   me: Omit<LockHolder, 'bootId' | 'startedAt'>,
@@ -158,18 +165,12 @@ export async function acquireLock(
   for (;;) {
     if (deps.createExclusive(deps.lockPath, JSON.stringify(mine))) return makeHandle(deps, mine);
     const holder = parseHolder(deps.read(deps.lockPath));
-    if (judgeHolder(deps, holder) === 'reap') {
-      if (reapStale(deps, mine)) continue;
-      // Another live process is reaping; waiting on it is still waiting, so the deadline applies.
-      if (deps.now() >= deadline) throw timeoutFor(deps, holder);
-      await deps.sleep(POLL_MS);
-      continue;
-    }
+    const reaping = judgeHolder(deps, holder) === 'reap';
+    if (reaping && reapStale(deps, mine)) continue;
+    // A live holder, or another live process reaping: waiting on either is still waiting,
+    // so the deadline applies to both.
     if (deps.now() >= deadline) throw timeoutFor(deps, holder);
-    if (holder !== null && deps.now() - lastAnnounce >= ANNOUNCE_EVERY_MS) {
-      deps.log(`waiting for the landing lock held by ${describeHolder(holder, deps.now())}`);
-      lastAnnounce = deps.now();
-    }
+    if (!reaping) lastAnnounce = announceWait(deps, holder, lastAnnounce);
     await deps.sleep(POLL_MS);
   }
 }
