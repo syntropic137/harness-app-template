@@ -29,6 +29,9 @@ describe('realDeps', () => {
     expect(deps.exists(file)).toBe(false);
     expect(typeof deps.user()).toBe('string');
     expect(deps.loadavg()).toBeGreaterThanOrEqual(0);
+    const nice = deps.niceness();
+    expect(Number.isInteger(nice)).toBe(true);
+    deps.setNiceness(nice); // the same niceness: proves the adapter without renicing the test runner
     expect(deps.now()).toBeGreaterThan(0);
     await deps.sleep(1);
     const logs: string[] = [];

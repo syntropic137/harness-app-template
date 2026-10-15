@@ -790,11 +790,30 @@ function recordRun(
   }
 }
 
+/**
+ * Land and verify run their gates at this niceness themselves, so no caller needs a wrapper
+ * (`taskpolicy -b`, `nice`): the machine stays usable while gates build, and every gate inherits it.
+ */
+export const LAND_NICENESS = 10;
+
+/** Lower this process to LAND_NICENESS; never raise it, and never fail a land over it. */
+export function lowerPriority(deps: EngineDeps): void {
+  try {
+    if (deps.niceness() >= LAND_NICENESS) return;
+    deps.setNiceness(LAND_NICENESS);
+  } catch (error) {
+    deps.log(
+      `could not lower this process to niceness ${LAND_NICENESS} (${error instanceof Error ? error.message : String(error)}); running at the current priority`,
+    );
+  }
+}
+
 export async function land(
   deps: EngineDeps,
   options: LandOptions,
   config: LandConfig,
 ): Promise<number> {
+  lowerPriority(deps);
   const startedAt = deps.now();
   const receipt: Receipt = {
     release: () => undefined,

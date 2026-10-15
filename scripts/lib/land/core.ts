@@ -38,6 +38,10 @@ export interface EngineDeps {
   /** The lease store, with the directory access its fair queue needs. */
   lock: QueueDeps;
   loadavg(): number;
+  /** This process's scheduling niceness (higher is lower priority). */
+  niceness(): number;
+  /** Set this process's niceness; throws when the OS refuses. Children inherit it. */
+  setNiceness(niceness: number): void;
   now(): number;
   sleep(ms: number): Promise<void>;
   log(message: string): void;

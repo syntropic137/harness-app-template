@@ -739,6 +739,16 @@ describe('land v2 finish: shared landing state, prepare steps', () => {
     expect(slots[0]?.split(' ')[2]).toBe(slots[1]?.split(' ')[2]); // the same warm slot, reused
   });
 
+  test('verify and land lower their own priority before anything runs', async () => {
+    const f = await setup();
+    await branch(f, 'crates/x.rs');
+    const set: number[] = [];
+    const deps = { ...f.deps, niceness: () => 0, setNiceness: (n: number) => void set.push(n) };
+    expect(await land(deps, VERIFY, f.config())).toBe(EXIT.ok);
+    expect(await land(deps, OPTS, f.config())).toBe(EXIT.ok);
+    expect(set).toEqual([10, 10]);
+  });
+
   /** A coverage-like gate whose reading goes wrong when an object from an earlier run is left behind. */
   const coverage = {
     name: 'cov',

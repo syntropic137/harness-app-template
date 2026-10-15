@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir, hostname, loadavg, userInfo } from 'node:os';
+import { getPriority, homedir, hostname, loadavg, setPriority, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { isMainEntry } from './lib/entrypoint';
 import { loadConfig } from './lib/land/config';
@@ -260,6 +260,8 @@ export function realDeps(env: NodeJS.ProcessEnv, cwd: string): EngineDeps {
       mkdirp: (p) => mkdirSync(p, { recursive: true }),
     },
     loadavg: () => loadavg()[0] ?? 0,
+    niceness: () => getPriority(),
+    setNiceness: (n) => setPriority(n),
     now: () => Date.now(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     log,

@@ -5,10 +5,13 @@ import { describe, expect, test, vi } from 'vitest';
 import { landHome, parseArgs, pidAlive, readBootId, USAGE } from '../land';
 import { isMainEntry } from '../lib/entrypoint';
 import { DEFAULT_CONFIG, type GateConfig, loadConfig, parseConfig } from '../lib/land/config';
+import type { EngineDeps } from '../lib/land/core';
 import {
   excludedJobs,
   inheritEvidence,
   isLefthookGate,
+  LAND_NICENESS,
+  lowerPriority,
   passedJobs,
   planGates,
   repoId,
@@ -444,5 +447,51 @@ describe('land cli helpers', () => {
   test('entrypoint check is false under test', () => {
     expect(isMainEntry('file:///nope')).toBe(false);
     mkdirSync(tmpdir(), { recursive: true });
+  });
+});
+
+describe('land runs at niceness 10 itself', () => {
+  function niceDeps(current: number, refuse = false) {
+    const set: number[] = [];
+    const logs: string[] = [];
+    const deps = {
+      niceness: () => current,
+      setNiceness: (n: number) => {
+        if (refuse) throw new Error('EACCES: permission denied');
+        set.push(n);
+      },
+      log: (m: string) => void logs.push(m),
+    } as unknown as EngineDeps;
+    return { deps, set, logs };
+  }
+
+  test('a process at the default priority is lowered to niceness 10', () => {
+    const n = niceDeps(0);
+    lowerPriority(n.deps);
+    expect(n.set).toEqual([LAND_NICENESS]);
+    expect(LAND_NICENESS).toBe(10);
+  });
+
+  test('a process already at niceness 10 or lower priority is never raised', () => {
+    for (const current of [10, 19]) {
+      const n = niceDeps(current);
+      lowerPriority(n.deps);
+      expect(n.set).toEqual([]);
+    }
+  });
+
+  test('an OS that refuses is logged and the land carries on', () => {
+    const n = niceDeps(0, true);
+    expect(() => lowerPriority(n.deps)).not.toThrow();
+    expect(n.logs.join('\n')).toMatch(
+      /could not lower this process to niceness 10 \(EACCES: permission denied\); running at the current priority/,
+    );
+    const odd = niceDeps(0);
+    (odd.deps as { niceness: () => number }).niceness = () => {
+      const reason: unknown = 'no getpriority';
+      throw reason; // a non-Error throw is reported as text
+    };
+    lowerPriority(odd.deps);
+    expect(odd.logs.join('\n')).toMatch(/\(no getpriority\)/);
   });
 });

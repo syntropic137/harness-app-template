@@ -190,6 +190,8 @@ export async function fixture(): Promise<Fixture> {
     run: runProcess,
     lock: lock.deps,
     loadavg: () => 1,
+    niceness: () => 10, // already at the land's niceness: the fixture never renices the test runner
+    setNiceness: () => undefined,
     now: () => clock.t,
     sleep: async (ms) => {
       clock.t += ms;

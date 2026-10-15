@@ -19,6 +19,11 @@ just land <ref> -- --require-pass            # refuse (exit 3) instead of fallin
 just land <ref> -- --pass-from <remote>      # use a pass verified in another clone (fetched from <remote>)
 ```
 
+Run `just verify` / `just land` directly; don't wrap them in `taskpolicy -b` (or `nice`). Both lower
+their own process to niceness 10 before anything runs, and every gate inherits it, so the machine
+stays usable while gates build. They only ever lower priority: a caller already at 10 or below is
+left alone, and an OS that refuses is logged and the run carries on.
+
 **Verify** does everything the full land below does except the lease and the push: it applies the
 ref onto the fresh `origin/<target>` tip `B`, runs the same diff-scoped gates, checks and pre-push
 dry run with the same `land.config.json`, and on success records a **pass** for the verified commit
