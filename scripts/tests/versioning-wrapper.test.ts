@@ -73,15 +73,24 @@ describe.skipIf(!hasCargo())('versioning wrapper fast path', () => {
     const run = () => sh(crate, 'bin/versioning');
 
     expect(await run()).toBe('validator A'); // built and stamped
-    const stamped = readdirSync(join(crate, 'target', 'debug')).some((n) =>
-      n.startsWith('.harness-versioning.'),
-    );
-    expect(stamped).toBe(true); // the fast path is live, so the next steps test it
+    const stamped = (dir: string) =>
+      readdirSync(dir, { recursive: true }).some((n) => String(n).includes('.harness-versioning.'));
+    expect(stamped(join(crate, 'target'))).toBe(true); // the fast path is live, so the next steps test it
     expect(await run()).toBe('validator A'); // the stamped fast path
     writeFileSync(join(crate, 'src', 'main.rs'), source('validator B')); // a dirty edit
     expect(await run()).toBe('validator B'); // built, not stamped
     await sh(root, 'git checkout -- crate/src/main.rs'); // back to A
     expect(await run()).toBe('validator A'); // the binary is B's: its hash refuses the stamp
     expect(await run()).toBe('validator A');
+
+    // A cargo config now sends the build elsewhere, with new source: the wrapper must run what
+    // cargo built there, never the old binary still at the default path.
+    mkdirSync(join(crate, '.cargo'));
+    writeFileSync(join(crate, '.cargo', 'config.toml'), '[build]\ntarget-dir = "out"\n');
+    writeFileSync(join(crate, 'src', 'main.rs'), source('validator C'));
+    writeFileSync(join(root, '.gitignore'), 'target/\nout/\n');
+    await sh(root, 'git add -A && git -c user.email=t@t -c user.name=t commit -qm C');
+    expect(await run()).toBe('validator C');
+    expect(await run()).toBe('validator C'); // stamped, at cargo's path
   });
 });
