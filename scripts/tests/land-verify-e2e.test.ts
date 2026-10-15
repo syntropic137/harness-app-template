@@ -160,6 +160,7 @@ describe('just land from a pass', () => {
       confirm: 'porcelain', // a clean porcelain "pushed" report needs no confirm fetch
     });
     expect(receipt?.steps.map((s) => s.name)).toEqual([
+      'pass',
       'lease',
       'checkout',
       'guards',
@@ -182,6 +183,7 @@ describe('just land from a pass', () => {
     const receipt = (await runs(f)).at(-1);
     expect(receipt).toMatchObject({ stage: 'land', exit: 0, confirm: 'fetched' });
     expect(receipt?.steps.map((s) => s.name)).toEqual([
+      'pass',
       'lease',
       'checkout',
       'guards',
@@ -234,11 +236,13 @@ describe('just land from a pass', () => {
     await f.commit(f.other, 'docs/adv.md');
     await sh(f.other, 'git push -q origin HEAD:main');
     expect(await land(f.deps, OPTS, f.config())).toBe(EXIT.ok);
+    // The remote-tracking ref still says B, so no fetch ran before the push: the compare-and-swap
+    // on B refused it (C1), the fetch that followed saw why, and nothing landed from the pass.
     expect(f.logs.join('\n')).toMatch(
-      /not verified on current main: main moved since verify .*; run just verify feat\. Falling back to the full gated land\./,
+      /not verified on current main: main moved before the push \(compare-and-swap on \w+ rejected; main is \w+\); run just verify feat\. Falling back to the full gated land\./,
     );
     expect(f.logs.join('\n')).toMatch(/cherry-picking 1 commit/);
-    expect((await runs(f)).at(-1)).toMatchObject({ stage: 'full', exit: 0 });
+    expect((await runs(f)).at(-1)).toMatchObject({ stage: 'full', exit: 0, main: 'tracking' });
   });
 
   test('--require-pass refuses instead of falling back (no pass, stale pass)', async () => {
@@ -350,7 +354,12 @@ describe('a pass binds to what actually ran, and land fails closed (review round
     writeFileSync(join(f.src, 'land.config.json'), JSON.stringify({ gates }));
     const weak = f.config({ gates });
     expect(await land(f.deps, VERIFY, weak)).toBe(EXIT.gate);
-    expect(f.errors.join('\n')).toMatch(/land config or engine .* differs from origin\/main/);
+    // One short first line that says what to do; the detail follows.
+    const refusal = f.errors.join('\n');
+    expect(refusal.split('\n')[0]).toMatch(
+      /^verify refused: this checkout's land files differ from origin\/main \w+; run `git fetch && git checkout origin\/main` \(or rebase\) and re-run just verify$/,
+    );
+    expect(refusal).toMatch(/\n {2}differing: land\.config\.json\n/);
     expect(f.ran()).toEqual([]); // refused before any gate
     await sh(f.src, 'git checkout -- land.config.json');
     expect(await land(f.deps, { ...OPTS, requirePass: true }, f.config())).toBe(EXIT.unverified);

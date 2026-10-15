@@ -38,6 +38,8 @@ export interface EngineDeps {
   /** The lease store, with the directory access its fair queue needs. */
   lock: QueueDeps;
   loadavg(): number;
+  /** Idle CPU over a short sample, as a percentage of all cores (0-100); null when it cannot be measured. */
+  cpuIdle(): Promise<number | null>;
   /** This process's scheduling niceness (higher is lower priority). */
   niceness(): number;
   /** Set this process's niceness; throws when the OS refuses. Children inherit it. */
@@ -79,6 +81,8 @@ export interface Receipt {
   startedAt: number;
   /** Land from a pass: how the outcome was observed (the push's porcelain report, or a fetch). */
   confirm?: 'porcelain' | 'fetched';
+  /** Land from a pass: where main's tip came from (the remote-tracking ref, or a fetch). */
+  main?: 'tracking' | 'fetched';
   sha: string | null;
   waitedSeconds: number;
   /** sampleCommand output at lease time and at the end of the run (null when unset or before the lease). */
@@ -154,20 +158,56 @@ export function planGates(
  * missing. Before any push or pre-push dry run, every `pushRequires` program must be on PATH.
  */
 export async function requirePushTools(ctx: Ctx, cwd = ctx.worktree): Promise<void> {
-  const missing: string[] = [];
-  for (const tool of ctx.config.pushRequires) {
-    const found = await ctx.deps.run('sh', ['-c', 'command -v "$1" >/dev/null 2>&1', 'sh', tool], {
-      cwd,
-      env: baseEnv(ctx),
-    });
-    if (!succeeded(found)) missing.push(tool);
-  }
+  const tools = ctx.config.pushRequires;
+  if (tools.length === 0) return;
+  // One shell for every tool: it prints each missing one and fails when any is missing.
+  const probe = await ctx.deps.run(
+    'sh',
+    [
+      '-c',
+      'rc=0; for t in "$@"; do command -v "$t" >/dev/null 2>&1 || { echo "missing:$t"; rc=1; }; done; exit $rc',
+      'sh',
+      ...tools,
+    ],
+    { cwd, env: baseEnv(ctx) },
+  );
+  const missing = succeeded(probe)
+    ? []
+    : tools.filter((t) => probe.output.split('\n').includes(`missing:${t}`));
+  // A probe that failed without naming a tool (the shell itself) still refuses: every tool is unproven.
+  if (!succeeded(probe) && missing.length === 0) missing.push(...tools);
   if (missing.length > 0) {
     throw new Abort(
       `push guard tool(s) not on PATH: ${missing.join(', ')} (pushRequires in land.config.json); refusing to push past a soft-skipped guard`,
       EXIT.push,
     );
   }
+}
+
+/**
+ * The hook runner as a shell command for `dir`. `pnpm exec <bin>` runs the workspace's own
+ * `node_modules/.bin/<bin>`, which is exactly what pnpm exec resolves there, so it is started
+ * directly, without pnpm's own startup (about 0.4 s a call measured, more under load). Any other
+ * runner, or a worktree without that bin (not provisioned yet), runs as configured.
+ */
+export function hookRunner(ctx: Ctx, dir = ctx.worktree): string {
+  const pnpmExec = /^pnpm exec ([A-Za-z0-9._-]+)$/.exec(ctx.config.lefthook.trim());
+  if (pnpmExec === null) return ctx.config.lefthook;
+  const bin = join(dir, 'node_modules', '.bin', pnpmExec[1] as string);
+  return ctx.deps.exists(bin) ? `'${bin.replace(/'/g, `'\\''`)}'` : ctx.config.lefthook;
+}
+
+/**
+ * Run independent steps together and wait for all of them (none is left running unobserved); then
+ * throw the first error in argument order, else return every value in order.
+ */
+export async function allOrFirstError<T extends readonly unknown[]>(
+  steps: readonly [...{ [K in keyof T]: Promise<T[K]> }],
+): Promise<T> {
+  const settled = await Promise.allSettled(steps);
+  const failed = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+  if (failed !== undefined) throw failed.reason;
+  return settled.map((s) => (s as PromiseFulfilledResult<unknown>).value) as unknown as T;
 }
 
 export function baseEnv(ctx: Ctx): Record<string, string | undefined> {
@@ -259,9 +299,39 @@ export async function ensureCheckout(ctx: Ctx, dir: string, commit: string): Pro
     await gitOut(ctx, ['worktree', 'add', '--detach', dir, commit], ctx.sourceRoot);
   }
   await gitOut(ctx, ['checkout', '--detach', '--force', commit], dir);
+  // Also clears any merge or cherry-pick state a failed apply left behind.
   await gitOut(ctx, ['reset', '--hard', commit], dir);
   // -fd, never -x: ignored caches (node_modules, target/) are the point of a persistent worktree.
   await gitOut(ctx, ['clean', '-fd'], dir);
+  await removeOrphanedOutput(ctx, dir);
+}
+
+/**
+ * Ignored output under a directory the checked-out tree does not have: what an earlier ref built
+ * there (a `contexts/spatial/.turbo` from a branch that added that context). `clean -fd` keeps it,
+ * so the directory survives, and a gate that reads directories (vsa) would judge a context this
+ * commit does not have. Removes each such directory at its topmost untracked level; ignored caches
+ * inside tracked directories (node_modules, target/) stay.
+ */
+export async function removeOrphanedOutput(ctx: Ctx, dir: string): Promise<void> {
+  const [ignored, trackedDirs] = await allOrFirstError([
+    gitOut(ctx, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory'], dir),
+    gitOut(ctx, ['ls-tree', '-r', '-d', '--name-only', 'HEAD'], dir),
+  ]);
+  const tracked = new Set(['', ...trackedDirs.split('\n')]);
+  const orphans = new Set<string>();
+  for (const path of ignored.split('\n').filter((p) => p !== '')) {
+    const parts = path.replace(/\/$/, '').split('/');
+    // The topmost ancestor directory that the tree does not have, if any.
+    const at = parts.findIndex(
+      (_p, i) => i < parts.length - 1 && !tracked.has(parts.slice(0, i + 1).join('/')),
+    );
+    if (at >= 0) orphans.add(parts.slice(0, at + 1).join('/'));
+  }
+  for (const orphan of orphans) {
+    ctx.deps.log(`removing ${orphan}/: ignored output under a directory this commit does not have`);
+    ctx.deps.rmrf(join(dir, orphan));
+  }
 }
 
 export async function ensureWorktree(ctx: Ctx, base: string): Promise<void> {

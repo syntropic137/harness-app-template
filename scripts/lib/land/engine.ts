@@ -40,6 +40,8 @@ import {
   passVerdict,
   recordPass,
   requireGuards,
+  timed,
+  watchMain,
 } from './verified';
 
 export type { EngineDeps, Evidence, LandMode, LandOptions, Receipt } from './core';
@@ -146,6 +148,47 @@ async function busyReason(ctx: Ctx): Promise<string | null> {
   return succeeded(quiet)
     ? null
     : `quiet check failed (${describeExit(quiet)}): ${quiet.output.trim()}`;
+}
+
+/**
+ * Admission (bead luyfr.3): a verify starts its heavy lanes only once the machine has at least
+ * `admitIdleMin` percent idle CPU, polling every loadPollSeconds. After admitWaitMaxSeconds it
+ * starts anyway and says so: admission paces a busy machine, it never refuses a verify.
+ */
+export async function admitHeavyLanes(ctx: Ctx): Promise<void> {
+  const { admitIdleMin, admitWaitMaxSeconds, loadPollSeconds } = ctx.config;
+  if (admitIdleMin <= 0) return;
+  const start = ctx.deps.now();
+  const deadline = start + admitWaitMaxSeconds * 1000;
+  const waited = (): number => Math.round((ctx.deps.now() - start) / 1000);
+  let idle = await ctx.deps.cpuIdle();
+  if (idle === null || idle >= admitIdleMin) return admitNow(ctx, idle);
+  ctx.deps.log(
+    `admission: ${Math.round(idle)}% idle CPU; waiting for ${admitIdleMin}% before the heavy lanes (checking every ${loadPollSeconds}s, at most ${admitWaitMaxSeconds}s)`,
+  );
+  // Never past the deadline: the last sleep is cut to it, and no sample is taken after it.
+  while (ctx.deps.now() < deadline) {
+    await ctx.deps.sleep(Math.min(loadPollSeconds * 1000, deadline - ctx.deps.now()));
+    if (ctx.deps.now() >= deadline) break;
+    idle = await ctx.deps.cpuIdle();
+    if (idle === null) return admitNow(ctx, idle);
+    if (idle >= admitIdleMin) {
+      ctx.deps.log(
+        `admission: ${Math.round(idle)}% idle after ${waited()}s; starting the heavy lanes`,
+      );
+      return;
+    }
+  }
+  ctx.deps.log(
+    `admission: still ${Math.round(idle)}% idle after ${waited()}s; starting the heavy lanes anyway`,
+  );
+}
+
+/** Start the heavy lanes now: idle enough, or idle CPU could not be measured (said so). */
+function admitNow(ctx: Ctx, idle: number | null): void {
+  if (idle === null) {
+    ctx.deps.log('admission: idle CPU could not be measured; starting the heavy lanes');
+  }
 }
 
 async function waitForLoad(ctx: Ctx): Promise<void> {
@@ -300,19 +343,28 @@ async function assertUnchanged(ctx: Ctx, sha: string): Promise<void> {
 }
 
 /**
- * Run lanes with at most `limit` in flight. Every started lane finishes (a child cannot be
- * recalled mid-run) and the first failure, in lane order, is then thrown, so one red gate never
- * hides another and evidence is recorded for every lane that passed.
+ * Run lanes with at most `limit` in flight. Fail fast (bead luyfr.2): once a lane fails, no lane
+ * that has not started is started, so a red gate ends the run instead of waiting behind every
+ * heavy lane still queued. Every started lane finishes (a child cannot be recalled mid-run), its
+ * evidence is recorded when it passed, and the first failure in lane order is then thrown.
  */
-export async function runLanes(lanes: Array<() => Promise<void>>, limit: number): Promise<void> {
+export async function runLanes(
+  lanes: Array<() => Promise<void>>,
+  limit: number,
+  between: () => Promise<void> = async () => undefined,
+): Promise<void> {
   const failures: unknown[] = new Array(lanes.length).fill(undefined);
   let failed = false;
   let next = 0;
   const worker = async (): Promise<void> => {
-    while (next < lanes.length) {
+    while (!failed && next < lanes.length) {
       const index = next;
       next += 1;
       try {
+        // A check at each lane boundary after the first (verify: has main moved under it?).
+        if (index > 0) await between();
+        // Another lane may have failed while this worker awaited the check: then start nothing.
+        if (failed) return;
         await (lanes[index] as () => Promise<void>)();
       } catch (error) {
         failures[index] = error;
@@ -408,6 +460,9 @@ function gateLanes(
 async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   await fetchRemote(ctx);
   const base = await remoteTip(ctx);
+  // Verify judges by B's land files: check them against B itself, before the first gate. The check
+  // verify makes on start used the tip at that moment; main may have moved while it queued.
+  if (ctx.options.verify === true) await assertLandFilesMatch(ctx, base);
   const target = await gitOut(
     ctx,
     ['rev-parse', '--verify', '--quiet', '--end-of-options', `${ctx.options.ref}^{commit}`],
@@ -437,8 +492,18 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   assertNoLocalHookOverrides(ctx); // the bootstrap may have written one
   const todo = selected.filter((g) => !evidence.passed.has(g.name));
   await requireTools(ctx, todo);
-  const lanes = gateLanes(ctx, todo, evidence, vars, base);
-  await runLanes(lanes, ctx.config.parallelGates);
+  // Cheap structural gates first (bead luyfr.2): a failure there ends the run before any heavy
+  // lane starts, instead of after it.
+  const early = todo.filter((g) => g.early === true);
+  // Verify: a main that moves and changes the land files stops it at the next gate boundary.
+  const between = ctx.options.verify === true ? watchMain(ctx, base) : undefined;
+  if (early.length > 0) {
+    await runLanes(gateLanes(ctx, early, evidence, vars, base), ctx.config.parallelGates, between);
+    await between?.();
+  }
+  const rest = todo.filter((g) => g.early !== true);
+  if (ctx.options.verify === true && rest.length > 0) await admitHeavyLanes(ctx);
+  await runLanes(gateLanes(ctx, rest, evidence, vars, base), ctx.config.parallelGates, between);
   for (const check of ctx.config.checks) await runCheck(ctx, check, vars);
   await assertUnchanged(ctx, sha);
   return { target, base, evidence, scopedOut };
@@ -572,6 +637,23 @@ function failureCode(deps: EngineDeps, error: unknown): number {
   return error instanceof Abort ? error.code : EXIT.gate;
 }
 
+/**
+ * The checkout's root, and the git common dir every worktree of it shares: one process when the
+ * output is the two lines it should be; one each when a path holds a newline and would split.
+ */
+export async function rootAndCommonDir(seed: Ctx, cwd: string): Promise<[string, string]> {
+  const both = ['rev-parse', '--show-toplevel', '--path-format=absolute', '--git-common-dir'];
+  const lines = (await gitOut(seed, both, cwd)).split('\n');
+  if (lines.length === 2) return lines as [string, string];
+  const root = await gitOut(seed, ['rev-parse', '--show-toplevel'], cwd);
+  const common = await gitOut(
+    seed,
+    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+    root,
+  );
+  return [root, common];
+}
+
 /** Resolve the source repo and its landing state; nothing is locked yet. */
 async function makeCtx(
   deps: EngineDeps,
@@ -581,12 +663,7 @@ async function makeCtx(
 ): Promise<Ctx> {
   const seed = { deps, options, config } as Ctx;
   seed.logDir = '';
-  const sourceRoot = await gitOut(seed, ['rev-parse', '--show-toplevel'], deps.cwd);
-  const commonDir = await gitOut(
-    seed,
-    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-    sourceRoot,
-  );
+  const [sourceRoot, commonDir] = await rootAndCommonDir(seed, deps.cwd);
   const repoState = join(deps.home, repoId(commonDir));
   const stamp = new Date(deps.now()).toISOString().replace(/[:.]/g, '-');
   receipt.stateDir = repoState;
@@ -707,7 +784,7 @@ function bootstrapProvision(ctx: Ctx, base: string, head: string): () => Promise
 /** `just land`: a current pass lands in seconds; otherwise say why, then the full land (or refuse with --require-pass). */
 async function landFromPassOrFull(ctx: Ctx): Promise<number> {
   const { deps, options, receipt } = ctx;
-  const verdict = await passVerdict(ctx);
+  const verdict = await timed(ctx, 'pass', () => passVerdict(ctx));
   let reason: string;
   if (verdict.kind === 'landed') {
     receipt.stage = 'land';
@@ -730,6 +807,7 @@ async function landFromPassOrFull(ctx: Ctx): Promise<number> {
     return EXIT.unverified;
   }
   deps.log(`${line}. Falling back to the full gated land.`);
+  lowerPriority(deps);
   return fullLand(ctx);
 }
 
@@ -740,6 +818,10 @@ async function dispatch(
   receipt: Receipt,
 ): Promise<number> {
   const ctx = await makeCtx(deps, options, config, receipt);
+  // Gates run below this point: lower the priority first. A land from a pass runs at the caller's
+  // priority: it is seconds of latency-bound git and hook work, and would otherwise queue behind
+  // the very gate runs it skips (it lowers itself only when it falls back to the full land).
+  if (options.verify === true || options.dryRun) lowerPriority(deps);
   if (options.verify === true) return verifyRun(ctx);
   if (options.dryRun) return fullLand(ctx);
   return landFromPassOrFull(ctx);
@@ -770,6 +852,7 @@ function recordRun(
     ref: options.ref,
     stage: receipt.stage,
     ...(receipt.confirm === undefined ? {} : { confirm: receipt.confirm }),
+    ...(receipt.main === undefined ? {} : { main: receipt.main }),
     dryRun: options.dryRun,
     sha: receipt.sha,
     exit,
@@ -813,7 +896,6 @@ export async function land(
   options: LandOptions,
   config: LandConfig,
 ): Promise<number> {
-  lowerPriority(deps);
   const startedAt = deps.now();
   const receipt: Receipt = {
     release: () => undefined,

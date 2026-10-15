@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { CONFIG_FILE, DEFAULT_CONFIG, type LandConfig, parseConfig } from './config';
 import {
   Abort,
+  allOrFirstError,
   baseEnv,
   type Ctx,
   EXIT,
@@ -10,6 +11,7 @@ import {
   git,
   gitOut,
   guardWorktree,
+  hookRunner,
   isAncestor,
   pushEnv,
   remoteTip,
@@ -42,9 +44,21 @@ import { acquireFair, inTurn, type QueueDeps } from './queue';
 
 const NOTE_ATTEMPTS = 8;
 
+/** Per run, the land files' ls-tree of each commit asked for: a commit sha never changes (ygu7z). */
+const landFilesCache = new WeakMap<Ctx, Map<string, Promise<string>>>();
+
+function landFilesAt(ctx: Ctx, commit: string): Promise<string> {
+  const cache = landFilesCache.get(ctx) ?? new Map<string, Promise<string>>();
+  landFilesCache.set(ctx, cache);
+  const known = cache.get(commit);
+  if (known !== undefined) return known;
+  const listing = gitOut(ctx, ['ls-tree', commit, '--', ...CONFIG_KEY_PATHS], ctx.sourceRoot);
+  cache.set(commit, listing);
+  return listing;
+}
+
 export async function configKeyAt(ctx: Ctx, commit: string): Promise<string> {
-  const out = await gitOut(ctx, ['ls-tree', commit, '--', ...CONFIG_KEY_PATHS], ctx.sourceRoot);
-  return configKeyFromLsTree(out);
+  return configKeyFromLsTree(await landFilesAt(ctx, commit));
 }
 
 /**
@@ -52,37 +66,79 @@ export async function configKeyAt(ctx: Ctx, commit: string): Promise<string> {
  * to B's, so refuse unless they are identical: no tracked difference from B (staged, unstaged or
  * committed) and no untracked file under CONFIG_KEY_PATHS.
  */
-export async function landFilesMatch(ctx: Ctx, base: string): Promise<boolean> {
+/** The land files (CONFIG_KEY_PATHS) of the invoking checkout that differ from `base`; [] when none. */
+export async function landFilesDiffering(ctx: Ctx, base: string): Promise<string[]> {
   const paths = ['--', ...CONFIG_KEY_PATHS];
-  const diff = await git(ctx, ['diff', '--quiet', base, ...paths], ctx.sourceRoot);
-  const untracked = await gitOut(
-    ctx,
-    ['ls-files', '--others', '--exclude-standard', ...paths],
-    ctx.sourceRoot,
-  );
-  return succeeded(diff) && untracked === '';
+  // A diff that cannot run (an unknown base) throws: no comparison is not a match.
+  const [diff, untracked] = await allOrFirstError([
+    gitOut(ctx, ['diff', '--name-only', base, ...paths], ctx.sourceRoot),
+    gitOut(ctx, ['ls-files', '--others', '--exclude-standard', ...paths], ctx.sourceRoot),
+  ]);
+  return `${diff}\n${untracked}`.split('\n').filter((line) => line.trim() !== '');
 }
 
+export async function landFilesMatch(ctx: Ctx, base: string): Promise<boolean> {
+  return (await landFilesDiffering(ctx, base)).length === 0;
+}
+
+/**
+ * Refuse a verify whose checkout would judge the ref by rules main does not hold: one short first
+ * line saying what to do (it is what a truncated log keeps), the detail after it.
+ */
 export async function assertLandFilesMatch(ctx: Ctx, base: string): Promise<void> {
-  if (await landFilesMatch(ctx, base)) return;
+  const differing = await landFilesDiffering(ctx, base);
+  if (differing.length === 0) return;
+  const main = `${ctx.config.remote}/${ctx.config.targetBranch}`;
   throw new Abort(
-    `this checkout's land config or engine (${CONFIG_KEY_PATHS.join(', ')}) differs from ${ctx.config.remote}/${ctx.config.targetBranch} ${shortSha(base)}; a pass would be judged by rules main does not hold. Bring those files to main's (rebase or restore them), then verify again`,
+    [
+      `verify refused: this checkout's land files differ from ${main} ${shortSha(base)}; run \`git fetch && git checkout ${main}\` (or rebase) and re-run just verify`,
+      `  differing: ${differing.join(', ')}`,
+      `  why: a pass binds to main's land config and engine (${CONFIG_KEY_PATHS.join(', ')}); this checkout's would judge the ref by rules main does not hold`,
+    ].join('\n'),
     EXIT.gate,
   );
+}
+
+/**
+ * Verify judges against B, the tip it fetched when it started. If main moves meanwhile and the
+ * move changes the land files, the pass could never land from B: stop at the next gate boundary
+ * instead of after every gate. Checked at most once a minute (a fetch, about 1.2 s).
+ */
+export function watchMain(ctx: Ctx, base: string, everyMs = 60_000): () => Promise<void> {
+  let last = ctx.deps.now();
+  return async () => {
+    if (ctx.deps.now() - last < everyMs) return;
+    last = ctx.deps.now();
+    await fetchRemote(ctx);
+    const tip = await remoteTip(ctx);
+    if (tip === base) return;
+    const [now, then] = await allOrFirstError([configKeyAt(ctx, tip), configKeyAt(ctx, base)]);
+    if (now === then) return;
+    const main = `${ctx.config.remote}/${ctx.config.targetBranch}`;
+    throw new Abort(
+      [
+        `verify stopped: ${main} moved to ${shortSha(tip)} and changed the land files; run \`git fetch && git checkout ${main}\` (or rebase) and re-run just verify`,
+        `  verify started on ${shortSha(base)}; a pass judged by that land config could not land on ${shortSha(tip)}, so the remaining gates were not run`,
+      ].join('\n'),
+      EXIT.gate,
+    );
+  };
 }
 
 /** Seconds with hundredths, for steps measured in a land that should take seconds. */
 const since = (ctx: Ctx, start: number): number => Math.round((ctx.deps.now() - start) / 10) / 100;
 
-async function timed<T>(ctx: Ctx, name: string, step: () => Promise<T>): Promise<T> {
+export async function timed<T>(ctx: Ctx, name: string, step: () => Promise<T>): Promise<T> {
   const start = ctx.deps.now();
-  let ok = false;
+  // Recorded in start order, so steps that run together keep a stable order in the receipt.
+  const entry = { name, seconds: 0, ok: false };
+  ctx.receipt.steps.push(entry);
   try {
     const value = await step();
-    ok = true;
+    entry.ok = true;
     return value;
   } finally {
-    ctx.receipt.steps.push({ name, seconds: since(ctx, start), ok });
+    entry.seconds = since(ctx, start);
   }
 }
 
@@ -246,7 +302,9 @@ async function fetchPasses(ctx: Ctx, remote: string): Promise<PassSource> {
 /** main's land.config.json as committed at `commit` (defaults when absent), or why it is unreadable. */
 async function configAt(ctx: Ctx, commit: string): Promise<LandConfig | string> {
   const path = `${commit}:${CONFIG_FILE}`;
-  if (!succeeded(await git(ctx, ['cat-file', '-e', path], ctx.sourceRoot))) {
+  // The land files' listing (shared with configKeyAt) says whether the config exists there.
+  const listed = (await landFilesAt(ctx, commit)).split('\n');
+  if (!listed.some((line) => line.endsWith(`\t${CONFIG_FILE}`))) {
     return structuredClone(DEFAULT_CONFIG);
   }
   try {
@@ -271,19 +329,13 @@ export function assertNoLocalHookOverrides(ctx: Ctx): void {
   );
 }
 
-/** The git tree id of `dir` in the worktree's HEAD, or `absent`. */
-async function treeAtHead(ctx: Ctx, dir: string): Promise<string> {
-  const tree = await git(ctx, ['rev-parse', '--verify', '--quiet', `HEAD:${dir}`]);
-  return succeeded(tree) ? tree.output.trim() : 'absent';
-}
-
 /**
  * The key of the effective hook config of `ctx.worktree` as it stands: lefthook's own merge
  * (`lefthook dump`) plus the committed tree ids of the script dirs it names, which must hold
  * nothing beyond what is committed. A local script dir must not exist at all.
  */
 async function effectiveHooksHere(ctx: Ctx): Promise<{ key: string } | { problem: string }> {
-  const dump = await ctx.deps.run('sh', ['-c', `${ctx.config.lefthook} dump --format json`], {
+  const dump = await ctx.deps.run('sh', ['-c', `${hookRunner(ctx)} dump --format json`], {
     cwd: ctx.worktree,
     env: baseEnv(ctx),
   });
@@ -300,18 +352,28 @@ async function effectiveHooksHere(ctx: Ctx): Promise<{ key: string } | { problem
   const prefixes = dirs.flatMap((dir) =>
     dir.split('/').map((_part, i, parts) => parts.slice(0, i + 1).join('/')),
   );
-  const listed = await gitOut(ctx, ['ls-tree', 'HEAD', '--', ...prefixes]);
-  const inside = await gitOut(ctx, ['ls-tree', '-r', 'HEAD', '--', ...dirs]);
-  const link = `${listed}\n${inside}`.split('\n').find((line) => line.startsWith('120000 '));
+  // One read of HEAD (bead ygu7z): every path prefix's own entry (-t), and everything inside the
+  // script dirs (-r). Entries elsewhere under a prefix are not ours to judge and are ignored.
+  // -z: NUL-separated records with raw names. Without it git quotes a name holding a tab, newline,
+  // backslash or non-ASCII byte, and a quoted name would match no prefix, so a symlink so named
+  // would escape the refusal below.
+  const entries = (await gitOut(ctx, ['ls-tree', '-r', '-t', '-z', 'HEAD', '--', ...prefixes]))
+    .split('\0')
+    .filter((record) => record !== '')
+    .map((record) => {
+      const tab = record.indexOf('\t');
+      const [mode = '', , id = ''] = record.slice(0, tab).split(' ');
+      return { mode, id, path: record.slice(tab + 1) };
+    })
+    .filter(({ path }) => prefixes.includes(path) || dirs.some((d) => path.startsWith(`${d}/`)));
+  const link = entries.find(({ mode }) => mode === '120000');
   if (link !== undefined) {
     return {
-      problem: `a lefthook script dir holds or sits under a symlink (${link.split('\t')[1]}), whose target a pass cannot bind`,
+      problem: `a lefthook script dir holds or sits under a symlink (${link.path}), whose target a pass cannot bind`,
     };
   }
-  const [source, local] = [
-    await treeAtHead(ctx, hooks.sourceDir),
-    await treeAtHead(ctx, hooks.sourceDirLocal),
-  ];
+  const idOf = (dir: string): string => entries.find(({ path }) => path === dir)?.id ?? 'absent';
+  const [source, local] = [idOf(hooks.sourceDir), idOf(hooks.sourceDirLocal)];
   // Absent from the commit yet present on disk (an ignored dir, or one reached through an ignored
   // symlink): what runs is not what the key names.
   if (source === 'absent') {
@@ -395,22 +457,52 @@ export async function passVerdict(ctx: Ctx): Promise<PassVerdict> {
     return { kind: 'stale', reason: `no pass record${where} for ${shortSha(refSha)}` };
   const c = ref.output.trim();
   const pass = await readPass(ctx, source, c);
-  await fetchRemote(ctx);
-  const main = await remoteTip(ctx);
+  const main = await currentMain(ctx, from === undefined ? pass : null);
+  // Independent reads of the local object store: run together.
   const cExists = succeeded(await git(ctx, ['cat-file', '-e', `${c}^{commit}`], ctx.sourceRoot));
-  const diff = await git(ctx, ['diff', '--name-only', main, c], ctx.sourceRoot);
+  const [diff, mainConfigKey, cConfigKey, mainConfig, cOnMain] = await allOrFirstError([
+    git(ctx, ['diff', '--name-only', main, c], ctx.sourceRoot),
+    configKeyAt(ctx, main),
+    cExists ? configKeyAt(ctx, c) : Promise.resolve(null),
+    configAt(ctx, main),
+    cExists ? isAncestor(ctx, c, main) : Promise.resolve(false),
+  ]);
   return judgePass({
     refSha,
     pass,
     main,
-    mainConfigKey: await configKeyAt(ctx, main),
-    cConfigKey: cExists ? await configKeyAt(ctx, c) : null,
-    mainConfig: await configAt(ctx, main),
+    mainConfigKey,
+    cConfigKey,
+    mainConfig,
     changed: succeeded(diff) ? diff.output.split('\n').filter((l) => l.trim() !== '') : null,
     cExists,
-    cOnMain: cExists && (await isAncestor(ctx, c, main)),
+    cOnMain,
     requested: { mode: ctx.options.mode, message: ctx.options.message },
   });
+}
+
+/**
+ * Main's tip to judge a pass against. For a local pass whose base B is still the remote-tracking
+ * tip (what the verify that recorded it fetched), that tip is taken without a network round trip
+ * (about 1.2 s measured): the push is a compare-and-swap on B, so a main that moved since is
+ * refused there (C1) and the outcome is then observed by a fetch (C5). Anything else fetches first.
+ */
+async function currentMain(ctx: Ctx, pass: PassRecord | null): Promise<string> {
+  if (pass !== null) {
+    const { remote, targetBranch } = ctx.config;
+    const tracked = await git(
+      ctx,
+      ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${targetBranch}`],
+      ctx.sourceRoot,
+    );
+    if (succeeded(tracked) && tracked.output.trim() === pass.B) {
+      ctx.receipt.main = 'tracking';
+      return pass.B;
+    }
+  }
+  ctx.receipt.main = 'fetched';
+  await fetchRemote(ctx);
+  return remoteTip(ctx);
 }
 
 /** A land from a pass ends in an exit code, or finds the pass stale after all (main moved). */
@@ -496,7 +588,7 @@ async function hookProblem(ctx: Ctx): Promise<string | null> {
 
 /** `<runner> install pre-push` from the landing worktree (main's config and lefthook.yml). */
 async function installPrePush(ctx: Ctx): Promise<RunResult> {
-  return ctx.deps.run('sh', ['-c', `${ctx.config.lefthook} install pre-push`], {
+  return ctx.deps.run('sh', ['-c', `${hookRunner(ctx)} install pre-push`], {
     cwd: ctx.worktree,
     env: baseEnv(ctx),
   });
@@ -528,14 +620,15 @@ export async function requireGuards(ctx: Ctx, provision: () => Promise<void>): P
   }
   // The bootstrap or the runner's install may itself have written a local override.
   assertNoLocalHookOverrides(ctx);
-  const problem = await hookProblem(ctx);
+  // Independent checks, together: the installed hook, and the tools the guards need (a missing
+  // tool rejects; either refusal stops the push).
+  const [problem] = await allOrFirstError([hookProblem(ctx), requirePushTools(ctx)]);
   if (problem !== null) {
     throw new Abort(
       `${problem} after installing it: the push guards would not run, refusing`,
       EXIT.push,
     );
   }
-  await requirePushTools(ctx);
 }
 
 /** `git push --porcelain` marks a ref the remote already had with `=`: nothing was pushed. */
@@ -635,9 +728,23 @@ async function prepareCheckout(
   provision: () => Promise<void>,
 ): Promise<FastOutcome | null> {
   await timed(ctx, 'checkout', () => ensureWorktree(ctx, pass.C));
-  await timed(ctx, 'guards', () => requireGuards(ctx, provision));
-  // The hooks that run on this push are lefthook's merged view here: it must be the one verified.
-  const here = await timed(ctx, 'hooks', () => effectiveHooksHere(ctx));
+  // Installing the hook and reading lefthook's merged view are independent: run them together.
+  // A guard failure refuses before a stale hook config is reported.
+  let provisioned = false;
+  const provisionOnce = async (): Promise<void> => {
+    provisioned = true;
+    await provision();
+  };
+  // A guard refusal rejects; a hook config that is not the verified one is a value, judged below.
+  const [, hooks] = await allOrFirstError([
+    timed(ctx, 'guards', () => requireGuards(ctx, provisionOnce)),
+    // The hooks that run on this push are lefthook's merged view here: it must be the one verified.
+    timed(ctx, 'hooks', () => effectiveHooksHere(ctx)),
+  ]);
+  // Provisioning (a cold worktree) installs the runner the read above may have run without: read again.
+  const here = provisioned
+    ? await timed(ctx, 'hooks-after-provision', () => effectiveHooksHere(ctx))
+    : hooks;
   if ('problem' in here) return staleAfterLease(ctx, here.problem);
   if (here.key !== pass.hooks_key) {
     return staleAfterLease(

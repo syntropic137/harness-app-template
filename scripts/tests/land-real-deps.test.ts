@@ -29,6 +29,9 @@ describe('realDeps', () => {
     expect(deps.exists(file)).toBe(false);
     expect(typeof deps.user()).toBe('string');
     expect(deps.loadavg()).toBeGreaterThanOrEqual(0);
+    const idle = await deps.cpuIdle(); // a real one-second sample
+    expect(idle).toBeGreaterThanOrEqual(0);
+    expect(idle).toBeLessThanOrEqual(100);
     const nice = deps.niceness();
     expect(Number.isInteger(nice)).toBe(true);
     deps.setNiceness(nice); // the same niceness: proves the adapter without renicing the test runner

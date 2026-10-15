@@ -184,7 +184,7 @@ describe('land engine end to end (real git, local bare origin)', () => {
     const runs = lines.map((line) => parseRun(line));
     expect(runs).toHaveLength(2);
     expect(runs[0]).toMatchObject({ ref: 'feat', sha, exit: 0, dryRun: false, waitedSeconds: 0 });
-    expect(runs[0]?.steps.map((step) => step.name)).toEqual(['lefthook']);
+    expect(runs[0]?.steps.map((step) => step.name)).toEqual(['pass', 'lefthook']); // no pass record: the full land
     expect(runs[1]).toMatchObject({ ref: 'feat10', exit: 1, dryRun: true });
     expect(runs[1]?.steps[0]).toMatchObject({ name: 'lefthook', ok: false });
     expect(typeof runs[0]?.totalSeconds).toBe('number');

@@ -19,6 +19,11 @@ export interface GateConfig {
   when?: string[];
   /** Programs that must be on PATH. Many hooks soft-skip when a tool is missing; landing must not. */
   requires?: string[];
+  /**
+   * A cheap structural gate (seconds): the early gates run, and must pass, before any other gate
+   * starts, so a run fails in seconds on them instead of after the heavy lanes (bead luyfr.2).
+   */
+  early?: boolean;
 }
 
 export interface CheckConfig {
@@ -46,6 +51,13 @@ export interface LandConfig {
   sampleCommand: string | null;
   loadPollSeconds: number;
   loadWaitMaxSeconds: number;
+  /**
+   * Admission (bead luyfr.3): verify starts its heavy lanes only once the machine has at least this
+   * much idle CPU (percent; 0 turns it off), polling every loadPollSeconds for at most
+   * admitWaitMaxSeconds, then starting anyway and saying so.
+   */
+  admitIdleMin: number;
+  admitWaitMaxSeconds: number;
   /** When the machine is still busy after loadWaitMaxSeconds: refuse (`fail`, default) or log how long it waited and go on (`proceed`). */
   onLoadTimeout: 'fail' | 'proceed';
   lockWaitMaxSeconds: number;
@@ -95,6 +107,8 @@ export const DEFAULT_CONFIG: LandConfig = {
   sampleCommand: null,
   loadPollSeconds: 15,
   loadWaitMaxSeconds: 1800,
+  admitIdleMin: 40,
+  admitWaitMaxSeconds: 1800,
   onLoadTimeout: 'fail',
   lockWaitMaxSeconds: 0,
   markerEnv: 'HARNESS_LAND_GATE',
@@ -201,6 +215,10 @@ const GATE_OPTIONS: Record<string, (gate: GateConfig, value: unknown, label: str
   requires: (gate, value, label) => {
     gate.requires = requireStringArray(value, `${label}.requires`);
   },
+  early: (gate, value, label) => {
+    if (typeof value !== 'boolean') fail(`${label}.early must be true or false`);
+    gate.early = value as boolean;
+  },
 };
 
 function parseGate(raw: unknown, label: string): GateConfig {
@@ -266,6 +284,8 @@ const NUMBER_KEYS = [
   'loadMax',
   'loadPollSeconds',
   'loadWaitMaxSeconds',
+  'admitIdleMin',
+  'admitWaitMaxSeconds',
   'lockWaitMaxSeconds',
   'maxAttempts',
   'parallelGates',

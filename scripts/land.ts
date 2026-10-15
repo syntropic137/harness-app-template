@@ -10,7 +10,16 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { getPriority, homedir, hostname, loadavg, setPriority, userInfo } from 'node:os';
+import {
+  type CpuInfo,
+  cpus,
+  getPriority,
+  homedir,
+  hostname,
+  loadavg,
+  setPriority,
+  userInfo,
+} from 'node:os';
 import { join } from 'node:path';
 import { isMainEntry } from './lib/entrypoint';
 import { loadConfig } from './lib/land/config';
@@ -166,6 +175,45 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   return broken === undefined ? { ok: true, options } : bad(broken[1]);
 }
 
+const CPU_TIMES = ['user', 'nice', 'sys', 'idle', 'irq'] as const;
+
+/**
+ * The idle share (percent) of all CPU time between two `os.cpus()` samples, or null when they
+ * cannot be compared: a different CPU count (topology changed), a counter that went down (wrapped
+ * or reset), or no time at all between them. Such a pair says nothing about how idle the machine is.
+ */
+export function idlePercent(before: CpuInfo[], after: CpuInfo[]): number | null {
+  if (before.length === 0 || before.length !== after.length) return null;
+  let idle = 0;
+  let total = 0;
+  for (const [i, cpu] of after.entries()) {
+    const deltas = CPU_TIMES.map((key) => cpu.times[key] - (before[i] as CpuInfo).times[key]);
+    if (deltas.some((d) => d < 0)) return null;
+    idle += deltas[3] as number;
+    total += deltas.reduce((a, b) => a + b, 0);
+  }
+  return total > 0 ? (100 * idle) / total : null;
+}
+
+/**
+ * Idle CPU over `ms`, sampled again (up to `tries` times) when a pair cannot be compared; null when
+ * none could be.
+ */
+export async function sampleIdle(
+  read: () => CpuInfo[],
+  wait: (ms: number) => Promise<void>,
+  ms = 1000,
+  tries = 3,
+): Promise<number | null> {
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    const before = read();
+    await wait(ms);
+    const idle = idlePercent(before, read());
+    if (idle !== null) return idle;
+  }
+  return null;
+}
+
 export function landHome(env: Record<string, string | undefined>, home: string): string {
   return env.HARNESS_LAND_HOME ?? join(home, '.cache', 'harness-land');
 }
@@ -260,6 +308,7 @@ export function realDeps(env: NodeJS.ProcessEnv, cwd: string): EngineDeps {
       mkdirp: (p) => mkdirSync(p, { recursive: true }),
     },
     loadavg: () => loadavg()[0] ?? 0,
+    cpuIdle: () => sampleIdle(cpus, (ms) => new Promise((resolve) => setTimeout(resolve, ms))),
     niceness: () => getPriority(),
     setNiceness: (n) => setPriority(n),
     now: () => Date.now(),

@@ -1,4 +1,4 @@
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
 import type { Ctx } from '../lib/land/core';
@@ -683,6 +683,24 @@ describe('review pass 4: symlinks in hook script dirs', () => {
       sh(f.src, `git rev-parse --verify refs/land/verified/${refSha}`),
     ).rejects.toThrow();
   });
+
+  test.each([
+    ['a non-ASCII name', 'gärd.sh'],
+    ['a name with a tab', 'g\tuard.sh'],
+    ['a name with a backslash', 'g\\uard.sh'],
+  ])('a symlink with %s (a name git would quote) gets no pass', async (_what, name) => {
+    const f = await setup();
+    await sh(f.src, 'git checkout -q -B feat main');
+    await sh(f.src, 'mkdir -p .lefthook/pre-push scripts');
+    writeFileSync(join(f.src, 'scripts/guard-body.sh'), 'exit 0\n');
+    symlinkSync('../../scripts/guard-body.sh', join(f.src, '.lefthook/pre-push', name));
+    await sh(f.src, 'git add -A && git commit -qm "guard script is a symlink with a quoted name"');
+    await sh(f.src, 'git checkout -q main');
+    expect(await land(f.deps, VERIFY, f.config())).toBe(EXIT.unverified);
+    expect(f.errors.join('\n')).toMatch(
+      /no pass recorded: a lefthook script dir holds or sits under a symlink \(\.lefthook\/pre-push\//,
+    );
+  });
 });
 
 describe('review pass 5: symlinked ancestors and script dirs missing from the commit', () => {
@@ -739,14 +757,177 @@ describe('land v2 finish: shared landing state, prepare steps', () => {
     expect(slots[0]?.split(' ')[2]).toBe(slots[1]?.split(' ')[2]); // the same warm slot, reused
   });
 
-  test('verify and land lower their own priority before anything runs', async () => {
+  test('runs that gate lower their own priority; a land from a pass does not (bead t7ete)', async () => {
     const f = await setup();
     await branch(f, 'crates/x.rs');
-    const set: number[] = [];
-    const deps = { ...f.deps, niceness: () => 0, setNiceness: (n: number) => void set.push(n) };
+    const set: string[] = [];
+    const deps = {
+      ...f.deps,
+      niceness: () => 0,
+      setNiceness: (n: number) => void set.push(`${f.logs.length}:${n}`),
+    };
     expect(await land(deps, VERIFY, f.config())).toBe(EXIT.ok);
+    expect(set).toHaveLength(1); // verify: lowered
     expect(await land(deps, OPTS, f.config())).toBe(EXIT.ok);
-    expect(set).toEqual([10, 10]);
+    expect(f.logs.join('\n')).toMatch(/LANDED .* \(from pass record/);
+    expect(set).toHaveLength(1); // the land from the pass ran at the caller's priority
+    await sh(f.src, 'git checkout -q -B feat2 main');
+    await f.commit(f.src, 'crates/y.rs');
+    await sh(f.src, 'git checkout -q main');
+    expect(await land(deps, { ...OPTS, ref: 'feat2' }, f.config())).toBe(EXIT.ok); // no pass: full land
+    expect(set).toHaveLength(2);
+    expect(set[1]).toMatch(/:10$/);
+  });
+
+  test('a failing early gate ends verify before any other gate starts (bead luyfr.2)', async () => {
+    const f = await setup();
+    await branch(f, 'crates/x.rs');
+    const heavy = { name: 'heavy', run: 'echo ran >> "$FAKE_STATE/heavy.log"' };
+    const cheap = (ok: boolean) => ({
+      name: 'cheap',
+      run: `echo cheap >> "$FAKE_STATE/heavy.log"; ${ok ? 'true' : 'exit 1'}`,
+      early: true,
+    });
+    // Listed after the heavy gate, the early one still runs first, and its failure stops the run.
+    expect(await land(f.deps, VERIFY, f.config({ gates: [heavy, cheap(false)] }))).toBe(EXIT.gate);
+    expect(readFileSync(join(f.state, 'heavy.log'), 'utf8')).toBe('cheap\n');
+    expect(f.errors.join('\n')).toMatch(/cheap failed/);
+    // Passing, it is followed by the rest.
+    expect(await land(f.deps, VERIFY, f.config({ gates: [heavy, cheap(true)] }))).toBe(EXIT.ok);
+    expect(readFileSync(join(f.state, 'heavy.log'), 'utf8')).toBe('cheap\ncheap\nran\n');
+  });
+
+  /** Land-file change pushed to main from the other clone (a shell command, so a step can run it). */
+  const moveMainLandFiles = (f: Fixture) =>
+    `cd '${f.other}' && git pull -q origin main && printf ' ' >> land.config.json && git commit -qam 'land config moved' && git push -q origin HEAD:main`;
+
+  test('verify admits its heavy lanes only once the machine is idle enough, after the early gates (bead luyfr.3)', async () => {
+    const f = await setup();
+    await branch(f, 'crates/x.rs');
+    const idles = [10, 25, 55];
+    const sampled: number[] = [];
+    const deps = {
+      ...f.deps,
+      cpuIdle: async () => {
+        const idle = idles.shift() ?? 100;
+        sampled.push(idle);
+        return idle;
+      },
+    };
+    const gates = [
+      { name: 'cheap', run: 'echo cheap >> "$FAKE_STATE/order.log"', early: true },
+      { name: 'heavy', run: 'echo heavy >> "$FAKE_STATE/order.log"' },
+    ];
+    expect(await land(deps, VERIFY, f.config({ gates }))).toBe(EXIT.ok);
+    expect(readFileSync(join(f.state, 'order.log'), 'utf8')).toBe('cheap\nheavy\n');
+    const log = f.logs.join('\n');
+    expect(log).toMatch(/admission: 10% idle CPU; waiting for 40% before the heavy lanes/);
+    expect(log).toMatch(/admission: 55% idle after \d+s; starting the heavy lanes/);
+    expect(log.indexOf('PASS cheap')).toBeLessThan(log.indexOf('admission:'));
+    // A full land holds the lease: it never waits on admission.
+    await sh(f.src, 'git checkout -q -B feat2 main');
+    await f.commit(f.src, 'crates/y.rs');
+    await sh(f.src, 'git checkout -q main');
+    sampled.length = 0;
+    expect(await land(deps, { ...OPTS, ref: 'feat2' }, f.config({ gates }))).toBe(EXIT.ok);
+    expect(sampled).toEqual([]);
+  });
+
+  test('main moving with new land files while verify queues is refused before the first gate', async () => {
+    const f = await setup();
+    await branch(f, 'crates/x.rs');
+    // The preflight runs after verify's first check and before its own fetch of B.
+    const config = f.config({
+      preflight: [{ name: 'move-main', run: moveMainLandFiles(f), cwd: 'source' }],
+    });
+    expect(await land(f.deps, VERIFY, config)).toBe(EXIT.gate);
+    expect(f.errors.join('\n').split('\n')[0]).toMatch(
+      /^verify refused: this checkout's land files differ from origin\/main \w+; run `git fetch && git checkout origin\/main` \(or rebase\) and re-run just verify$/,
+    );
+    expect(f.ran()).toEqual([]); // no gate ran
+  });
+
+  test('main moving with new land files mid-verify stops it at the next gate boundary', async () => {
+    const f = await setup();
+    await branch(f, 'crates/x.rs');
+    const first = {
+      name: 'first',
+      run: `echo first >> "$FAKE_STATE/order.log"; ${moveMainLandFiles(f)}`,
+    };
+    const second = { name: 'second', run: 'echo second >> "$FAKE_STATE/order.log"' };
+    // The first gate takes "a minute" (the fake clock), so the boundary after it looks at main.
+    const deps = {
+      ...f.deps,
+      run: async (...args: Parameters<typeof f.deps.run>) => {
+        const result = await f.deps.run(...args);
+        if (args[1].join(' ').includes('echo first')) f.clock.t += 61_000;
+        return result;
+      },
+    };
+    const config = f.config({ gates: [first, second], parallelGates: 1 });
+    expect(await land(deps, VERIFY, config)).toBe(EXIT.gate);
+    expect(readFileSync(join(f.state, 'order.log'), 'utf8')).toBe('first\n'); // second never started
+    expect(f.errors.join('\n').split('\n')[0]).toMatch(
+      /^verify stopped: origin\/main moved to \w+ and changed the land files; run `git fetch && git checkout origin\/main` \(or rebase\) and re-run just verify$/,
+    );
+  });
+
+  test('a boundary check that finds main unchanged, or moved without land-file changes, goes on', async () => {
+    const f = await setup();
+    await branch(f, 'crates/x.rs');
+    // Main moves once (verify retries an attempt whose base moved, and must not chase a moving main).
+    const moveDocs = `[ -f "$FAKE_STATE/moved" ] || { touch "$FAKE_STATE/moved"; cd '${f.other}' && git pull -q origin main && mkdir -p docs && echo n >> docs/adv.md && git add docs/adv.md && git commit -qm docs && git push -q origin HEAD:main; }`;
+    const gate = (name: string, then = '') => ({
+      name,
+      run: `echo ${name} >> "$FAKE_STATE/order.log"${then === '' ? '' : `; ${then}`}`,
+    });
+    // Each gate takes "a minute" (the fake clock), so every boundary looks at main.
+    const deps = {
+      ...f.deps,
+      run: async (...args: Parameters<typeof f.deps.run>) => {
+        const result = await f.deps.run(...args);
+        if (/echo (one|two|three)/.test(args[1].join(' '))) f.clock.t += 61_000;
+        return result;
+      },
+    };
+    // one: main unchanged at the next boundary; two: main moved, docs only; three runs.
+    const gates = [gate('one'), gate('two', moveDocs), gate('three')];
+    const config = f.config({ gates, parallelGates: 1 });
+    const code = await land(deps, VERIFY, config);
+    expect(f.errors.join('\n')).toBe('');
+    expect(code).toBe(EXIT.ok);
+    // The first attempt passed both boundaries (then verify re-ran on the moved base).
+    expect(readFileSync(join(f.state, 'order.log'), 'utf8')).toMatch(/^one\ntwo\nthree\n/);
+  });
+
+  test('ignored output under a directory the next commit lacks is removed from the reused slot', async () => {
+    const f = await setup();
+    await f.commit(f.src, '.gitignore', '.turbo/\nnode_modules/\n');
+    await sh(f.src, 'git push -q origin HEAD:main');
+    // Branch A adds a context; its gate leaves ignored build output inside it.
+    await sh(f.src, 'git checkout -q -B feat main');
+    await f.commit(f.src, 'contexts/spatial/lib.rs');
+    await sh(f.src, 'git checkout -q main');
+    const build = {
+      name: 'build',
+      run: 'mkdir -p contexts/spatial/.turbo node_modules/.cache && touch contexts/spatial/.turbo/log node_modules/.cache/keep; if [ -d contexts/spatial ] && [ ! -f contexts/spatial/lib.rs ]; then echo "stale context dir"; exit 1; fi',
+    };
+    const config = f.config({ gates: [build], verifySlots: 1 });
+    expect(await land(f.deps, VERIFY, config)).toBe(EXIT.ok);
+    // Branch B does not have that context: the slot must not still show its directory.
+    await sh(f.src, 'git checkout -q -B feat2 main');
+    await f.commit(f.src, 'crates/y.rs');
+    await sh(f.src, 'git checkout -q main');
+    const check = {
+      name: 'build',
+      run: 'if [ -d contexts/spatial ]; then echo "stale context dir"; exit 1; fi; test -f node_modules/.cache/keep',
+    };
+    expect(
+      await land(f.deps, { ...VERIFY, ref: 'feat2' }, f.config({ gates: [check], verifySlots: 1 })),
+    ).toBe(EXIT.ok);
+    expect(f.logs.join('\n')).toMatch(
+      /removing contexts\/: ignored output under a directory/, // the fixture main has no contexts/ at all
+    );
   });
 
   /** A coverage-like gate whose reading goes wrong when an object from an earlier run is left behind. */
