@@ -458,6 +458,30 @@ function gateLanes(
   return lanes;
 }
 
+/**
+ * Run the gates still to do: the cheap structural (`early`) ones first (bead luyfr.2), so a failure
+ * there ends the run before any heavy lane starts; then, a verify once admitted (luyfr.3), the rest.
+ * A verify also looks at main between lanes and stops if a move changed the land files.
+ */
+async function runGates(
+  ctx: Ctx,
+  todo: GateConfig[],
+  evidence: Evidence,
+  vars: Vars,
+  base: string,
+): Promise<void> {
+  const verify = ctx.options.verify === true;
+  const between = verify ? watchMain(ctx, base) : undefined;
+  const early = todo.filter((g) => g.early === true);
+  if (early.length > 0) {
+    await runLanes(gateLanes(ctx, early, evidence, vars, base), ctx.config.parallelGates, between);
+    await between?.();
+  }
+  const rest = todo.filter((g) => g.early !== true);
+  if (verify && rest.length > 0) await admitHeavyLanes(ctx);
+  await runLanes(gateLanes(ctx, rest, evidence, vars, base), ctx.config.parallelGates, between);
+}
+
 async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   await fetchRemote(ctx);
   const base = await remoteTip(ctx);
@@ -495,18 +519,7 @@ async function validate(ctx: Ctx, prev: Evidence | null): Promise<Validated> {
   assertNoLocalHookOverrides(ctx); // the bootstrap may have written one
   const todo = selected.filter((g) => !evidence.passed.has(g.name));
   await requireTools(ctx, todo);
-  // Cheap structural gates first (bead luyfr.2): a failure there ends the run before any heavy
-  // lane starts, instead of after it.
-  const early = todo.filter((g) => g.early === true);
-  // Verify: a main that moves and changes the land files stops it at the next gate boundary.
-  const between = ctx.options.verify === true ? watchMain(ctx, base) : undefined;
-  if (early.length > 0) {
-    await runLanes(gateLanes(ctx, early, evidence, vars, base), ctx.config.parallelGates, between);
-    await between?.();
-  }
-  const rest = todo.filter((g) => g.early !== true);
-  if (ctx.options.verify === true && rest.length > 0) await admitHeavyLanes(ctx);
-  await runLanes(gateLanes(ctx, rest, evidence, vars, base), ctx.config.parallelGates, between);
+  await runGates(ctx, todo, evidence, vars, base);
   for (const check of ctx.config.checks) await runCheck(ctx, check, vars);
   await assertUnchanged(ctx, sha);
   return { target, base, evidence, scopedOut };
