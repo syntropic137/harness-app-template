@@ -3,7 +3,16 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } fro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test, vi } from 'vitest';
-import { idlePercent, landHome, parseArgs, pidAlive, readBootId, sampleIdle, USAGE } from '../land';
+import {
+  idlePercent,
+  landHome,
+  parseArgs,
+  pidAlive,
+  readBootId,
+  readCpus,
+  sampleIdle,
+  USAGE,
+} from '../land';
 import { isMainEntry } from '../lib/entrypoint';
 import { DEFAULT_CONFIG, type GateConfig, loadConfig, parseConfig } from '../lib/land/config';
 import {
@@ -707,6 +716,37 @@ describe('admission: heavy lanes wait for idle CPU (bead luyfr.3)', () => {
     expect(await sampleIdle(() => reads.shift() ?? [], wait, 7)).toBe(50);
     expect(waits).toEqual([7, 7]);
     expect(await sampleIdle(() => [cpu(1, 1)], wait, 7, 2)).toBeNull();
+  });
+
+  // Bun 1.3.14 on macOS arm64 reads an os.cpus() entry's counters when `.times` is first touched,
+  // so a sample read late held the second sample's counters and admission never measured anything.
+  test('a CPU source that reads its counters lazily is pinned at the call by readCpus', async () => {
+    const clock = { idle: 100, busy: 100 };
+    const lazy = () =>
+      [0, 1].map(() => ({
+        model: 'x',
+        speed: 1,
+        get times() {
+          return { user: clock.busy, nice: 0, sys: 0, idle: clock.idle, irq: 0 };
+        },
+      })) as never;
+    const wait = async () => {
+      clock.idle += 30;
+      clock.busy += 10;
+    };
+    expect(await sampleIdle(lazy, wait, 1, 1)).toBeNull(); // the bug: both samples alike
+    expect(await sampleIdle(() => readCpus(lazy), wait, 1, 1)).toBe(75);
+  });
+
+  test('the real adapter returns plain numeric counters, copied at the call', () => {
+    const sample = readCpus();
+    expect(sample.length).toBeGreaterThan(0);
+    for (const cpu of sample) {
+      const times = Object.getOwnPropertyDescriptor(cpu, 'times');
+      expect(times?.get).toBeUndefined();
+      expect(Object.keys(cpu.times).sort()).toEqual(['idle', 'irq', 'nice', 'sys', 'user']);
+      for (const value of Object.values(cpu.times)) expect(Number.isFinite(value)).toBe(true);
+    }
   });
 });
 

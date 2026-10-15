@@ -196,6 +196,22 @@ export function idlePercent(before: CpuInfo[], after: CpuInfo[]): number | null 
 }
 
 /**
+ * One CPU sample with its counters copied out as plain numbers at the moment of the call.
+ *
+ * Bun (1.3.14, macOS arm64) returns `os.cpus()` entries whose `times` are read when `.times` is
+ * first touched, not when `cpus()` is called. `sampleIdle` reads the first sample only after the
+ * wait, so both samples held the same counters, every pair had zero elapsed time and admission
+ * logged "idle CPU could not be measured" on every run. Copying here pins each sample to its call.
+ */
+export function readCpus(source: () => CpuInfo[] = cpus): CpuInfo[] {
+  return source().map(({ model, speed, times }) => ({
+    model,
+    speed,
+    times: { user: times.user, nice: times.nice, sys: times.sys, idle: times.idle, irq: times.irq },
+  }));
+}
+
+/**
  * Idle CPU over `ms`, sampled again (up to `tries` times) when a pair cannot be compared; null when
  * none could be.
  */
@@ -308,7 +324,7 @@ export function realDeps(env: NodeJS.ProcessEnv, cwd: string): EngineDeps {
       mkdirp: (p) => mkdirSync(p, { recursive: true }),
     },
     loadavg: () => loadavg()[0] ?? 0,
-    cpuIdle: () => sampleIdle(cpus, (ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    cpuIdle: () => sampleIdle(readCpus, (ms) => new Promise((resolve) => setTimeout(resolve, ms))),
     niceness: () => getPriority(),
     setNiceness: (n) => setPriority(n),
     now: () => Date.now(),
