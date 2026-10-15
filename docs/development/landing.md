@@ -19,10 +19,13 @@ just land <ref> -- --require-pass            # refuse (exit 3) instead of fallin
 just land <ref> -- --pass-from <remote>      # use a pass verified in another clone (fetched from <remote>)
 ```
 
-Run `just verify` / `just land` directly; don't wrap them in `taskpolicy -b` (or `nice`). Both lower
-their own process to niceness 10 before anything runs, and every gate inherits it, so the machine
-stays usable while gates build. They only ever lower priority: a caller already at 10 or below is
-left alone, and an OS that refuses is logged and the run carries on.
+Run `just verify` / `just land` directly; don't wrap them in `taskpolicy -b` (or `nice`). Every run
+that gates (verify, a dry run, a full land, a land that falls back to the full land) lowers its own
+process to niceness 10 before its gates, and every gate inherits it, so the machine stays usable
+while gates build. A land from a pass does not: it is seconds of latency-bound git and hook work,
+and at niceness 10 it would queue behind the very gate runs it skips. They only ever lower
+priority: a caller already at 10 or below is left alone, and an OS that refuses is logged and the
+run carries on.
 
 **Verify** does everything the full land below does except the lease and the push: it applies the
 ref onto the fresh `origin/<target>` tip `B`, runs the same diff-scoped gates, checks and pre-push
@@ -84,18 +87,21 @@ Every `cwd: source` step of a verify (preflight, early checks, checks, command g
 from the invoking checkout, so a local edit to a source-run script cannot change what a pass says
 ran. That checkout has no ignored caches (`node_modules`), so source-run steps must not need them.
 
-**Land** fetches and accepts the ref's pass only when the record is complete and: it asks for the
+**Land** reads main's tip and accepts the ref's pass only when the record is complete and: it asks for the
 same `--mode` and `--message` verify applied (`C` is what that request makes); `B` is the current
 tip `M`; `config_key` and `engine_version` both equal `M`'s key; `C` does not itself change the
 land files; `passed` covers every gate `M`'s `land.config.json` makes applicable to `B..C` plus every
 early check and check; and the invoking checkout's land files equal `M`'s (the rule verify applies). The fast path then runs entirely under `M`'s validated `land.config.json`
-(`pushRequires`, the hook runner, the marker, the remote), never the invoking checkout's. It does
-only this: take the lease (if it had to wait, fetch again and report **already landed** when
+(`pushRequires`, the hook runner, the marker, the remote), never the invoking checkout's. Main's
+tip comes from the remote-tracking ref without a network round trip when that ref is still the
+pass's `B` (what the verify fetched; about 1.2 s saved): the push below is a compare-and-swap on
+`B`, so a main that moved since is refused there and the outcome is then observed by a fetch.
+Otherwise it fetches first (the receipt's `main` says which). It does only this: take the lease (if it had to wait, fetch again and report **already landed** when
 another lander got there first), check out `C` in the landing worktree, install the pre-push hook
 itself with the configured runner (`<lefthook> install pre-push`, main's config; about 0.3 s), so
 whatever hook was there is replaced by a known one (after one run of the configured bootstrap if
 the runner cannot install; otherwise it refuses), check the installed hook exists, is executable
-and invokes the runner, require every `pushRequires` tool on PATH, require `lefthook dump` here to equal the pass's `hooks_key` (else stale), push `C` with `--force-with-lease=refs/heads/<target>:<M>`
+and invokes the runner, require every `pushRequires` tool on PATH, require `lefthook dump` here to equal the pass's `hooks_key` (else stale; the install and the dump run together, and a runner configured as `pnpm exec <bin>` runs as the worktree's `node_modules/.bin/<bin>`, which is what pnpm exec resolves, without pnpm's own startup), push `C` with `--force-with-lease=refs/heads/<target>:<M>`
 (a compare-and-swap) and the SHA-bound marker, then observe the outcome. When the push exited 0 on
 its own (not signal-killed) and its `--porcelain` report is unambiguous (`Done`, exactly one line
 for `C:refs/heads/<target>`, flagged pushed or `=` up to date), that remote report is the
@@ -140,11 +146,11 @@ When unsure it runs everything: an unmapped path, a path in `full`, an unreadabl
 
 ## `land.config.json` (consumer-owned)
 
-`just update` never touches it. Keys: `remote`, `targetBranch`, `loadMax`, `quietCommand`, `loadPollSeconds`, `loadWaitMaxSeconds`, `lockWaitMaxSeconds`, `maxAttempts`, `verifySlots`, `prepare`, `pushRequires` (programs the push-time guards need; checked before every push and pre-push dry run), `markerEnv`, `lefthook`, `lefthookSelector` (`--job` default; `--commands` for lefthook 1.x), `inheritUnaffectedEvidence`, `metadataSafe` (globs a direct push to the target may change without the gate), `scopes` (name to globs), `full` (globs that force every gate), `bootstrap`, `preflight`, `earlyChecks`, `gates`, `checks`, `env`.
+`just update` never touches it. Keys: `remote`, `targetBranch`, `loadMax`, `quietCommand`, `loadPollSeconds`, `loadWaitMaxSeconds`, `admitIdleMin`, `admitWaitMaxSeconds`, `lockWaitMaxSeconds`, `maxAttempts`, `verifySlots`, `prepare`, `pushRequires` (programs the push-time guards need; checked before every push and pre-push dry run), `markerEnv`, `lefthook`, `lefthookSelector` (`--job` default; `--commands` for lefthook 1.x), `inheritUnaffectedEvidence`, `metadataSafe` (globs a direct push to the target may change without the gate), `scopes` (name to globs), `full` (globs that force every gate), `bootstrap`, `preflight`, `earlyChecks`, `gates`, `checks`, `env`.
 
 - A **gate** with no `run` is a lefthook pre-push job of that name. With `run` it is a shell command. `when` lists scope names; omit it for an unconditional gate.
 - A **check** is a shell command that always runs after the gates. Placeholders: `{base}`, `{head}`, `{worktree}`, `{source}`. `cwd` is `worktree` (default) or `source` (the invoking checkout, which the applied ref cannot alter). Project-specific rules (for example "baseline.json must not differ from the base") live here, not in the engine.
-- `preflight` checks run before the lock is taken. `prepare` steps (checks with optional `when` scopes) run in the worktree on every land and verify once the ref is applied, before any other check or gate: a reused persistent worktree keeps what earlier runs left in its ignored build dirs. `earlyChecks` run once the plan is printed, before bootstrap and any gate (for example: is the evidence host reachable), with the same placeholders as `checks`.
+- `preflight` checks run before the lock is taken. `prepare` steps (checks with optional `when` scopes) run in the worktree on every land and verify once the ref is applied, before any other check or gate: a reused persistent worktree keeps what earlier runs left in its ignored build dirs. `earlyChecks` run once the plan is printed, before bootstrap and any gate (for example: is the evidence host reachable), with the same placeholders as `checks`; put every check that depends only on the commits here, so it fails a run in seconds. A gate with `"early": true` (a cheap structural check) runs, with the other early gates, before any other gate starts, and a failure ends the run there. Gates fail fast: once a lane fails, no lane that has not started is started; lanes already running finish and keep their evidence. Admission: after its early gates, a verify starts the heavy lanes only once the machine has at least `admitIdleMin` percent idle CPU (default 40; 0 turns it off), sampled every `loadPollSeconds`, for at most `admitWaitMaxSeconds` (default 1800), after which it starts anyway and says so. A full land holds the lease and does not wait on admission.
 
 Every ambient `LEFTHOOK*` variable (`LEFTHOOK`, `LEFTHOOK_CONFIG`, `LEFTHOOK_BIN`, `LEFTHOOK_EXCLUDE`, ...), `CARGO_TARGET_DIR`, the marker variable and git routing or config variables (`GIT_DIR`, `GIT_CONFIG_*`, ...) are stripped from the environment of every gate and the push, after `env` is merged. `harness.hookBaseRemote` and `harness.hookBaseRef` are injected so every diff-scoped hook uses the landing base.
 
