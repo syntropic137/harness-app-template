@@ -176,7 +176,10 @@ function realLockDeps(lockPath: string, log: (m: string) => void): LockDeps {
     },
     read: (path) => (existsSync(path) ? readFileSync(path, 'utf8') : null),
     remove: (path) => rmSync(path, { force: true }),
-    ageMs: (path) => (existsSync(path) ? Date.now() - statSync(path).mtimeMs : null),
+    // mtimeMs carries sub-ms precision and Date.now() does not, so a file written
+    // this millisecond reads as slightly in the future. A lock cannot be younger
+    // than now: clamp at 0.
+    ageMs: (path) => (existsSync(path) ? Math.max(0, Date.now() - statSync(path).mtimeMs) : null),
     pidAlive: (pid) => pidAlive(pid),
     bootId: () =>
       readBootId(
