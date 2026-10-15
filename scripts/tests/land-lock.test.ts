@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import {
   acquireLock,
+  canonicalBootId,
   describeHolder,
   holderIsStale,
   type LockHolder,
   LockTimeout,
   parseHolder,
+  UNKNOWN_BOOT_ID,
 } from '../lib/land/lock';
 import { memoryLock } from './helpers/memory-lock';
 
@@ -135,6 +137,19 @@ describe('landing lock', () => {
     expect(parseHolder(m.files.get('/l')?.text ?? null)?.pid).toBe(200);
   });
 
+  test('waiting on a live reaper still honours the deadline (wait 0 never sleeps)', async () => {
+    const m = memoryLock({ alive: new Set([300]) });
+    m.files.set('/l', { text: holderJson({ pid: 999 }), at: 0 }); // stale holder
+    m.files.set('/l.reap', { text: holderJson({ pid: 300 }), at: 0 }); // live reaper, never finishes
+    let slept = 0;
+    m.deps.sleep = async () => {
+      slept += 1;
+    };
+    await expect(acquireLock(m.deps, me, 0)).rejects.toBeInstanceOf(LockTimeout);
+    expect(slept).toBe(0);
+    expect(m.files.has('/l.reap')).toBe(true);
+  });
+
   test('an old unreadable lock behind a live reaper also waits', async () => {
     const m = memoryLock({ alive: new Set([300]) });
     m.files.set('/l', { text: '{', at: 0 });
@@ -190,5 +205,62 @@ describe('landing lock', () => {
     ).toMatch(/0 min ago/);
     expect(parseHolder(null)).toBeNull();
     expect(parseHolder('{"pid":"x"}')).toBeNull();
+  });
+});
+
+describe('holder staleness', () => {
+  const holder = (bootId: string, pid = 100) =>
+    parseHolder(holderJson({ bootId, pid })) as LockHolder;
+
+  test('boottime-derived ids, which move with clock adjustments, never prove a reboot', () => {
+    const m = memoryLock({ boot: 'uuid-now', alive: new Set([100]) });
+    for (const legacy of [
+      '{ sec = 1791777218, usec = 681881 } Sun Oct 11 20:53:38 2026',
+      '{ sec = 1791777219, usec = 549541 } Sun Oct 11 20:53:39 2026',
+      'boottime-1791777217',
+    ]) {
+      expect(canonicalBootId(legacy)).toBe(UNKNOWN_BOOT_ID);
+      expect(holderIsStale(holder(legacy), m.deps)).toBe(false);
+    }
+  });
+
+  test('an unknown boot id on either side with a live pid is not stale', () => {
+    const live = new Set([100]);
+    expect(
+      holderIsStale(holder(UNKNOWN_BOOT_ID), memoryLock({ boot: 'b2', alive: live }).deps),
+    ).toBe(false);
+    expect(
+      holderIsStale(holder('b1'), memoryLock({ boot: UNKNOWN_BOOT_ID, alive: live }).deps),
+    ).toBe(false);
+    expect(
+      holderIsStale(
+        holder(UNKNOWN_BOOT_ID),
+        memoryLock({ boot: UNKNOWN_BOOT_ID, alive: live }).deps,
+      ),
+    ).toBe(false);
+  });
+
+  test('a dead pid is stale whatever the boot ids say', () => {
+    const none = new Set<number>();
+    expect(holderIsStale(holder('b1'), memoryLock({ boot: 'b1', alive: none }).deps)).toBe(true);
+    expect(
+      holderIsStale(holder(UNKNOWN_BOOT_ID), memoryLock({ boot: 'b1', alive: none }).deps),
+    ).toBe(true);
+  });
+
+  test('a known different boot is stale even with a live pid', () => {
+    expect(
+      holderIsStale(holder('b1'), memoryLock({ boot: 'b2', alive: new Set([100]) }).deps),
+    ).toBe(true);
+  });
+
+  test('a legacy boottime holder with a dead pid is still stale', () => {
+    const m = memoryLock({ boot: 'uuid-now', alive: new Set<number>() });
+    expect(holderIsStale(holder('boottime-5'), m.deps)).toBe(true);
+  });
+
+  test('an empty boot id is unknown; a real id is kept trimmed', () => {
+    expect(canonicalBootId('')).toBe(UNKNOWN_BOOT_ID);
+    expect(canonicalBootId(' abc\n')).toBe('abc');
   });
 });

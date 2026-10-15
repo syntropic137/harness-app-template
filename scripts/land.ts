@@ -15,7 +15,7 @@ import { isMainEntry } from './lib/entrypoint';
 import { loadConfig } from './lib/land/config';
 import { type EngineDeps, EXIT, type LandMode, type LandOptions, land } from './lib/land/engine';
 import { runProcess } from './lib/land/exec';
-import type { LockDeps } from './lib/land/lock';
+import { canonicalBootId, type LockDeps, UNKNOWN_BOOT_ID } from './lib/land/lock';
 
 export const USAGE = `usage: just land <branch-or-commit> [-- options]
 
@@ -127,13 +127,20 @@ export function landHome(env: Record<string, string | undefined>, home: string):
   return env.HARNESS_LAND_HOME ?? join(home, '.cache', 'harness-land');
 }
 
-/** Identifies this boot of the machine so a lock from before a reboot reads as stale. */
+/**
+ * Identifies this boot of the machine so a lock from before a reboot reads as stale.
+ * Linux: `/proc/sys/kernel/random/boot_id`. macOS: `kern.bootsessionuuid`, a per-boot UUID that,
+ * unlike `kern.boottime`, does not move when the clock is adjusted. Anything else is 'unknown',
+ * which the lock treats as "cannot prove a different boot" (staleness then rests on pid liveness).
+ */
 export function readBootId(read: (p: string) => string, probe: () => string): string {
   try {
-    return read('/proc/sys/kernel/random/boot_id').trim();
+    const id = read('/proc/sys/kernel/random/boot_id').trim();
+    if (id !== '') return id;
   } catch {
-    return probe();
+    // Not Linux: fall through to the macOS probe.
   }
+  return canonicalBootId(probe());
 }
 
 export function pidAlive(
@@ -169,16 +176,21 @@ function realLockDeps(lockPath: string, log: (m: string) => void): LockDeps {
     },
     read: (path) => (existsSync(path) ? readFileSync(path, 'utf8') : null),
     remove: (path) => rmSync(path, { force: true }),
-    ageMs: (path) => (existsSync(path) ? Date.now() - statSync(path).mtimeMs : null),
+    // mtimeMs carries sub-ms precision and Date.now() does not, so a file written
+    // this millisecond reads as slightly in the future. A lock cannot be younger
+    // than now: clamp at 0.
+    ageMs: (path) => (existsSync(path) ? Math.max(0, Date.now() - statSync(path).mtimeMs) : null),
     pidAlive: (pid) => pidAlive(pid),
     bootId: () =>
       readBootId(
         (p) => readFileSync(p, 'utf8'),
         () => {
           try {
-            return execFileSync('sysctl', ['-n', 'kern.boottime'], { encoding: 'utf8' }).trim();
+            return execFileSync('sysctl', ['-n', 'kern.bootsessionuuid'], {
+              encoding: 'utf8',
+            }).trim();
           } catch {
-            return 'unknown';
+            return UNKNOWN_BOOT_ID;
           }
         },
       ),

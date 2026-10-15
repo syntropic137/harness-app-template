@@ -15,7 +15,7 @@ export interface LockDeps {
   createExclusive(path: string, contents: string): boolean;
   read(path: string): string | null;
   remove(path: string): void;
-  /** Age in ms of a file, or null when absent. */
+  /** Age in ms of a file, or null when absent. Never negative. */
   ageMs(path: string): number | null;
   pidAlive(pid: number): boolean;
   bootId(): string;
@@ -45,9 +45,31 @@ export function parseHolder(text: string | null): LockHolder | null {
   return null;
 }
 
-/** A holder is stale when its boot is over or its process is gone. */
+/** Boot id used when the machine cannot tell us; it proves nothing about which boot a holder was in. */
+export const UNKNOWN_BOOT_ID = 'unknown';
+
+/**
+ * Older builds derived the boot id from macOS `kern.boottime` (raw `{ sec = S, usec = U } <date>`,
+ * or normalised `boottime-S`). That value is wall clock minus uptime, so it moves whenever the clock
+ * is adjusted within ONE boot, seconds included. It cannot prove a reboot, so it reads as unknown.
+ */
+export function canonicalBootId(id: string): string {
+  const trimmed = id.trim();
+  if (trimmed === '' || /sec\s*=/.test(trimmed) || trimmed.startsWith('boottime-')) {
+    return UNKNOWN_BOOT_ID;
+  }
+  return trimmed;
+}
+
+/** True only when BOTH boot ids are known and differ; an unknown id on either side cannot prove a reboot. */
+export function bootsProvablyDiffer(a: string, b: string): boolean {
+  const [x, y] = [canonicalBootId(a), canonicalBootId(b)];
+  return x !== UNKNOWN_BOOT_ID && y !== UNKNOWN_BOOT_ID && x !== y;
+}
+
+/** A holder is stale only when its pid is dead, or both boot ids are known and different. */
 export function holderIsStale(holder: LockHolder, deps: LockDeps): boolean {
-  return holder.bootId !== deps.bootId() || !deps.pidAlive(holder.pid);
+  return !deps.pidAlive(holder.pid) || bootsProvablyDiffer(holder.bootId, deps.bootId());
 }
 
 export function describeHolder(holder: LockHolder, nowMs: number): string {
@@ -121,6 +143,13 @@ function timeoutFor(deps: LockDeps, holder: LockHolder | null): LockTimeout {
   return new LockTimeout(`landing lock is held by ${who}; not waiting`);
 }
 
+/** Log who holds the lock at most once per ANNOUNCE_EVERY_MS; returns the new last-announce time. */
+function announceWait(deps: LockDeps, holder: LockHolder | null, lastAnnounce: number): number {
+  if (holder === null || deps.now() - lastAnnounce < ANNOUNCE_EVERY_MS) return lastAnnounce;
+  deps.log(`waiting for the landing lock held by ${describeHolder(holder, deps.now())}`);
+  return deps.now();
+}
+
 export async function acquireLock(
   deps: LockDeps,
   me: Omit<LockHolder, 'bootId' | 'startedAt'>,
@@ -136,15 +165,12 @@ export async function acquireLock(
   for (;;) {
     if (deps.createExclusive(deps.lockPath, JSON.stringify(mine))) return makeHandle(deps, mine);
     const holder = parseHolder(deps.read(deps.lockPath));
-    if (judgeHolder(deps, holder) === 'reap') {
-      if (!reapStale(deps, mine)) await deps.sleep(POLL_MS);
-      continue;
-    }
+    const reaping = judgeHolder(deps, holder) === 'reap';
+    if (reaping && reapStale(deps, mine)) continue;
+    // A live holder, or another live process reaping: waiting on either is still waiting,
+    // so the deadline applies to both.
     if (deps.now() >= deadline) throw timeoutFor(deps, holder);
-    if (holder !== null && deps.now() - lastAnnounce >= ANNOUNCE_EVERY_MS) {
-      deps.log(`waiting for the landing lock held by ${describeHolder(holder, deps.now())}`);
-      lastAnnounce = deps.now();
-    }
+    if (!reaping) lastAnnounce = announceWait(deps, holder, lastAnnounce);
     await deps.sleep(POLL_MS);
   }
 }

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
@@ -56,6 +56,10 @@ describe('realDeps', () => {
     expect(lock.read(join(root, 'absent'))).toBeNull();
     expect(lock.ageMs(lock.lockPath)).toBeGreaterThanOrEqual(0);
     expect(lock.ageMs(join(root, 'absent'))).toBeNull();
+    // mtime ahead of the clock (sub-ms mtime vs integer Date.now, or skew) reads as 0, not negative.
+    const future = new Date(Date.now() + 60_000);
+    utimesSync(lock.lockPath, future, future);
+    expect(lock.ageMs(lock.lockPath)).toBe(0);
     expect(lock.pidAlive(process.pid)).toBe(true);
     expect(typeof lock.bootId()).toBe('string');
     expect(lock.now()).toBeGreaterThan(0);
