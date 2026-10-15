@@ -9,4 +9,38 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 127
 fi
 
+# Fast path: run the binary built from exactly the crate tree checked out here, without cargo's own
+# startup and freshness check (about 1 s per call measured, more under load; this runs on every
+# push). The stamp binds both sides: the crate tree a pristine build was made from AND the hash of
+# the binary that build left. Any later build (a dirty one, a plain `cargo build`) changes the
+# binary, so its hash no longer matches and cargo decides again. Only with the crate's own target
+# dir: a CARGO_TARGET_DIR may be shared with other checkouts.
+bin="$crate_dir/target/debug/harness-versioning"
+stamp="$crate_dir/target/debug/.harness-versioning.stamp"
+# Git run from a hook inherits GIT_DIR and friends, which would override -C: ask the crate's own repo.
+crate_git() { (unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX; git -C "$crate_dir" "$@"); }
+tree=""
+if [ -z "${CARGO_TARGET_DIR:-}" ]; then
+  tree="$(crate_git rev-parse --verify --quiet 'HEAD:./' 2>/dev/null || true)"
+fi
+# The checked-out crate is exactly that tree: nothing modified, staged or untracked in it.
+pristine() {
+  [ -n "$tree" ] && [ -z "$(crate_git status --porcelain --untracked-files=all -- . 2>/dev/null)" ]
+}
+# "<tree> <binary hash>", or nothing when there is no binary.
+current() { [ -x "$bin" ] && printf '%s %s\n' "$tree" "$(crate_git hash-object --no-filters -- "$bin")"; }
+if pristine && [ -f "$stamp" ] && [ "$(current)" = "$(cat "$stamp")" ]; then
+  exec "$bin" "$@"
+fi
+if [ -n "$tree" ]; then
+  cargo build --quiet --manifest-path "$crate_dir/Cargo.toml" --bin harness-versioning
+  # Stamp only a build of the pristine tree, judged after the build as well as before.
+  if pristine; then
+    stamped="$(current || true)"
+    if [ -n "$stamped" ] && pristine; then
+      printf '%s\n' "$stamped" >"$stamp"
+      exec "$bin" "$@"
+    fi
+  fi
+fi
 exec cargo run --quiet --manifest-path "$crate_dir/Cargo.toml" -- "$@"
