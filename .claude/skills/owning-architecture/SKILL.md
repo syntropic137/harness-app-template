@@ -1,6 +1,6 @@
 ---
 name: owning-architecture
-description: Use when running as (or restarting) the project's dedicated Architect session, the one agent that OWNS the architecture rather than reviewing a single diff. Covers what the Architect owns (layer map, dependency direction and depth, fitness functions, ADRs, the ratchet), the APSS tools that measure it, the sign-off rule for boundary-crossing lands, how to report, and the restart procedure. Trigger phrases include "start as the Architect", "architect session", "own the architecture", "restart the architect", "is this a flat composition root", "layer map", "dependency direction gate", "dependency depth", "post-land architecture review", "architect sign-off", "should this boundary cross". Do NOT use for a one-off review of a diff's structure (use `architecture`), for a coupling audit that decides harden-vs-split on one module (use `boundary-hardening`), or for generic beads mechanics (use `br`).
+description: Use when running as (or restarting) the project's dedicated Architect session, the one agent that OWNS the architecture rather than reviewing a single diff. Covers what the Architect owns (layer map, dependency direction and depth, fitness functions, ADRs, the ratchet), the APSS tools that measure it, the sign-off rule for boundary-crossing lands, how to report, and the restart procedure. Trigger phrases include "start as the Architect", "architect session", "own the architecture", "restart the architect", "is this a flat composition root", "maintain the layer map", "add a dependency direction gate", "post-land architecture review", "architect sign-off", "should this boundary cross". Do NOT use for a one-off review of a diff's structure (use `architecture`), for a coupling audit that decides harden-vs-split on one module (use `boundary-hardening`), or for generic beads mechanics (use `br`).
 ---
 
 # Owning architecture
@@ -15,11 +15,12 @@ The `architecture` skill says what good structure is. This skill is the **job** 
 
 ## The standard the Architect holds
 
-1. **Pure core; dependencies point inward.** Domain code imports no I/O, GPU, transport or framework crate. Adapters depend on the core, never the reverse.
-2. **The composition root stays flat.** It wires; it does not decide. A root that holds domain logic, or that other code imports, is not a root, it is a monolith with a main function.
-3. **Plugin architecture = ports and adapters** (interfaces at every boundary) **plus strong cohesion inside each vertical slice**, so lanes take one slice each without merge-colliding. See the `architecture` skill's `vertical-slice/` and `event-sourcing/` references.
-4. **No cycles, shallow depth.** Cycles merge modules; depth multiplies the blast radius of a change and the closure every gate rebuilds. Measure both.
-5. **Ratchet, never relax.** Measure today's value, make it the floor, tighten it. A relaxation is an operator decision brought with evidence, never an agent's edit.
+The principles (dependency direction, no cycles, layer discipline, fitness functions) are in the `architecture` skill; this skill adds what it takes to hold them over time:
+
+1. **The composition root stays flat.** It wires; it does not decide. A root that holds domain logic, or that other code imports, is not a root, it is a monolith with a main function.
+2. **Plugin architecture = ports and adapters plus strong cohesion inside each vertical slice**, so lanes take one slice each without merge-colliding.
+3. **Depth is a cost.** Depth multiplies the blast radius of a change and the closure every gate rebuilds. Measure it beside cycles.
+4. **Ratchet, never relax.** Measure today's value, make it the floor, tighten it. A relaxation is an operator decision brought with evidence, never an agent's edit.
 
 ## What the Architect owns
 
@@ -40,10 +41,10 @@ The tools live in APSS (`agent-paradise-standards-system`), so the checks stay t
 | Question | Tool |
 |---|---|
 | Crate graph, fan-out, depth | `cargo metadata --format-version 1 --no-deps`, path deps only; the sensors scan (`max_internal_fan_out`). |
-| Module graph, cycles, coupling | `apss run code-topology analyze .` writes `.topology/`; `apss run code-topology viz .topology`. |
+| Module graph, cycles, coupling | `apss run code-topology analyze .` writes `.topology/`; `apss run code-topology viz .topology`. Needs the project-composed binary first (`apss install`, or the project's wrapper recipe). |
 | Layer and import rules | APS-V1-0002 ST01 patterns: `forbidden_import`, `layer_enforcement`, `required_import` over the topology graph. |
-| Floors and ratchet | the project's sensors gate (`just sensors gate`) and `just fitness` (read-only report). |
-| Slice discipline | `vsa validate` against `vsa.yaml` where the project uses it. |
+| Floors and ratchet | the project's sensors gate (`just sensors gate --execution-role=developer` locally) and `just fitness` (read-only report). Check for an existing local layer map in the sensors scan before writing one. |
+| Slice discipline | the project's `vsa` wrapper (`just vsa`), never a bare `vsa validate`, so the pinned validator runs. |
 
 Gaps to measure by hand until APSS has them (file them on APSS when found): dependency **depth**, a **fan-out allowance for a declared composition root**, and **intra-crate module cycles** for crates too big to treat as one node.
 
@@ -69,7 +70,7 @@ Every status names the slowest stage, its measured number, and its floor. Findin
 A fresh session can run on this skill alone:
 
 1. Read `references/project.md` (project anchors: PM session, beads, ADRs, layer map path, gates).
-2. Message the PM session with your session name.
+2. Find the PM session with Claude Code's `ListAgents` tool and send it your session name with `SendMessage` (both built in; load `SendMessage` with `ToolSearch` if it is deferred). If neither exists, write the report to the PM bead as a comment.
 3. Fetch the default branch; work in a detached worktree off it, never the shared checkout.
 4. List your beads (label `architecture`) and the "post-land Architect review owed" list; clear reviews first, oldest first.
 5. Re-measure before trusting any number in a handoff: crate graph, module cycles, depth, gate floors.
