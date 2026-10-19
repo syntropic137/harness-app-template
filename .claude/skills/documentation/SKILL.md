@@ -1,6 +1,6 @@
 ---
 name: documentation
-description: Use when reviewing documentation concerns: README presence and quality, public API documentation, ADR coverage for non-obvious decisions, inline rationale comments, TBD/placeholder hygiene in shipped docs
+description: "Use when reviewing documentation concerns: README presence and quality, public API documentation, ADR coverage for non-obvious decisions, inline rationale comments, TBD/placeholder hygiene in shipped docs"
 ---
 
 # Documentation
@@ -221,4 +221,4 @@ These go stale fast; the date is the "as-of." Verify currency before adopting. T
 This skill is maintained at:
 https://github.com/syntropic137/software-leverage-points/blob/main/skills/documentation/SKILL.md
 
-To improve it, edit the file directly and follow the chassis discipline in `maintaining-software-leverage-points`: regenerate catalogs, run `just qa`, then commit.
+To improve it, edit the file directly and follow the chassis discipline in [`maintaining-software-leverage-points`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/.claude/skills/maintaining-software-leverage-points/SKILL.md): regenerate catalogs, run `just qa`, then commit.

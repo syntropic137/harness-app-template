@@ -3,13 +3,14 @@ import {
   cpSync,
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SLP_SOURCE_PATH = '.claude/skills/slp-source.json';
@@ -20,7 +21,10 @@ const USAGE = [
   '',
   'Re-clones software-leverage-points at <ref> (default: main), re-copies the',
   'vendored skill directories listed in .claude/skills/slp-source.json, updates',
-  'the pinned commit SHA and date, and prints the changed files.',
+  'the pinned commit SHA and date, and prints the changed files. Relative',
+  'Markdown links to upstream files outside the vendored set are rewritten to',
+  'pinned upstream URLs, so they never dangle or resolve to a same-named',
+  'project-local skill.',
 ].join('\n');
 
 interface SlpSource {
@@ -126,7 +130,13 @@ function validateSource(value: unknown): SlpSource {
 
 function readSource(repoRoot: string): SlpSource {
   const text = readFileSync(join(repoRoot, SLP_SOURCE_PATH), 'utf8');
-  return validateSource(JSON.parse(text));
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    validationError(`manifest is not valid JSON (${(error as Error).message})`);
+  }
+  return validateSource(parsed);
 }
 
 function writeSource(repoRoot: string, source: SlpSource): void {
@@ -165,11 +175,77 @@ function existingRealPath(path: string): string | undefined {
   return existsSync(path) ? realpathSync(path) : undefined;
 }
 
+const MARKDOWN_LINK_PATTERN = /\]\(([^)\s]+)\)/g;
+const NON_RELATIVE_LINK_PATTERN = /^(?:[a-z][a-z0-9+.-]*:|#|\/)/i;
+
+export interface LinkContext {
+  /** Upstream-repo-relative POSIX path of the file being rewritten. */
+  filePath: string;
+  sourcePath: string;
+  skills: string[];
+  /** e.g. https://github.com/org/repo/blob/<sha> */
+  blobBase: string;
+}
+
+function isVendoredTarget(target: string, ctx: LinkContext): boolean {
+  const root = posix.normalize(ctx.sourcePath);
+  return ctx.skills.some((skill) => {
+    const dir = posix.join(root, skill);
+    return target === dir || target.startsWith(`${dir}/`);
+  });
+}
+
+function rewriteLink(link: string, ctx: LinkContext): string {
+  if (NON_RELATIVE_LINK_PATTERN.test(link)) {
+    return link;
+  }
+  const hashAt = link.indexOf('#');
+  const pathPart = hashAt === -1 ? link : link.slice(0, hashAt);
+  const fragment = hashAt === -1 ? '' : link.slice(hashAt);
+  const target = posix.normalize(posix.join(posix.dirname(ctx.filePath), pathPart));
+  if (target.startsWith('..') || isVendoredTarget(target, ctx)) {
+    return link;
+  }
+  return `${ctx.blobBase}/${target}${fragment}`;
+}
+
+/**
+ * Rewrites relative Markdown links whose upstream target is not part of the
+ * vendored skill set into pinned upstream URLs. Links inside the vendored set
+ * stay relative; links escaping the upstream checkout are left untouched.
+ */
+export function rewriteUpstreamLinks(text: string, ctx: LinkContext): string {
+  return text.replace(MARKDOWN_LINK_PATTERN, (_match, link: string) => {
+    return `](${rewriteLink(link, ctx)})`;
+  });
+}
+
+function blobBase(upstream: string, sha: string): string {
+  return `${upstream.replace(/\.git$/, '').replace(/\/$/, '')}/blob/${sha}`;
+}
+
+function rewriteStagedMarkdown(dir: string, upstreamDir: string, ctx: LinkContext): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    const upstreamPath = posix.join(upstreamDir, entry.name);
+    if (entry.isDirectory()) {
+      rewriteStagedMarkdown(path, upstreamPath, ctx);
+    } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      const text = readFileSync(path, 'utf8');
+      const next = rewriteUpstreamLinks(text, { ...ctx, filePath: upstreamPath });
+      if (next !== text) {
+        writeFileSync(path, next);
+      }
+    }
+  }
+}
+
 function stageSkills(
   srcDir: string,
   stagingDir: string,
   source: SlpSource,
   repoRoot: string,
+  sha: string,
 ): void {
   const upstreamRoot = realpathSync(resolve(srcDir, source.sourcePath));
   const skillsRoot = realpathSync(resolve(repoRoot, SKILLS_DIR));
@@ -186,7 +262,14 @@ function stageSkills(
     const dstReal = existingRealPath(dst);
     assertUnder('destination', skillsRoot, dstReal ?? dst);
 
-    cpSync(srcReal, resolve(stagingDir, skill), { recursive: true });
+    const staged = resolve(stagingDir, skill);
+    cpSync(srcReal, staged, { recursive: true });
+    rewriteStagedMarkdown(staged, posix.join(source.sourcePath, skill), {
+      filePath: '',
+      sourcePath: source.sourcePath,
+      skills: source.skills,
+      blobBase: blobBase(source.upstream, sha),
+    });
   }
 }
 
@@ -229,7 +312,7 @@ export function updateSlp(options: UpdateOptions = {}): { sha: string; changed: 
 
   try {
     const sha = cloneUpstream(source.upstream, ref, dir);
-    stageSkills(dir, stagingDir, source, repoRoot);
+    stageSkills(dir, stagingDir, source, repoRoot, sha);
     replaceSkills(stagingDir, source, repoRoot);
 
     const next: SlpSource = {

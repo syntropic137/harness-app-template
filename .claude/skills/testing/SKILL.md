@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Use when reviewing testing concerns: pyramid coverage (unit, integration, E2E), test code quality, TDD discipline, regression discipline, FIRST principles, feedback-loop speed
+description: "Use when reviewing testing concerns: pyramid coverage (unit, integration, E2E), test code quality, TDD discipline, regression discipline, FIRST principles, feedback-loop speed"
 ---
 
 # Testing
@@ -66,7 +66,7 @@ Every bug fix starts with a failing test that reproduces the bug. Then fix. Then
 
 Don't fix without first writing the failing test.
 
-Cross-reference: the [`principles-and-patterns`](../principles-and-patterns/SKILL.md) skill carries the stewardship discipline (Boy Scout Rule, Broken Windows, technical debt as a managed quantity); a green regression suite is the precondition that lets debt be paid down by refactoring without fear. Cross-reference: the [`software-complexity`](../software-complexity/SKILL.md) skill carries the cost framing (maintenance dominates implementation) that explains why the regression-test investment pays back over a long-lived codebase.
+Cross-reference: the [`boundary-hardening`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/skills/boundary-hardening/SKILL.md) skill carries the narrower claim that a module boundary is only as hard as the behavioral suite pinning it; tests that assert through a port rather than on its internals are what make the implementation behind that port replaceable. Cross-reference: the [`principles-and-patterns`](../principles-and-patterns/SKILL.md) skill carries the stewardship discipline (Boy Scout Rule, Broken Windows, technical debt as a managed quantity); a green regression suite is the precondition that lets debt be paid down by refactoring without fear. Cross-reference: the [`software-complexity`](../software-complexity/SKILL.md) skill carries the cost framing (maintenance dominates implementation) that explains why the regression-test investment pays back over a long-lived codebase.
 
 ### 6. Readability via patterns
 
@@ -193,4 +193,4 @@ These go stale fast; the date is the "as-of." Verify currency before adopting. T
 This skill is maintained at:
 https://github.com/syntropic137/software-leverage-points/blob/main/skills/testing/SKILL.md
 
-To improve it, edit the file directly and follow the chassis discipline in `maintaining-software-leverage-points`: regenerate catalogs, run `just qa`, then commit.
+To improve it, edit the file directly and follow the chassis discipline in [`maintaining-software-leverage-points`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/.claude/skills/maintaining-software-leverage-points/SKILL.md): regenerate catalogs, run `just qa`, then commit.

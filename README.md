@@ -203,7 +203,7 @@ Five on-demand skills under [`.claude/skills/`](./.claude/skills/) — the agent
 
 ### Software leverage points (vendored)
 
-This template also ships the 17 software-leverage-points (SLP) review skills (architecture, configuration, continuous-delivery, dependencies, developer-experience, documentation, dry, environments, error-handling, logging, principles-and-patterns, purpose-and-scope, security, software-complexity, testing, types, versioning) vendored from [`syntropic137/software-leverage-points`](https://github.com/syntropic137/software-leverage-points). They land at `.claude/skills/<leverage-point>/` and load on demand like any other skill.
+This template also ships 18 software-leverage-points (SLP) review skills (architecture, ci-optimization, configuration, continuous-delivery, dependencies, developer-experience, documentation, dry, environments, error-handling, logging, principles-and-patterns, purpose-and-scope, security, software-complexity, testing, types, versioning) vendored from [`syntropic137/software-leverage-points`](https://github.com/syntropic137/software-leverage-points). They land at `.claude/skills/<leverage-point>/` and load on demand like any other skill.
 
 Provenance lives at [`.claude/skills/slp-source.json`](./.claude/skills/slp-source.json): upstream URL, pinned commit SHA, vendored-on date, and the explicit skill list. Forks get SLP for free (clone the template, the skills are already in tree). To refresh them at a newer upstream ref:
 
@@ -212,7 +212,7 @@ just update-slp                # pulls main, updates pinned SHA, prints changed 
 just update-slp v1.2.0         # any ref the upstream repo accepts
 ```
 
-The recipe re-clones the upstream, replaces each vendored skill directory in place, rewrites the pinned SHA and date in `slp-source.json`, and prints the resulting `git status --short` so you can review the diff before committing.
+The recipe re-clones the upstream, replaces each vendored skill directory in place, rewrites the pinned SHA and date in `slp-source.json`, and prints the resulting `git status --short` so you can review the diff before committing. Relative Markdown links to upstream files outside the vendored set (for example `boundary-hardening`, `extensibility`, the upstream maintainer skill) are rewritten to pinned upstream URLs, so they never dangle or resolve to a same-named project-local skill.
 
 ## Updating your fork
 

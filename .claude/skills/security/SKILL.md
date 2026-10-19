@@ -55,6 +55,8 @@ When an outbound HTTP request URL is influenced by user input, remote content, o
 
 This principle scopes to changes that introduce a new external interface, a new authentication flow, a new data classification, or a new third-party integration. When the scope applies: a STRIDE-style or attack-tree analysis is attached to the design. Security decisions made implicitly are security decisions that nobody owns; threat modeling at design time is the cheapest place to discover that the proposed authentication is replayable or the new endpoint is missing rate limiting.
 
+Cross-reference: the [`extensibility`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/skills/extensibility/SKILL.md) skill carries the case where the third-party integration is a published plug point, which is a decision to run code you did not write; it requires a stated trust tier per surface with isolation that matches it, since an in-process marketplace upload, a signed partner plugin, and a remote webhook present different threats.
+
 The artifact answers Shostack's four questions: **(1) What are we working on?** (the system or change being reviewed); **(2) What can go wrong?** (STRIDE: Spoofing, Tampering, Repudiation, Information disclosure, Denial of service, Elevation of privilege; or an attack tree); **(3) What are we going to do about it?** (mitigations per identified threat); **(4) Did we do a good enough job?** (review the artifact, validate the mitigations land in the design and tests). The four questions are the operational form of the principle; STRIDE is one of several ways to answer question 2.
 
 ### 9. Defense in depth: no single control is sufficient; layers compose
@@ -236,4 +238,4 @@ These go stale fast; the date is the "as-of." Verify currency before adopting. T
 This skill is maintained at:
 https://github.com/syntropic137/software-leverage-points/blob/main/skills/security/SKILL.md
 
-To improve it, edit the file directly and follow the chassis discipline in `maintaining-software-leverage-points`: regenerate catalogs, run `just qa`, then commit.
+To improve it, edit the file directly and follow the chassis discipline in [`maintaining-software-leverage-points`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/.claude/skills/maintaining-software-leverage-points/SKILL.md): regenerate catalogs, run `just qa`, then commit.
