@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: Use when reviewing architectural concerns: module boundaries, dependency direction, layer discipline, bounded-context isolation, ADR coverage, premature abstraction, and structural fitness for change
+description: "Use when reviewing architectural concerns: module boundaries, dependency direction, layer discipline, bounded-context isolation, ADR coverage, premature abstraction, and structural fitness for change"
 ---
 
 # Architecture
@@ -26,6 +26,8 @@ A module that hides nothing (a "junk drawer" `utils/`, `common/`, `core/`) is no
 Dependencies point from volatile details toward stable abstractions. High-level modules (use cases, domain logic) do not import low-level concrete types (database drivers, HTTP clients, filesystem helpers); they depend on abstractions they own.
 
 When the arrow points the other way, every detail change ripples upward through the stable core.
+
+Cross-reference: this skill reviews the dependency structure that exists; the [`boundary-hardening`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/skills/boundary-hardening/SKILL.md) skill carries the active discipline of extracting a seam that does not exist yet, inverting the dependency across it, pinning it with behavioral tests, and ratcheting it so it cannot silently re-couple. Cross-reference: the [`extensibility`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/skills/extensibility/SKILL.md) skill carries what an inverted dependency becomes when the implementation is supplied by an outside author rather than the composition root.
 
 ### 3. Layer discipline (one axis of change per layer)
 
@@ -251,4 +253,4 @@ These go stale fast; the date is the "as-of." Verify currency before adopting. T
 This skill is maintained at:
 https://github.com/syntropic137/software-leverage-points/blob/main/skills/architecture/SKILL.md
 
-To improve it, edit the file directly and follow the chassis discipline in `maintaining-software-leverage-points`: regenerate catalogs, run `just qa`, then commit.
+To improve it, edit the file directly and follow the chassis discipline in [`maintaining-software-leverage-points`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/.claude/skills/maintaining-software-leverage-points/SKILL.md): regenerate catalogs, run `just qa`, then commit.

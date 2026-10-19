@@ -24,6 +24,7 @@ const fsMock = vi.hoisted(() => {
     realPaths: new Map<string, string>(),
     calls: [] as string[],
     copyFailure: undefined as Error | undefined,
+    dirs: new Map<string, { name: string; dir: boolean }[]>(),
   };
 
   return {
@@ -40,6 +41,13 @@ const fsMock = vi.hoisted(() => {
       state.paths.add(TEMP_DIR);
       return TEMP_DIR;
     }),
+    readdirSync: vi.fn((path: string) =>
+      (state.dirs.get(path) ?? []).map(({ name, dir }) => ({
+        name,
+        isDirectory: () => dir,
+        isFile: () => !dir,
+      })),
+    ),
     readFileSync: vi.fn((path: string) => {
       const text = state.files.get(path);
       if (text === undefined) {
@@ -130,6 +138,7 @@ function resetMocks(overrides: Record<string, unknown> = {}): void {
   fsMock.state.realPaths = new Map();
   fsMock.state.calls = [];
   fsMock.state.copyFailure = undefined;
+  fsMock.state.dirs = new Map();
   addRepoFixture(CWD_ROOT);
   vi.mocked(fsMock.cpSync).mockClear();
   vi.mocked(fsMock.existsSync).mockClear();
@@ -185,10 +194,32 @@ describe('updateSlp', () => {
       `write ${MANIFEST_PATH}`,
       `rm ${TEMP_DIR}`,
     ]);
-    expect(JSON.parse(fsMock.state.files.get(MANIFEST_PATH) ?? '{}')).toMatchObject({
-      commit: FETCH_SHA,
-      vendoredOn: '2026-06-11',
-    });
+    const written = fsMock.state.files.get(MANIFEST_PATH) ?? '';
+    expect(written).toContain(`"commit": "${FETCH_SHA}"`);
+    expect(written).toContain('"vendoredOn": "2026-06-11"');
+  });
+
+  test('rewrites staged Markdown links to non-vendored upstream targets', async () => {
+    const fs = fsMock.state;
+    const staged = `${TEMP_DIR}/.slp-staging/testing`;
+    fs.dirs.set(staged, [
+      { name: 'SKILL.md', dir: false },
+      { name: 'notes.txt', dir: false },
+      { name: 'references', dir: true },
+    ]);
+    fs.dirs.set(`${staged}/references`, [{ name: 'deep.md', dir: false }]);
+    fs.files.set(`${staged}/SKILL.md`, 'see [x](../extensibility/SKILL.md#a)');
+    fs.files.set(`${staged}/references/deep.md`, 'see [t](../../types/SKILL.md)');
+    const { updateSlp } = await import('../update-slp');
+
+    updateSlp({ repoRoot: REPO_ROOT });
+
+    expect(fs.files.get(`${staged}/SKILL.md`)).toBe(
+      `see [x](https://example.test/software-leverage-points/blob/${FETCH_SHA}/skills/extensibility/SKILL.md#a)`,
+    );
+    expect(fs.calls).toContain(`write ${staged}/SKILL.md`);
+    expect(fs.calls).not.toContain(`write ${staged}/references/deep.md`);
+    expect(fs.calls).not.toContain(`write ${staged}/notes.txt`);
   });
 
   test('defaults to main and handles a manifest without optional comment fields', async () => {
@@ -285,14 +316,17 @@ describe('updateSlp', () => {
     log.mockRestore();
   });
 
-  test.each(['clone', 'fetch', 'checkout'])('cleans up temp dir when git %s fails', async (command) => {
-    childProcessMock.state.failCommand = command;
-    const { updateSlp } = await import('../update-slp');
+  test.each(['clone', 'fetch', 'checkout'])(
+    'cleans up temp dir when git %s fails',
+    async (command) => {
+      childProcessMock.state.failCommand = command;
+      const { updateSlp } = await import('../update-slp');
 
-    expect(() => updateSlp({ repoRoot: REPO_ROOT })).toThrow(`${command} failed`);
-    expect(fsMock.state.calls.at(-1)).toBe(`rm ${TEMP_DIR}`);
-    expect(fsMock.state.calls).not.toContain(`write ${MANIFEST_PATH}`);
-  });
+      expect(() => updateSlp({ repoRoot: REPO_ROOT })).toThrow(`${command} failed`);
+      expect(fsMock.state.calls.at(-1)).toBe(`rm ${TEMP_DIR}`);
+      expect(fsMock.state.calls).not.toContain(`write ${MANIFEST_PATH}`);
+    },
+  );
 
   test('cleans up temp dir when staging copy fails and does not replace destinations', async () => {
     fsMock.state.copyFailure = new Error('copy failed');
@@ -343,18 +377,39 @@ describe('updateSlp', () => {
 
   test.each([
     ['non-object manifest', '[]', 'manifest must be a JSON object'],
+    ['malformed JSON', '{', 'manifest is not valid JSON'],
     ['bad comment', manifest({ $comment: 1 }), '$comment must be a string'],
     ['bad note', manifest({ note: 1 }), 'note must be a string'],
     ['bad upstream', manifest({ upstream: '' }), 'upstream must be a non-empty string'],
     ['bad commit', manifest({ commit: 'abc' }), 'commit must be a 40-character'],
-    ['absolute sourcePath', manifest({ sourcePath: '/skills' }), 'sourcePath must be a relative path'],
-    ['escaping sourcePath', manifest({ sourcePath: '../skills' }), 'sourcePath must be a relative path'],
+    [
+      'absolute sourcePath',
+      manifest({ sourcePath: '/skills' }),
+      'sourcePath must be a relative path',
+    ],
+    [
+      'escaping sourcePath',
+      manifest({ sourcePath: '../skills' }),
+      'sourcePath must be a relative path',
+    ],
     ['missing skills', manifest({ skills: [] }), 'skills must be a non-empty string list'],
     ['non-string skill', manifest({ skills: ['testing', 1] }), 'skills entries must be non-empty'],
     ['empty skill', manifest({ skills: [''] }), 'skills entries must be non-empty'],
-    ['skill with slash', manifest({ skills: ['bad/name'] }), 'must be a single safe directory name'],
-    ['skill with backslash', manifest({ skills: ['bad\\name'] }), 'must be a single safe directory name'],
-    ['skill with dotdot', manifest({ skills: ['bad..name'] }), 'must be a single safe directory name'],
+    [
+      'skill with slash',
+      manifest({ skills: ['bad/name'] }),
+      'must be a single safe directory name',
+    ],
+    [
+      'skill with backslash',
+      manifest({ skills: ['bad\\name'] }),
+      'must be a single safe directory name',
+    ],
+    [
+      'skill with dotdot',
+      manifest({ skills: ['bad..name'] }),
+      'must be a single safe directory name',
+    ],
   ])('rejects invalid manifest: %s', async (_name, text, message) => {
     fsMock.state.files.set(MANIFEST_PATH, text);
     const { updateSlp } = await import('../update-slp');
@@ -362,5 +417,52 @@ describe('updateSlp', () => {
     expect(() => updateSlp({ repoRoot: REPO_ROOT })).toThrow(message);
     expect(fsMock.mkdtempSync).not.toHaveBeenCalled();
     expect(childProcessMock.execFileSync).not.toHaveBeenCalled();
+  });
+});
+
+describe('rewriteUpstreamLinks', () => {
+  const ctx = {
+    filePath: 'skills/testing/SKILL.md',
+    sourcePath: 'skills',
+    skills: ['testing', 'types'],
+    blobBase: 'https://github.com/o/r/blob/sha',
+  };
+
+  test.each([
+    ['vendored sibling', '[a](../types/SKILL.md)', '[a](../types/SKILL.md)'],
+    ['own file', '[a](./references/x.md)', '[a](./references/x.md)'],
+    ['vendored dir', '[a](../types)', '[a](../types)'],
+    [
+      'non-vendored sibling',
+      '[a](../boundary-hardening/SKILL.md)',
+      '[a](https://github.com/o/r/blob/sha/skills/boundary-hardening/SKILL.md)',
+    ],
+    [
+      'outside the skills root',
+      '[a](../../.claude/skills/m/SKILL.md)',
+      '[a](https://github.com/o/r/blob/sha/.claude/skills/m/SKILL.md)',
+    ],
+    ['escaping the checkout', '[a](../../../x.md)', '[a](../../../x.md)'],
+    ['absolute URL', '[a](https://x.test/y)', '[a](https://x.test/y)'],
+    ['anchor', '[a](#top)', '[a](#top)'],
+    ['root path', '[a](/abs.md)', '[a](/abs.md)'],
+  ])('%s', async (_name, input, expected) => {
+    const { rewriteUpstreamLinks } = await import('../update-slp');
+    expect(rewriteUpstreamLinks(input, ctx)).toBe(expected);
+  });
+
+  test('strips a trailing .git and slash from the upstream URL', async () => {
+    resetMocks({ upstream: 'https://example.test/slp.git' });
+    const fs = fsMock.state;
+    const staged = `${TEMP_DIR}/.slp-staging/testing`;
+    fs.dirs.set(staged, [{ name: 'SKILL.md', dir: false }]);
+    fs.files.set(`${staged}/SKILL.md`, '[x](../other/SKILL.md)');
+    const { updateSlp } = await import('../update-slp');
+
+    updateSlp({ repoRoot: REPO_ROOT });
+
+    expect(fs.files.get(`${staged}/SKILL.md`)).toBe(
+      `[x](https://example.test/slp/blob/${FETCH_SHA}/skills/other/SKILL.md)`,
+    );
   });
 });

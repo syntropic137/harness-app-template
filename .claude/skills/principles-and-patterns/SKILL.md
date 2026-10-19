@@ -57,6 +57,8 @@ High-level modules (use cases, domain logic) should not depend on low-level conc
 
 The principle is: dependencies are declared and visible, not buried. The red flag is "dependencies imported deep in a function body or fetched from a global registry," not "did not use constructor injection."
 
+Cross-reference: the [`extensibility`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/skills/extensibility/SKILL.md) skill carries what these mechanisms become when the injected implementation is supplied by someone who is not the author: a plug point, with the documentation, versioning, and trust obligations of a public interface.
+
 ### 5. Composition over inheritance for code reuse (scope: where reuse is the goal)
 
 This principle scopes to cases where the goal is code reuse, not substitutability. Inheritance encodes both an interface contract and an implementation reuse; using it for reuse alone couples the subclass to the superclass implementation, and refactors at the top break everything below.
@@ -219,4 +221,4 @@ These go stale fast; the date is the "as-of." Verify currency before adopting. T
 This skill is maintained at:
 https://github.com/syntropic137/software-leverage-points/blob/main/skills/principles-and-patterns/SKILL.md
 
-To improve it, edit the file directly and follow the chassis discipline in `maintaining-software-leverage-points`: regenerate catalogs, run `just qa`, then commit.
+To improve it, edit the file directly and follow the chassis discipline in [`maintaining-software-leverage-points`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/.claude/skills/maintaining-software-leverage-points/SKILL.md): regenerate catalogs, run `just qa`, then commit.

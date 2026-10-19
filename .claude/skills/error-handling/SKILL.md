@@ -21,6 +21,8 @@ This principle scopes most strongly to languages with sum types or discriminated
 
 The principle is: callers can dispatch on error kind without parsing strings. The red flag is "all errors are the same generic type, so callers either catch nothing or catch everything."
 
+Cross-reference: the [`boundary-hardening`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/skills/boundary-hardening/SKILL.md) skill treats the taxonomy as a member of a module's contract rather than a property of one implementation: where a seam is meant to make its implementation replaceable, an unstated error taxonomy means each implementation invents its own failures and callers couple to whichever shipped first.
+
 ### 2. Propagate or handle deliberately; do not swallow (scope: bare-catch ban applies to exception-based languages; the analog applies to ignored Result returns in Result-based languages)
 
 Errors must flow to a place that decides what to do with them. Catch-and-ignore (`try: ... except: pass`, `catch (e) {}`, ignored `Result` return values) hides the signal; the system limps on in a broken state and the operator has no thread to pull on when the consequence surfaces later, often far from the cause.
@@ -202,4 +204,4 @@ These go stale fast; the date is the "as-of." Verify currency before adopting. T
 This skill is maintained at:
 https://github.com/syntropic137/software-leverage-points/blob/main/skills/error-handling/SKILL.md
 
-To improve it, edit the file directly and follow the chassis discipline in `maintaining-software-leverage-points`: regenerate catalogs, run `just qa`, then commit.
+To improve it, edit the file directly and follow the chassis discipline in [`maintaining-software-leverage-points`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/.claude/skills/maintaining-software-leverage-points/SKILL.md): regenerate catalogs, run `just qa`, then commit.

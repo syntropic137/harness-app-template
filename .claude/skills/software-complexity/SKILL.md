@@ -48,6 +48,8 @@ When the scope applies: wait for three concrete cases before extracting. Two cas
 
 The corollary, from Sandi Metz: the wrong abstraction is more expensive than duplication. When a candidate abstraction would force unrelated cases to share a shape they should not share, the right move is to leave the duplication and revisit at the third case.
 
+Cross-reference: the [`boundary-hardening`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/skills/boundary-hardening/SKILL.md) skill applies this rule to ports specifically, where a port extracted for one implementation with no plausible second one is speculative indirection carrying a contract that someone must now maintain.
+
 ### 5. Make the common case fast and obvious (asymmetric simplicity)
 
 When an API forces the common caller to write boilerplate so the rare caller can be brief, every common-case use pays a tax that compounds across the system. Defaults should favor the common configuration; the rare configuration is allowed to be longer.
@@ -206,4 +208,4 @@ These go stale fast; the date is the "as-of." Verify currency before adopting. T
 This skill is maintained at:
 https://github.com/syntropic137/software-leverage-points/blob/main/skills/software-complexity/SKILL.md
 
-To improve it, edit the file directly and follow the chassis discipline in `maintaining-software-leverage-points`: regenerate catalogs, run `just qa`, then commit.
+To improve it, edit the file directly and follow the chassis discipline in [`maintaining-software-leverage-points`](https://github.com/syntropic137/software-leverage-points/blob/92bf2e39e6a66662abd14e8b07b0fb1bc5474cc1/.claude/skills/maintaining-software-leverage-points/SKILL.md): regenerate catalogs, run `just qa`, then commit.
