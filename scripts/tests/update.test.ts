@@ -11,20 +11,20 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { chdir, cwd as processCwd } from 'node:process';
-import { describe, expect, test } from 'vitest';
-import { withoutLocalGitEnv } from '../lib/git';
+import { describe, expect, test, vi } from 'vitest';
 import { parseCli, updateProject } from '../update';
+import { fixtureGit, hermeticGitEnv } from './helpers/git-env';
+
+// Subprocess-heavy suite: these tests git-init, clone, merge, and shell out to
+// real binaries, and routinely exceed vitest's 5000 ms default on a loaded host
+// (different tests time out on each run of origin/main; every test passes when
+// given room). Wall-clock headroom is not a quality threshold: no assertion is
+// weakened, and a genuinely hung subprocess still fails the run
+// (downstream: dream-ship_v0 bead dreamship-v0-j9ot).
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 function run(cwd: string, args: string[]): string {
-  // `-c core.hooksPath=/dev/null` silences any host-installed hooks
-  // (e.g. apss's managed global pre-commit) so temp git repos created
-  // by these tests can commit without inheriting unrelated host
-  // validation against a directory that has no project structure.
-  return execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
-    cwd,
-    env: withoutLocalGitEnv(),
-    encoding: 'utf8',
-  }).trim();
+  return fixtureGit(args, { cwd }).trim();
 }
 
 function write(path: string, content: string): void {
@@ -64,7 +64,7 @@ function setupCanonicalAndFork(
   write(join(canonical, 'ws_apps/app.txt'), 'seed\n');
   commitAll(canonical, 'initial template');
 
-  execFileSync('git', ['clone', canonical, fork], { env: withoutLocalGitEnv(), stdio: 'ignore' });
+  fixtureGit(['clone', canonical, fork]);
   run(fork, ['config', 'user.email', 'test@example.invalid']);
   run(fork, ['config', 'user.name', 'Template Test']);
   run(fork, ['config', 'commit.gpgsign', 'false']);
@@ -72,7 +72,163 @@ function setupCanonicalAndFork(
   return { canonical, fork };
 }
 
+/** A consumer scaffolded in `fresh` mode: its own root commit, NO shared history
+ *  with the template, only `.harness-provenance.json` naming the template commit
+ *  it was copied from. `git merge-base HEAD upstream/main` fails for these. */
+function setupCanonicalAndFreshFork(
+  root: string,
+  provenance: boolean | string,
+): { canonical: string; fork: string; forkedFrom: string } {
+  const canonical = join(root, 'canonical');
+  const fork = join(root, 'fork');
+  mkdirSync(canonical);
+  initRepo(canonical);
+  write(join(canonical, 'harness/file.txt'), 'line1\nline2\nline3\nline4\nline5\n');
+  const forkedFrom = commitAll(canonical, 'initial template');
+
+  mkdirSync(fork);
+  initRepo(fork);
+  write(join(fork, 'harness/file.txt'), 'line1\nline2\nline3\nline4\nline5\n');
+  write(join(fork, 'ws_apps/app.txt'), 'consumer\n');
+  if (provenance) {
+    write(
+      join(fork, '.harness-provenance.json'),
+      `${JSON.stringify({
+        canonical_commit: typeof provenance === 'string' ? provenance : forkedFrom,
+        forked_at: '2026-05-30',
+      })}\n`,
+    );
+  }
+  commitAll(fork, 'fresh scaffold');
+  run(fork, ['remote', 'add', 'upstream', canonical]);
+  return { canonical, fork, forkedFrom };
+}
+
 describe('updateProject', () => {
+  // dream-ship_v0 is a `fresh` scaffold: unrelated history, so merge-base exits
+  // 1 and `just update` aborted before planning, on every version of this
+  // script. The provenance commit is the true base.
+  test('fresh scaffold (no shared history) merges against the provenance commit', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-fresh-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFreshFork(root, true);
+      write(join(fork, 'harness/file.txt'), 'LOCAL1\nline2\nline3\nline4\nline5\n');
+      commitAll(fork, 'consumer edits line1');
+      write(join(canonical, 'harness/file.txt'), 'line1\nline2\nline3\nline4\nUPSTREAM5\n');
+      commitAll(canonical, 'template edits line3');
+
+      updateProject({ cwd: fork, strategy: 'merge' });
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe(
+        'LOCAL1\nline2\nline3\nline4\nUPSTREAM5\n',
+      );
+      expect(readFileSync(join(fork, 'ws_apps/app.txt'), 'utf8')).toBe('consumer\n');
+
+      // Second update: base is now the recorded sync, not the provenance commit,
+      // so the already-taken UPSTREAM5 change is not re-merged. Edits stay one
+      // line apart: git merge-file conflicts on ADJACENT hunks by design.
+      write(join(canonical, 'harness/file.txt'), 'line1\nline2\nUPSTREAM3\nline4\nUPSTREAM5\n');
+      commitAll(canonical, 'template edits line2');
+      updateProject({ cwd: fork, strategy: 'merge' });
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe(
+        'LOCAL1\nline2\nUPSTREAM3\nline4\nUPSTREAM5\n',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // `just init` records the consumer's own HEAD as canonical_commit. For a GitHub
+  // "Use this template" repo that is a squashed root commit, not an upstream
+  // commit, but its tree is exactly the template's tree at that point.
+  function setupUseThisTemplateFork(root: string, exactTree: boolean) {
+    const canonical = join(root, 'canonical');
+    const fork = join(root, 'fork');
+    mkdirSync(canonical);
+    initRepo(canonical);
+    write(join(canonical, 'harness/file.txt'), 'line1\nline2\nline3\nline4\nline5\n');
+    commitAll(canonical, 'initial template');
+    write(join(canonical, 'harness/other.txt'), 'v1\n');
+    commitAll(canonical, 'template adds other');
+
+    mkdirSync(fork);
+    initRepo(fork);
+    write(join(fork, 'harness/file.txt'), 'line1\nline2\nline3\nline4\nline5\n');
+    write(join(fork, 'harness/other.txt'), exactTree ? 'v1\n' : 'diverged\n');
+    const squashedRoot = commitAll(fork, 'Initial commit');
+    write(
+      join(fork, '.harness-provenance.json'),
+      `${JSON.stringify({ canonical_commit: squashedRoot, forked_at: '2026-05-30' })}\n`,
+    );
+    write(join(fork, 'ws_apps/app.txt'), 'consumer\n');
+    commitAll(fork, 'just init');
+    run(fork, ['remote', 'add', 'upstream', canonical]);
+    return { canonical, fork, squashedRoot };
+  }
+
+  test('"Use this template" scaffold resolves its squashed root to the upstream commit with the same tree', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-template-root-'));
+    try {
+      const { canonical, fork } = setupUseThisTemplateFork(root, true);
+      write(join(fork, 'harness/file.txt'), 'LOCAL1\nline2\nline3\nline4\nline5\n');
+      commitAll(fork, 'consumer edits line1');
+      write(join(canonical, 'harness/file.txt'), 'line1\nline2\nline3\nline4\nUPSTREAM5\n');
+      commitAll(canonical, 'template edits line5');
+
+      updateProject({ cwd: fork, strategy: 'merge' });
+      expect(readFileSync(join(fork, 'harness/file.txt'), 'utf8')).toBe(
+        'LOCAL1\nline2\nline3\nline4\nUPSTREAM5\n',
+      );
+      expect(readFileSync(join(fork, 'ws_apps/app.txt'), 'utf8')).toBe('consumer\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('"Use this template" scaffold whose root tree matches no upstream commit fails naming it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-template-root-nomatch-'));
+    try {
+      const { canonical, fork, squashedRoot } = setupUseThisTemplateFork(root, false);
+      write(join(canonical, 'harness/file.txt'), 'changed\n');
+      commitAll(canonical, 'template change');
+      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
+        new RegExp(
+          `canonical_commit ${squashedRoot} is not an ancestor.*no .* commit has its tree`,
+        ),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('fresh scaffold without provenance fails with an actionable error', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-fresh-noprov-'));
+    try {
+      const { canonical, fork } = setupCanonicalAndFreshFork(root, false);
+      write(join(canonical, 'harness/file.txt'), 'changed\n');
+      commitAll(canonical, 'template change');
+      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
+        /no common history.*canonical_commit/s,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('fresh scaffold whose canonical_commit is unknown upstream fails naming it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cha-update-fresh-badprov-'));
+    try {
+      const bogus = 'deadbeef'.repeat(5);
+      const { canonical, fork } = setupCanonicalAndFreshFork(root, bogus);
+      write(join(canonical, 'harness/file.txt'), 'changed\n');
+      commitAll(canonical, 'template change');
+      expect(() => updateProject({ cwd: fork, strategy: 'merge' })).toThrow(
+        new RegExp(`canonical_commit ${bogus} is not an ancestor`),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('parses CLI update flags', () => {
     expect(parseCli(['--check', '--write', '--force', '--strategy=preview'])).toEqual({
       check: true,
@@ -161,7 +317,7 @@ describe('updateProject', () => {
       write(join(fork, 'ws_apps/app.txt'), 'unrelated in-flight edit\n');
       const discard = message.match(/`(git restore [^`]+)`/)?.[1] ?? '';
       expect(discard).toContain('harness/file.txt');
-      execFileSync('sh', ['-c', discard], { cwd: fork, env: withoutLocalGitEnv() });
+      execFileSync('sh', ['-c', discard], { cwd: fork, env: hermeticGitEnv() });
       expect(run(fork, ['status', '--porcelain'])).toBe('M ws_apps/app.txt');
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -682,10 +838,7 @@ describe('updateProject', () => {
       write(join(canonical, 'docs-consumer/readme.md'), 'v1\n');
       commitAll(canonical, 'initial non-harness template');
 
-      execFileSync('git', ['clone', canonical, fork], {
-        env: withoutLocalGitEnv(),
-        stdio: 'ignore',
-      });
+      fixtureGit(['clone', canonical, fork]);
       run(fork, ['config', 'user.email', 'test@example.invalid']);
       run(fork, ['config', 'user.name', 'Template Test']);
       run(fork, ['config', 'commit.gpgsign', 'false']);

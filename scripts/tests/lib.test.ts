@@ -4,7 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { removeIfExists, renameIfExists, replaceInTree, walkTextFiles, writeText } from '../lib/fs';
-import { git, isGitRepo, run, runInherit, shortSha, withoutLocalGitEnv } from '../lib/git';
+import {
+  git,
+  isGitRepo,
+  run,
+  runInherit,
+  shortSha,
+  withoutAmbientGitEnv,
+  withoutLocalGitEnv,
+} from '../lib/git';
 
 describe('script fs helpers', () => {
   test('write/remove/rename helpers handle existing, missing, and conflicting paths', () => {
@@ -72,6 +80,31 @@ describe('script git helpers', () => {
     ).toEqual({
       KEEP_ME: 'yes',
     });
+  });
+
+  test('withoutLocalGitEnv default-denies the GIT_* family but keeps transport and identity', () => {
+    // An unknown or future repo-targeting variable (GIT_NAMESPACE, GIT_CONFIG_GLOBAL)
+    // must be stripped without being named in a blocklist; only transport and
+    // authorship survive, since they cannot re-target which repository git touches.
+    expect(
+      withoutLocalGitEnv({
+        GIT_DIR: '/repo/.git',
+        GIT_NAMESPACE: 'foreign',
+        GIT_CONFIG_GLOBAL: '/tmp/gitconfig',
+        GIT_SOMETHING_NEW: 'x',
+        GIT_SSH_COMMAND: 'ssh -i key',
+        GIT_AUTHOR_NAME: 'Operator',
+        KEEP_ME: 'yes',
+      }),
+    ).toEqual({ GIT_SSH_COMMAND: 'ssh -i key', GIT_AUTHOR_NAME: 'Operator', KEEP_ME: 'yes' });
+    expect(withoutAmbientGitEnv({ GIT_SSH_COMMAND: 'ssh', GIT_DIR: '/r', KEEP_ME: 'yes' })).toEqual(
+      {
+        KEEP_ME: 'yes',
+      },
+    );
+    expect(
+      withoutAmbientGitEnv({ GIT_SSH_COMMAND: 'ssh', GIT_DIR: '/r' }, new Set(['GIT_SSH_COMMAND'])),
+    ).toEqual({ GIT_SSH_COMMAND: 'ssh' });
   });
 
   test('runInherit throws on nonzero status and isGitRepo detects repo roots', () => {

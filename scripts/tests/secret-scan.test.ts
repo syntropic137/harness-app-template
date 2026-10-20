@@ -18,6 +18,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { hermeticGitEnv } from './helpers/git-env';
 
 const ROOT = new URL('../../', import.meta.url).pathname;
 
@@ -65,11 +66,12 @@ function runGit(root: string, args: string[]): void {
   });
 }
 
+/** The shared fixture isolation (helpers/git-env.ts) plus this suite's own
+ *  concern: a host GITLEAKS_CONFIG would change what the scanner considers a
+ *  finding. */
 function cleanEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (!k.startsWith('GIT_') && k !== 'GITLEAKS_CONFIG') env[k] = v;
-  }
+  const env = hermeticGitEnv();
+  delete env.GITLEAKS_CONFIG;
   return env;
 }
 
