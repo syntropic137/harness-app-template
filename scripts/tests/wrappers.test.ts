@@ -11,7 +11,17 @@ vi.mock('../lib/git', () => ({
   },
 }));
 
-async function loadMain(moduleName: string): Promise<(argv?: string[]) => void> {
+// scripts/test.ts routes ONLY its script-coverage step through execCapture so it
+// can detect and retry the starved-runner false red; qa delegates to it, so the
+// qa sweep below sees that one step here rather than in `calls`.
+vi.mock('../lib/exec-capture', () => ({
+  execCapture: (command: string, args: string[]) => {
+    calls.push([command, args]);
+    return Promise.resolve({ status: 0, output: '' });
+  },
+}));
+
+async function loadMain(moduleName: string): Promise<(argv?: string[]) => void | Promise<void>> {
   const mod = await import(`../${moduleName}.ts`);
   return mod.main;
 }
@@ -53,7 +63,7 @@ describe('thin script wrappers', () => {
 
   test('qa runs the full quality sweep', async () => {
     const main = await loadMain('qa');
-    main(['--filter=...']);
+    await main(['--filter=...']);
     expect(calls).toEqual([
       ['pnpm', ['turbo', 'run', 'typecheck', '--filter=...']],
       ['pnpm', ['turbo', 'run', 'lint', '--filter=...']],
@@ -264,14 +274,10 @@ describe('thin script wrappers', () => {
     }
   });
 
-  test('test runs affected workspace tests and script coverage', async () => {
-    const main = await loadMain('test');
-    main(['--filter=...']);
-    expect(calls).toEqual([
-      ['pnpm', ['turbo', 'run', 'test', '--concurrency=1', '--filter=...']],
-      ['pnpm', ['exec', 'vitest', 'run', 'scripts/tests', '--coverage']],
-    ]);
-  });
+  // test is intentionally not a thin wrapper any more: its turbo step stays on
+  // streaming runInherit, but its script-coverage step captures subprocess
+  // output to detect and retry the starved-runner false red. See
+  // scripts/tests/test.test.ts for its full coverage suite.
 
   // test-coverage is intentionally not a thin wrapper any more: it captures
   // subprocess output to detect and retry the starved-runner false red, and

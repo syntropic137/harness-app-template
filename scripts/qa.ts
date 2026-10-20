@@ -16,10 +16,14 @@ fi
 gitleaks detect --redact --no-banner
 `.trim();
 
-export function main(argv: string[] = []): void {
+export async function main(argv: string[] = []): Promise<void> {
   typecheckMain(argv);
   lintMain(argv);
-  testMain(argv);
+  // Awaited: scripts/test.ts's main is async because its script-coverage step
+  // runs through execCapture for the starved-runner retry. Calling it without
+  // awaiting would run the sensors gate and the secret scan concurrently with
+  // it, and would turn a test failure into an unhandled rejection.
+  await testMain(argv);
   // Profile (ADR-0028): `just qa` runs the LEAN `local` profile, matching the
   // lefthook pre-push `sensors-gate` hook. A bare checkout / fresh fork /
   // scaffolded project has none of the instrumented adapters installed
@@ -36,5 +40,5 @@ export function main(argv: string[] = []): void {
 
 /* v8 ignore next 3 */
 if (isMainEntry(import.meta.url)) {
-  main(process.argv.slice(2));
+  await main(process.argv.slice(2));
 }
