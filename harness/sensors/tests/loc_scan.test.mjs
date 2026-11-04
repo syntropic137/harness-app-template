@@ -31,6 +31,7 @@ import { compareBaseline, extractApssFitnessBaseline, main, ratchetBaseline } fr
 import {
   DEFAULT_OFFENDER_LIMIT,
   filesOverFloor,
+  IncompleteScanError,
   listActiveSourceFiles,
   main as locMain,
   parseArgs,
@@ -38,6 +39,15 @@ import {
   SOFT_TARGET_LOC,
   summarizeLoc,
 } from '../loc_scan.mjs';
+
+// The JSON a run wrote, or a failed assertion naming the text that is not JSON.
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    assert.fail(`not JSON (${error.message}): ${text}`);
+  }
+}
 
 function emptyReport() {
   return {
@@ -292,7 +302,7 @@ test('loc_scan main() keeps the normal JSON offender list capped at DEFAULT_OFFE
   const out = [];
   const code = locMain(['--workspace-root=/r'], { write: (s) => out.push(s), listFiles });
   assert.equal(code, 0);
-  const env = JSON.parse(out.join(''));
+  const env = parseJson(out.join(''));
   assert.equal(env.details.offenders.length, DEFAULT_OFFENDER_LIMIT);
 });
 
@@ -302,7 +312,7 @@ test('loc_scan main() writes a JSON envelope and returns 0 (soft-skip on a non-w
     write: (s) => out.push(s),
   });
   assert.equal(code, 0);
-  const env = JSON.parse(out.join(''));
+  const env = parseJson(out.join(''));
   assert.equal(env.tool, 'loc-scan');
   assert.equal(env.available, false);
 });
@@ -363,7 +373,7 @@ test('listActiveSourceFiles returns null when the root has no Cargo workspace', 
   assert.equal(listActiveSourceFiles(ROOT, io), null);
 });
 
-test('listActiveSourceFiles skips a workspace member with no src/ directory', () => {
+test('listActiveSourceFiles lists nothing for a workspace member that holds no .rs file', () => {
   const tree = {
     'Cargo.toml': rootManifest(['ws_packages/no-src']),
     ws_packages: {
@@ -374,6 +384,242 @@ test('listActiveSourceFiles skips a workspace member with no src/ directory', ()
   };
   const io = buildFs(ROOT, tree);
   assert.deepEqual(listActiveSourceFiles(ROOT, io), []);
+});
+
+// ---------------------------------------------------------------------------
+// Enumeration: crate-root walk (dream-ship_v0 beads ltqc, jchs4)
+// ---------------------------------------------------------------------------
+
+const LINK = Symbol('link');
+const UNREADABLE = Symbol('unreadable');
+const link = (to) => ({ [LINK]: to });
+// An unreadable file still lists as a file and an unreadable dir as a dir; only reading fails.
+const unreadable = { [UNREADABLE]: 'file' };
+const unreadableDir = { [UNREADABLE]: 'dir' };
+const eacces = (op, p) => Object.assign(new Error(`${op} ${p}`), { code: 'EACCES' });
+
+// An in-memory tree with symlinks and unreadable paths: a string is a file, an object a dir,
+// link(abs) a symlink, unreadable / unreadableDir a path every read of which fails with EACCES.
+function buildLinkedFs(root, tree) {
+  const nodes = new Map();
+  const walk = (prefix, node) => {
+    nodes.set(prefix, node);
+    if (typeof node === 'object' && !node[LINK] && !node[UNREADABLE]) {
+      for (const [name, val] of Object.entries(node)) {
+        walk(`${prefix}/${name}`, val);
+      }
+    }
+  };
+  walk(root, tree);
+  const realPath = (p, depth = 0) => {
+    if (depth > 40) {
+      throw Object.assign(new Error(`loop ${p}`), { code: 'ELOOP' });
+    }
+    const parts = p.split('/');
+    for (let i = 2; i <= parts.length; i += 1) {
+      const head = parts.slice(0, i).join('/');
+      const node = nodes.get(head);
+      if (node?.[LINK]) {
+        return realPath([node[LINK], ...parts.slice(i)].join('/'), depth + 1);
+      }
+    }
+    if (!nodes.has(p)) {
+      throw Object.assign(new Error(`no ${p}`), { code: 'ENOENT' });
+    }
+    return p;
+  };
+  const resolved = (p) => nodes.get(realPath(p));
+  const isDir = (n) => typeof n === 'object' && !n[UNREADABLE];
+  return {
+    realPath,
+    readFile: (p) => {
+      const n = resolved(p);
+      if (n?.[UNREADABLE]) {
+        throw eacces('read', p);
+      }
+      if (typeof n !== 'string') {
+        throw Object.assign(new Error(`no file ${p}`), { code: 'ENOENT' });
+      }
+      return n;
+    },
+    stat: (p) => {
+      const n = resolved(p);
+      if (n?.[UNREADABLE]) {
+        throw eacces('stat', p);
+      }
+      return { isDirectory: () => isDir(n), isFile: () => typeof n === 'string' };
+    },
+    readDir: (d) => {
+      const n = resolved(d);
+      if (n?.[UNREADABLE]) {
+        throw eacces('readdir', d);
+      }
+      if (!isDir(n)) {
+        throw Object.assign(new Error(`not a dir ${d}`), { code: 'ENOTDIR' });
+      }
+      return Object.entries(n).map(([name, val]) => ({
+        name,
+        isFile: () => typeof val === 'string' || val?.[UNREADABLE] === 'file',
+        isDirectory: () => (isDir(val) && !val[LINK]) || val?.[UNREADABLE] === 'dir',
+        isSymbolicLink: () => Boolean(val?.[LINK]),
+      }));
+    },
+  };
+}
+
+const lines = (files) => Object.fromEntries(files.map((f) => [f.file, f.lines]));
+
+test('a crate without src/ is walked from its root: its [lib] path and every module beside it count', () => {
+  const tree = {
+    'Cargo.toml': rootManifest(['contexts/knowledge']),
+    contexts: {
+      knowledge: {
+        'Cargo.toml': '[package]\nname = "knowledge"\n[lib]\npath = "lib.rs"\n',
+        'lib.rs': 'mod domain;\n',
+        domain: { 'mod.rs': body(900), 'item.rs': body(40) },
+      },
+    },
+  };
+  assert.deepEqual(lines(listActiveSourceFiles(ROOT, buildLinkedFs(ROOT, tree))), {
+    'contexts/knowledge/lib.rs': 1,
+    'contexts/knowledge/domain/mod.rs': 900,
+    'contexts/knowledge/domain/item.rs': 40,
+  });
+  const env = runLocScan({ workspaceRoot: ROOT, io: buildLinkedFs(ROOT, tree) });
+  assert.equal(env.metrics.max_file_loc, 900, 'the src-less crate sets the maximum');
+});
+
+test('the root walk prunes tests/ benches/ examples/ target/ node_modules/ and walks a nested member once', () => {
+  const tree = {
+    'Cargo.toml': rootManifest(['crates/app', 'crates/app/inner']),
+    crates: {
+      app: {
+        'Cargo.toml': '[package]\nname = "app"\n',
+        'build.rs': body(3),
+        src: { 'main.rs': body(2), bin: { 'tool.rs': body(4) } },
+        tests: { 'it.rs': body(999) },
+        benches: { 'b.rs': body(999) },
+        examples: { 'e.rs': body(999) },
+        target: { 'gen.rs': body(999) },
+        node_modules: { 'x.rs': body(999) },
+        inner: { 'Cargo.toml': '[package]\nname = "inner"\n', src: { 'lib.rs': body(5) } },
+      },
+    },
+  };
+  assert.deepEqual(lines(listActiveSourceFiles(ROOT, buildLinkedFs(ROOT, tree))), {
+    'crates/app/build.rs': 3,
+    'crates/app/src/main.rs': 2,
+    'crates/app/src/bin/tool.rs': 4,
+    'crates/app/inner/src/lib.rs': 5,
+  });
+});
+
+test('a declared target the root walk cannot reach is still scanned, with its dir', () => {
+  const tree = {
+    'Cargo.toml': rootManifest(['crates/app']),
+    crates: {
+      app: {
+        'Cargo.toml':
+          '[package]\nname = "app"\n[lib]\npath = "../shared/lib.rs"\n[[bin]]\nname = "t"\npath = "examples/tool.rs"\n',
+        examples: { 'tool.rs': body(7), 'other.rs': body(999) },
+      },
+      shared: { 'lib.rs': body(6), 'part.rs': body(8) },
+    },
+  };
+  assert.deepEqual(lines(listActiveSourceFiles(ROOT, buildLinkedFs(ROOT, tree))), {
+    'crates/shared/lib.rs': 6,
+    'crates/shared/part.rs': 8,
+    'crates/app/examples/tool.rs': 7,
+    'crates/app/examples/other.rs': 999,
+  });
+});
+
+test('a declared target that does not exist fails the reading closed', () => {
+  const tree = {
+    'Cargo.toml': rootManifest(['crates/app']),
+    crates: { app: { 'Cargo.toml': '[package]\nname = "app"\n[lib]\npath = "lib.rs"\n' } },
+  };
+  assert.throws(() => listActiveSourceFiles(ROOT, buildLinkedFs(ROOT, tree)), IncompleteScanError);
+});
+
+test('an unreadable file or dir fails the reading closed: unavailable, never a partial max', () => {
+  for (const hidden of [{ 'big.rs': unreadable }, { deep: unreadableDir }]) {
+    const tree = {
+      'Cargo.toml': rootManifest(['crates/app']),
+      crates: {
+        app: { 'Cargo.toml': '[package]\nname = "app"\n', src: { 'lib.rs': body(9), ...hidden } },
+      },
+    };
+    assert.throws(
+      () => listActiveSourceFiles(ROOT, buildLinkedFs(ROOT, tree)),
+      IncompleteScanError,
+    );
+    const env = runLocScan({ workspaceRoot: ROOT, io: buildLinkedFs(ROOT, tree) });
+    assert.equal(env.available, false);
+    assert.equal(env.metrics.max_file_loc, null);
+    assert.match(
+      env.reason,
+      /source scan incomplete: (read|readdir) crates\/app\/src\/(big\.rs|deep) \(EACCES\)/,
+    );
+  }
+});
+
+test('an unreadable or unparsable member manifest fails the reading closed (Codex tu792 p1)', () => {
+  const shared = { 'lib.rs': body(500) };
+  for (const manifest of [
+    unreadable,
+    '[package\nname = "app"\n[lib]\npath = "../shared/lib.rs"\n',
+  ]) {
+    const tree = {
+      'Cargo.toml': rootManifest(['crates/app']),
+      crates: { app: { 'Cargo.toml': manifest, src: { 'main.rs': body(2) } }, shared },
+    };
+    const env = runLocScan({ workspaceRoot: ROOT, io: buildLinkedFs(ROOT, tree) });
+    assert.equal(env.available, false, 'never a max without the target the manifest may declare');
+    assert.match(env.reason, /(read|parse) crates\/app\/Cargo\.toml \((EACCES|TOML)\)/);
+  }
+});
+
+test('a listed member whose dir is missing fails the reading closed', () => {
+  const tree = { 'Cargo.toml': rootManifest(['crates/gone']) };
+  assert.throws(() => listActiveSourceFiles(ROOT, buildLinkedFs(ROOT, tree)), IncompleteScanError);
+});
+
+test('symlinks are followed, a link cycle terminates, and each real file counts once', () => {
+  const tree = {
+    'Cargo.toml': rootManifest(['crates/app']),
+    crates: {
+      app: {
+        'Cargo.toml': '[package]\nname = "app"\n',
+        src: {
+          'lib.rs': body(2),
+          linked: link(`${ROOT}/vendor/gen`),
+          'alias.rs': link(`${ROOT}/crates/app/src/lib.rs`),
+          loop: link(`${ROOT}/crates/app/src`),
+          'dangling.rs': link(`${ROOT}/nowhere.rs`),
+        },
+      },
+    },
+    vendor: { gen: { 'made.rs': body(11) } },
+  };
+  assert.deepEqual(lines(listActiveSourceFiles(ROOT, buildLinkedFs(ROOT, tree))), {
+    'crates/app/src/lib.rs': 2,
+    'crates/app/src/linked/made.rs': 11,
+  });
+});
+
+test('a symlink whose target cannot be stat-ed fails the reading closed', () => {
+  const tree = {
+    'Cargo.toml': rootManifest(['crates/app']),
+    crates: {
+      app: {
+        'Cargo.toml': '[package]\nname = "app"\n',
+        src: { 'lib.rs': body(1), 'locked.rs': link(`${ROOT}/locked.rs`) },
+      },
+    },
+    'locked.rs': unreadable,
+  };
+  assert.throws(() => listActiveSourceFiles(ROOT, buildLinkedFs(ROOT, tree)), IncompleteScanError);
 });
 
 // ---------------------------------------------------------------------------
@@ -478,7 +724,7 @@ test('loc: main() with --loc tightens the baseline on a shrink (mirrors deadcode
   );
   assert.equal(code, 0, 'loc improvement should exit 0');
   assert.equal(writes.length, 1, 'expected one baseline write for the tightened floor');
-  const written = JSON.parse(writes[0].content);
+  const written = parseJson(writes[0].content);
   assert.equal(written.dimensions.MT01.metrics['max-file-loc'].baseline, 800);
   assert.match(stdout(), /VERDICT: PASS sensors gate/);
   assert.match(stdout(), /RATCHET: floor tightened/);
