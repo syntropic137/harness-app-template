@@ -345,7 +345,7 @@ describe('verifyAndRepairVendorLinks', () => {
     expect(report.repaired.length).toBe(VENDOR_SYMLINKS.length);
     expect(report.errors).toEqual([]);
     expect(symlinks.get('/proj/CLAUDE.md')).toBe('AGENTS.md');
-    expect(symlinks.get('/proj/.codex')).toBe('AGENTS.md');
+    expect(symlinks.has('/proj/.codex')).toBe(false);
   });
 
   test('reports ok when all symlinks already point at AGENTS.md', () => {
@@ -788,7 +788,7 @@ describe('main', () => {
     expect(sinks.exit).not.toHaveBeenCalled();
     expect(symlinks.get('/proj/CLAUDE.md')).toBe('AGENTS.md');
     expect(symlinks.get('/proj/GEMINI.md')).toBe('AGENTS.md');
-    expect(symlinks.get('/proj/.codex')).toBe('AGENTS.md');
+    expect(symlinks.has('/proj/.codex')).toBe(false);
     expect(symlinks.get('/proj/.gemini')).toBe('AGENTS.md');
     expect(sinks.stdoutLog).toHaveBeenCalledWith(
       expect.stringMatching(/vendor symlink CLAUDE\.md -> AGENTS\.md \(created\)/),

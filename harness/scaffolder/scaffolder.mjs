@@ -86,7 +86,7 @@ export function readStripList(stripListPath, deps = defaultDeps()) {
 // Recursively copy <src> into <dest>, skipping COPY_SKIP_DIRS and any
 // strip-list path so the destination is born without template-only state.
 // Symlinks are preserved verbatim (the template's vendor mirrors like
-// CLAUDE.md / .codex are symlinks at AGENTS.md and must continue pointing
+// CLAUDE.md / GEMINI.md are symlinks at AGENTS.md and must continue pointing
 // at the new project's AGENTS.md). Files or directories whose basename is
 // in COPY_SKIP_DIRS are skipped regardless of type — git worktrees store
 // .git as a file, not a directory, so a type-only filter would copy it.

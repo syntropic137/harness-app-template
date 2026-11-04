@@ -17,7 +17,7 @@ The template needs one canonical source for agent context, skills, commands, hoo
 
 ## Decision
 
-Use `AGENTS.md` as the canonical agent-context text file and `.claude/` as the canonical agent-plugins directory. Ship committed symlinks (`CLAUDE.md`, `GEMINI.md`, `.codex`, `.gemini`) pointing at `AGENTS.md` so every vendor agent reads the same body on a fresh clone with zero setup.
+Use `AGENTS.md` as the canonical agent-context text file and `.claude/` as the canonical agent-plugins directory. Ship committed symlinks (`CLAUDE.md`, `GEMINI.md`, `.gemini`) pointing at `AGENTS.md` so every vendor agent reads the same body on a fresh clone with zero setup.
 
 ## Consequences
 
@@ -37,8 +37,7 @@ Confirms Standard v0.1 §4.7 with the v0.2 canonical-body flip. `AGENTS.md` is t
 |---|---|---|---|
 | `CLAUDE.md` | `AGENTS.md` | Claude Code root agent-context file | [Anthropic Claude Code docs](https://docs.anthropic.com/claude/docs/claude-code) |
 | `GEMINI.md` | `AGENTS.md` | Gemini CLI default project context filename, hierarchically loaded | [Gemini CLI docs](https://geminicli.com/docs/cli/gemini-md/) |
-| `.codex` | `AGENTS.md` | Codex CLI conventional project root indicator; the symlink resolves to the same body so a Codex agent without an explicit project dir still sees the canonical text | [OpenAI Codex docs](https://developers.openai.com/codex/guides/agents-md) |
-| `.gemini` | `AGENTS.md` | Gemini CLI project-dir indicator; same resolution as `.codex` | [Gemini CLI docs](https://geminicli.com/docs/cli/gemini-md/) |
+| `.gemini` | `AGENTS.md` | Gemini CLI project-dir indicator; same resolution as `CLAUDE.md` | [Gemini CLI docs](https://geminicli.com/docs/cli/gemini-md/) |
 
 `AGENTS.md` is itself the AAIF-stewarded open spec. The vendor symlinks above guarantee that Claude, Gemini, Codex, OpenCode, Aider (per roadmap), Amp, Devin, and Copilot all read the same body without any per-vendor setup.
 

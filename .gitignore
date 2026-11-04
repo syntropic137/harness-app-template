@@ -44,7 +44,7 @@ id_ed25519.pub
 
 # Agent-plugin vendor symlinks are now COMMITTED so they exist the instant
 # the repo is cloned (per WS1 fork-readiness spec, dogfood F-001). The
-# canonical body lives at AGENTS.md and CLAUDE.md / GEMINI.md / .codex /
+# canonical body lives at AGENTS.md and CLAUDE.md / GEMINI.md /
 # .gemini are committed symlinks pointing at it. `just bootstrap` verifies
 # and repairs the symlinks idempotently. Do not re-add ignore entries here.
 
