@@ -25,10 +25,11 @@ export interface VendorReport {
   mode: 'symlink' | 'copy';
 }
 
+// No `.codex` link (bead dreamship-v0-znhqj): Codex reads AGENTS.md itself and treats a `.codex`
+// symlink as its protected config dir, which breaks `codex exec --sandbox workspace-write`.
 export const VENDOR_SYMLINKS: ReadonlyArray<readonly [string, string]> = [
   ['CLAUDE.md', 'AGENTS.md'],
   ['GEMINI.md', 'AGENTS.md'],
-  ['.codex', 'AGENTS.md'],
   ['.gemini', 'AGENTS.md'],
 ];
 

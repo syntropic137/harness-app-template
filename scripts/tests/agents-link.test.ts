@@ -1,4 +1,5 @@
 import {
+  existsSync,
   lstatSync,
   mkdtempSync,
   readFileSync,
@@ -123,7 +124,7 @@ describe('agents link', () => {
       writeFileSync(join(dir, 'AGENTS.md'), '# canonical\n');
 
       main(deps);
-      for (const name of ['CLAUDE.md', 'GEMINI.md', '.codex', '.gemini']) {
+      for (const name of ['CLAUDE.md', 'GEMINI.md', '.gemini']) {
         const path = join(dir, name);
         expect(lstatSync(path).isSymbolicLink()).toBe(true);
         expect(readlinkSync(path)).toBe('AGENTS.md');
@@ -179,7 +180,6 @@ describe('agents link', () => {
     expect(deps.exit).not.toHaveBeenCalled();
     expect(contents.get('/proj/CLAUDE.md')).toBe('# canonical\n');
     expect(contents.get('/proj/GEMINI.md')).toBe('# canonical\n');
-    expect(contents.get('/proj/.codex')).toBe('# canonical\n');
     expect(state.get('/proj/.gemini')?.isSymbolicLink()).toBe(true);
     expect(deps.stdoutLog).toHaveBeenCalledWith('agents link: vendor mirror .gemini ok');
     expect(deps.stdoutLog).toHaveBeenCalledWith(
@@ -201,7 +201,7 @@ describe('agents link', () => {
 
       expect(readFileSync(join(dir, 'CLAUDE.md'), 'utf8')).toBe('# canonical\n');
       expect(readFileSync(join(dir, 'GEMINI.md'), 'utf8')).toBe('# canonical\n');
-      expect(readFileSync(join(dir, '.codex'), 'utf8')).toBe('# canonical\n');
+      expect(existsSync(join(dir, '.codex'))).toBe(false);
       expect(deps.stdoutLog).toHaveBeenCalledWith(
         'agents link: vendor mirror GEMINI.md <= AGENTS.md (replaced symlink from legacy.md)',
       );
@@ -225,7 +225,7 @@ describe('agents link', () => {
     const { fs } = vendorFsFixture(
       new Map([
         ['/proj/AGENTS.md', fileStat()],
-        ['/proj/.codex', dirStat()],
+        ['/proj/.gemini', dirStat()],
       ]),
       new Map(),
       new Map([['/proj/AGENTS.md', '# canonical\n']]),
@@ -235,7 +235,7 @@ describe('agents link', () => {
     expect(() => main(deps)).toThrow('__exit__');
     expect(deps.exit).toHaveBeenCalledWith(1);
     expect(deps.stderrError).toHaveBeenCalledWith(
-      'agents link: .codex exists but is a directory; refusing to overwrite it',
+      'agents link: .gemini exists but is a directory; refusing to overwrite it',
     );
   });
 
