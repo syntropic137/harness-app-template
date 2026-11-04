@@ -40,6 +40,15 @@ import {
   summarizeLoc,
 } from '../loc_scan.mjs';
 
+// The JSON a run wrote, or a failed assertion naming the text that is not JSON.
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    assert.fail(`not JSON (${error.message}): ${text}`);
+  }
+}
+
 function emptyReport() {
   return {
     workspace: { folders: [], modules: [], circular_edges: 0 },
@@ -293,7 +302,7 @@ test('loc_scan main() keeps the normal JSON offender list capped at DEFAULT_OFFE
   const out = [];
   const code = locMain(['--workspace-root=/r'], { write: (s) => out.push(s), listFiles });
   assert.equal(code, 0);
-  const env = JSON.parse(out.join(''));
+  const env = parseJson(out.join(''));
   assert.equal(env.details.offenders.length, DEFAULT_OFFENDER_LIMIT);
 });
 
@@ -303,7 +312,7 @@ test('loc_scan main() writes a JSON envelope and returns 0 (soft-skip on a non-w
     write: (s) => out.push(s),
   });
   assert.equal(code, 0);
-  const env = JSON.parse(out.join(''));
+  const env = parseJson(out.join(''));
   assert.equal(env.tool, 'loc-scan');
   assert.equal(env.available, false);
 });
@@ -555,6 +564,22 @@ test('an unreadable file or dir fails the reading closed: unavailable, never a p
   }
 });
 
+test('an unreadable or unparsable member manifest fails the reading closed (Codex tu792 p1)', () => {
+  const shared = { 'lib.rs': body(500) };
+  for (const manifest of [
+    unreadable,
+    '[package\nname = "app"\n[lib]\npath = "../shared/lib.rs"\n',
+  ]) {
+    const tree = {
+      'Cargo.toml': rootManifest(['crates/app']),
+      crates: { app: { 'Cargo.toml': manifest, src: { 'main.rs': body(2) } }, shared },
+    };
+    const env = runLocScan({ workspaceRoot: ROOT, io: buildLinkedFs(ROOT, tree) });
+    assert.equal(env.available, false, 'never a max without the target the manifest may declare');
+    assert.match(env.reason, /(read|parse) crates\/app\/Cargo\.toml \((EACCES|TOML)\)/);
+  }
+});
+
 test('a listed member whose dir is missing fails the reading closed', () => {
   const tree = { 'Cargo.toml': rootManifest(['crates/gone']) };
   assert.throws(() => listActiveSourceFiles(ROOT, buildLinkedFs(ROOT, tree)), IncompleteScanError);
@@ -699,7 +724,7 @@ test('loc: main() with --loc tightens the baseline on a shrink (mirrors deadcode
   );
   assert.equal(code, 0, 'loc improvement should exit 0');
   assert.equal(writes.length, 1, 'expected one baseline write for the tightened floor');
-  const written = JSON.parse(writes[0].content);
+  const written = parseJson(writes[0].content);
   assert.equal(written.dimensions.MT01.metrics['max-file-loc'].baseline, 800);
   assert.match(stdout(), /VERDICT: PASS sensors gate/);
   assert.match(stdout(), /RATCHET: floor tightened/);

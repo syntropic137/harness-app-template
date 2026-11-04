@@ -133,16 +133,16 @@ function realPathOr(walkIo, p) {
   }
 }
 
-// 'dir', 'file' or null. A symlink is followed to what it points at; a dangling one (ENOENT) is
+// The kind of a readdir entry: 'dir', 'file' or null. A symlink is followed to what it points at; a dangling one (ENOENT) is
 // null, it has no bytes to count. Any other stat failure leaves the scan incomplete.
-function entryKind(entry, full, walkIo) {
-  if (entry.isDirectory()) {
+function direntKind(dirent, full, walkIo) {
+  if (dirent.isDirectory()) {
     return 'dir';
   }
-  if (entry.isFile()) {
+  if (dirent.isFile()) {
     return 'file';
   }
-  if (!entry.isSymbolicLink?.()) {
+  if (!dirent.isSymbolicLink?.()) {
     return null;
   }
   try {
@@ -159,15 +159,15 @@ function entryKind(entry, full, walkIo) {
   }
 }
 
-function visitEntry(entry, walk) {
-  const full = join(walk.dir, entry.name);
-  const kind = entryKind(entry, full, walk.io);
-  if (kind === 'dir' && !SKIP_DIR_NAMES.has(entry.name) && !walk.skipDir(full)) {
+function visitDirent(dirent, walk) {
+  const full = join(walk.dir, dirent.name); // ubs:ignore[js.security.archive-entry] readdir name, not an archive path: the analyzer reads "Tar" in declaredTargetPaths as an archive type
+  const kind = direntKind(dirent, full, walk.io);
+  if (kind === 'dir' && !SKIP_DIR_NAMES.has(dirent.name) && !walk.skipDir(full)) {
     walk.stack.push({ dir: full, ancestors: walk.ancestors });
-  } else if (kind === 'file' && entry.name.endsWith('.rs')) {
-    const real = entry.isSymbolicLink?.()
+  } else if (kind === 'file' && dirent.name.endsWith('.rs')) {
+    const real = dirent.isSymbolicLink?.()
       ? realPathOr(walk.io, full)
-      : join(walk.realDir, entry.name);
+      : join(walk.realDir, dirent.name); // ubs:ignore[js.security.archive-entry] readdir name, not an archive path: the analyzer reads "Tar" in declaredTargetPaths as an archive type
     walk.out.push({ file: full, real });
   }
 }
@@ -192,8 +192,8 @@ function listRustFiles(startDir, walkIo, skipDir) {
     }
     const ancestors = new Set(parents).add(realDir);
     const walk = { dir, realDir, ancestors, io: walkIo, skipDir, stack, out };
-    for (const entry of tryReadDir(walkIo, dir)) {
-      visitEntry(entry, walk);
+    for (const dirent of tryReadDir(walkIo, dir)) {
+      visitDirent(dirent, walk);
     }
   }
   return out;
@@ -250,10 +250,21 @@ function crateRustFiles(crate, memberDirs, walkIo) {
   return files;
 }
 
-function parseMemberManifest(dir, readFile) {
+// A member's manifest, read for its declared targets. One that cannot be read or parsed leaves the
+// scan incomplete: a target it declares outside the walk would otherwise drop out unseen.
+function readMemberManifest(dir, readFile, walkIo) {
+  const path = join(dir, 'Cargo.toml');
+  let text;
   try {
-    return TOML.parse(readFile(join(dir, 'Cargo.toml')));
+    text = readFile(path);
+  } catch (error) {
+    recordScanError(walkIo, path, 'read', error);
+    return null;
+  }
+  try {
+    return TOML.parse(text);
   } catch {
+    recordScanError(walkIo, path, 'parse', { code: 'TOML' });
     return null;
   }
 }
@@ -283,7 +294,7 @@ export function listActiveSourceFiles(root, io = {}) {
   };
   const crates = members.map((member) => {
     const dir = join(root, member);
-    return { dir, targetPaths: declaredTargetPaths(parseMemberManifest(dir, readFile)) };
+    return { dir, targetPaths: declaredTargetPaths(readMemberManifest(dir, readFile, walkIo)) };
   });
   const memberDirs = new Set(crates.map((crate) => crate.dir));
   const seen = new Set();
