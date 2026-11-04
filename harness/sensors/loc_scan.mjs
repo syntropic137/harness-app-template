@@ -10,15 +10,19 @@
 // toward the ~500-line soft target without ever hard-failing at an arbitrary
 // number.
 //
-// ENUMERATION - this adapter walks every Cargo workspace member's src/ tree
-// (as declared under `[workspace] members` in the root Cargo.toml) and
-// counts the physical line count of every .rs file found there. Ported from
+// ENUMERATION - this adapter walks every Cargo workspace member (as declared
+// under `[workspace] members` in the root Cargo.toml) from its crate ROOT,
+// not only its src/, and counts the physical line count of every .rs file
+// found there: a crate without src/ (a root-level [lib] path) is measured,
+// root tests/ benches/ examples/, target/, node_modules/ and nested members
+// are pruned, and every declared [lib]/[[bin]] path is in the scan wherever
+// it sits. An unreadable path makes the reading unavailable, never partial. Ported from
 // dream-ship_v0's per-file LOC ratchet (bead dreamship-v0-hjka), which
 // shares its file enumeration with a mechanical architecture-fitness scan
 // (harness/sensors/arch_fitness_scan.mjs, activeSourceFiles()) that does not
 // exist in this template. Rather than force that dependency into existence
-// here, this port keeps its own small, self-contained workspace-member/src/
-// walk with no platform-cfg exclusion logic (the template ships no
+// here, this port keeps its own self-contained crate walk (dream-ship_v0's
+// after its beads ltqc and jchs4) with no platform-cfg exclusion logic (the template ships no
 // platform-gated modules to exclude). A future consumer fork that adds a
 // mechanical architecture-fitness lens of its own may want to reconcile the
 // two enumerations the way dream-ship_v0 did; until then this adapter does
@@ -40,8 +44,8 @@
 // no-reading rather than a false zero - same shape as the sentrux / deadcode
 // adapters.
 
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import TOML from '@iarna/toml';
 
@@ -80,59 +84,230 @@ function workspaceMembers(rootManifest) {
   return members.filter((m) => typeof m === 'string');
 }
 
-// List every .rs file under `dir`, recursively, using the injectable
-// readDir/fileExists pair so unit tests can drive this from an in-memory
-// filesystem.
-function listRustFiles(dir, readDir) {
-  const out = [];
-  let entries;
-  try {
-    entries = readDir(dir);
-  } catch {
-    return out;
+// The crate walk below is dream-ship_v0's after its beads ltqc and jchs4 (harness/sensors/
+// arch_fitness_scan.mjs there), minus its platform-cfg exclusion: a crate is walked from its ROOT,
+// not only its src/, so a crate without src/ (a [lib] path = "lib.rs" at the root) is measured, and
+// every declared [lib]/[[bin]] path is in the scan wherever it sits. A read that fails leaves the
+// scan incomplete, never a max over the files that happened to be readable.
+
+const SKIP_DIR_NAMES = new Set(['target', 'node_modules', '.git']);
+
+// Cargo's non-library target dirs at a crate root. A src/ crate never walks them (they sit beside
+// src/), so a root walk skips them too.
+const CRATE_ROOT_NON_LIB_DIRS = new Set(['tests', 'benches', 'examples']);
+
+// A real dir reached by more routes than this is an alias web, not a layout: the walk stops and the
+// scan is incomplete, so the walk stays linear in the tree.
+const MAX_ROUTES_PER_DIR = 8;
+
+/** A scan that could not read every path it needed; its envelope is unavailable, never partial. */
+export class IncompleteScanError extends Error {
+  constructor(errors) {
+    super(
+      `source scan incomplete: ${errors.map((e) => `${e.op} ${e.path} (${e.code})`).join('; ')}`,
+    );
+    this.name = 'IncompleteScanError';
+    this.errors = errors;
   }
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      out.push(...listRustFiles(full, readDir));
-    } else if (entry.isFile() && full.endsWith('.rs')) {
-      out.push(full);
+}
+
+function recordScanError(walkIo, path, op, error) {
+  walkIo.errors.push({ path, op, code: error?.code ?? 'UNKNOWN' });
+}
+
+function tryReadDir(walkIo, dir) {
+  try {
+    return walkIo.readDir(dir);
+  } catch (error) {
+    recordScanError(walkIo, dir, 'readdir', error);
+    return [];
+  }
+}
+
+// The real path of p, or p itself when it cannot be resolved.
+function realPathOr(walkIo, p) {
+  try {
+    return walkIo.realPath(p);
+  } catch {
+    return p;
+  }
+}
+
+// 'dir', 'file' or null. A symlink is followed to what it points at; a dangling one (ENOENT) is
+// null, it has no bytes to count. Any other stat failure leaves the scan incomplete.
+function entryKind(entry, full, walkIo) {
+  if (entry.isDirectory()) {
+    return 'dir';
+  }
+  if (entry.isFile()) {
+    return 'file';
+  }
+  if (!entry.isSymbolicLink?.()) {
+    return null;
+  }
+  try {
+    const st = walkIo.stat(full);
+    if (st.isDirectory()) {
+      return 'dir';
+    }
+    return st.isFile() ? 'file' : null;
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      recordScanError(walkIo, full, 'stat', error);
+    }
+    return null;
+  }
+}
+
+function visitEntry(entry, walk) {
+  const full = join(walk.dir, entry.name);
+  const kind = entryKind(entry, full, walk.io);
+  if (kind === 'dir' && !SKIP_DIR_NAMES.has(entry.name) && !walk.skipDir(full)) {
+    walk.stack.push({ dir: full, ancestors: walk.ancestors });
+  } else if (kind === 'file' && entry.name.endsWith('.rs')) {
+    const real = entry.isSymbolicLink?.()
+      ? realPathOr(walk.io, full)
+      : join(walk.realDir, entry.name);
+    walk.out.push({ file: full, real });
+  }
+}
+
+// Every .rs file under startDir, following symlinks, as { file, real } pairs. A dir whose real path
+// is one of its own ancestors' is a link cycle and is not entered. skipDir(path) prunes subtrees
+// beyond SKIP_DIR_NAMES.
+function listRustFiles(startDir, walkIo, skipDir) {
+  const out = [];
+  const stack = [{ dir: startDir, ancestors: new Set() }];
+  while (stack.length > 0) {
+    const { dir, ancestors: parents } = stack.pop();
+    const realDir = realPathOr(walkIo, dir);
+    if (parents.has(realDir)) {
+      continue;
+    }
+    const routes = (walkIo.routes.get(realDir) ?? 0) + 1;
+    walkIo.routes.set(realDir, routes);
+    if (routes > MAX_ROUTES_PER_DIR) {
+      recordScanError(walkIo, dir, 'walk', { code: 'TOO_MANY_ROUTES' });
+      continue;
+    }
+    const ancestors = new Set(parents).add(realDir);
+    const walk = { dir, realDir, ancestors, io: walkIo, skipDir, stack, out };
+    for (const entry of tryReadDir(walkIo, dir)) {
+      visitEntry(entry, walk);
     }
   }
   return out;
 }
 
+// The explicit `path` of a crate's [lib] and each [[bin]].
+function declaredTargetPaths(manifest) {
+  const bins = Array.isArray(manifest?.bin) ? manifest.bin : [];
+  return [manifest?.lib, ...bins].map((t) => t?.path).filter((p) => typeof p === 'string');
+}
+
+// True when the root walk prunes dir: outside the crate root, under a pruned root dir (examples/),
+// under any SKIP_DIR_NAMES dir (src/node_modules/), or inside a nested workspace member.
+function rootWalkPrunes(crate, dir, memberDirs) {
+  const rel = relative(crate.dir, dir);
+  if (rel === '') {
+    return false;
+  }
+  const parts = rel.split('/');
+  if (parts[0] === '..' || CRATE_ROOT_NON_LIB_DIRS.has(parts[0])) {
+    return true;
+  }
+  return parts.some(
+    (part, i) =>
+      SKIP_DIR_NAMES.has(part) || memberDirs.has(join(crate.dir, ...parts.slice(0, i + 1))),
+  );
+}
+
+// A crate's own source files: its whole root, minus the root's non-library dirs and any nested
+// workspace member (walked as a crate of its own), plus each declared target's dir the root walk
+// cannot reach and every declared target file itself (one not reached is added by itself, and a
+// missing one then fails its read). The root, not only each target's dir, so a [lib] path in a
+// subdir cannot leave a #[path = "../x.rs"] sibling unscanned.
+function crateRustFiles(crate, memberDirs, walkIo) {
+  const skipDir = (path) =>
+    (dirname(path) === crate.dir && CRATE_ROOT_NON_LIB_DIRS.has(basename(path))) ||
+    memberDirs.has(path);
+  const unreached = new Set();
+  for (const target of crate.targetPaths) {
+    const dir = dirname(resolve(crate.dir, target));
+    if (rootWalkPrunes(crate, dir, memberDirs)) {
+      unreached.add(dir);
+    }
+  }
+  const files = [crate.dir, ...unreached].flatMap((dir) => listRustFiles(dir, walkIo, skipDir));
+  const paths = new Set(files.map((entry) => entry.file));
+  for (const target of crate.targetPaths) {
+    const file = resolve(crate.dir, target);
+    if (!paths.has(file)) {
+      paths.add(file);
+      files.push({ file, real: realPathOr(walkIo, file) });
+    }
+  }
+  return files;
+}
+
+function parseMemberManifest(dir, readFile) {
+  try {
+    return TOML.parse(readFile(join(dir, 'Cargo.toml')));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Enumerate every active (workspace-member) .rs source file with its
- * physical line count, workspace-relative. Returns null when the root has
- * no parseable Cargo workspace (soft-skip), mirroring the shape of the
- * other adapters' no-workspace contract.
+ * physical line count, workspace-relative: each member walked from its crate
+ * root (src-less crates included), every declared [lib]/[[bin]] path, each
+ * real file once. Returns null when the root has no parseable Cargo
+ * workspace (soft-skip), mirroring the shape of the other adapters'
+ * no-workspace contract. Throws IncompleteScanError when a path the scan
+ * needs cannot be read, so no reading is taken over a partial file set.
  */
 export function listActiveSourceFiles(root, io = {}) {
   const readFile = io.readFile ?? ((p) => readFileSync(p, 'utf8'));
-  const fileExists = io.fileExists ?? existsSync;
-  const readDir = io.readDir ?? ((dir) => readdirSync(dir, { withFileTypes: true }));
-
   const rootManifest = parseRootManifest(root, readFile);
   const members = workspaceMembers(rootManifest);
   if (members.length === 0) {
     return null;
   }
+  const walkIo = {
+    readDir: io.readDir ?? ((dir) => readdirSync(dir, { withFileTypes: true })),
+    realPath: io.realPath ?? realpathSync,
+    stat: io.stat ?? statSync,
+    errors: [],
+    routes: new Map(),
+  };
+  const crates = members.map((member) => {
+    const dir = join(root, member);
+    return { dir, targetPaths: declaredTargetPaths(parseMemberManifest(dir, readFile)) };
+  });
+  const memberDirs = new Set(crates.map((crate) => crate.dir));
+  const seen = new Set();
   const out = [];
-  for (const member of members) {
-    const srcDir = join(root, member, 'src');
-    if (!fileExists(srcDir)) {
-      continue;
-    }
-    for (const file of listRustFiles(srcDir, readDir)) {
+  for (const crate of crates) {
+    for (const { file, real } of crateRustFiles(crate, memberDirs, walkIo)) {
+      if (seen.has(real)) {
+        continue;
+      }
+      seen.add(real);
       let body;
       try {
         body = readFile(file);
-      } catch {
+      } catch (error) {
+        recordScanError(walkIo, file, 'read', error);
         continue;
       }
       out.push({ file: relative(root, file), lines: physicalLineCount(body) });
     }
+  }
+  if (walkIo.errors.length > 0) {
+    throw new IncompleteScanError(
+      walkIo.errors.map((e) => ({ ...e, path: relative(root, e.path) })),
+    );
   }
   return out;
 }
@@ -183,17 +358,17 @@ export function runLocScan({
   offenderLimit = DEFAULT_OFFENDER_LIMIT,
   io = {},
 } = {}) {
-  const files = listFiles(workspaceRoot, io);
+  let files;
+  try {
+    files = listFiles(workspaceRoot, io);
+  } catch (error) {
+    if (!(error instanceof IncompleteScanError)) {
+      throw error;
+    }
+    return unavailable(error.message);
+  }
   if (files === null || files === undefined) {
-    return {
-      tool: 'loc-scan',
-      available: false,
-      reason: 'no Cargo workspace members found',
-      version: SCAN_VERSION,
-      soft_target_loc: SOFT_TARGET_LOC,
-      metrics: { max_file_loc: null, file_count: null },
-      details: { offenders: [] },
-    };
+    return unavailable('no Cargo workspace members found');
   }
   const summary = summarizeLoc(files, { offenderLimit });
   return {
@@ -203,6 +378,19 @@ export function runLocScan({
     soft_target_loc: SOFT_TARGET_LOC,
     metrics: { max_file_loc: summary.max_file_loc, file_count: summary.file_count },
     details: { offenders: summary.offenders },
+  };
+}
+
+// The no-reading envelope: gate.mjs degrades max-file-loc to no-reading, never a false zero.
+function unavailable(reason) {
+  return {
+    tool: 'loc-scan',
+    available: false,
+    reason,
+    version: SCAN_VERSION,
+    soft_target_loc: SOFT_TARGET_LOC,
+    metrics: { max_file_loc: null, file_count: null },
+    details: { offenders: [] },
   };
 }
 
