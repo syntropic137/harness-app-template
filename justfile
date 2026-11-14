@@ -396,6 +396,9 @@ update-slp *args:
 # `apss install` that unsets any inherited CARGO_TARGET_DIR before invoking
 # cargo.
 #
+# --no-hooks: lefthook owns the git hooks; a plain install appends its own
+# check to them. `just bootstrap` runs the same install.
+#
 # Upstream bug: `apss install` hard-codes the post-build binary lookup at
 # `<repo>/.apss/build/target/release/apss`. When the environment exports
 # CARGO_TARGET_DIR (the swarm VPS sets `/data/tmp/cargo-target`), cargo
@@ -408,4 +411,4 @@ update-slp *args:
 # Compose the project APSS CLI (.apss/bin/apss).
 [group('meta')]
 apss-install:
-    env -u CARGO_TARGET_DIR apss install
+    env -u CARGO_TARGET_DIR apss install --no-hooks
