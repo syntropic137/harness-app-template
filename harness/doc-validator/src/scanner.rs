@@ -32,7 +32,7 @@ pub fn extract_links(content: &str) -> Vec<Link> {
         }
 
         for (start, end) in prose_spans(line) {
-            let segment = &line[start..end]; // ubs:ignore byte offsets from find() of ASCII delimiters, always char boundaries
+            let segment = &line[start..end]; // ubs:ignore prose_spans offsets are at or just past an ASCII backtick, or a line end: char boundaries
             let mut cursor = 0;
             // ubs:ignore byte offsets from find() of ASCII delimiters, always char boundaries
             while let Some(open) = segment[cursor..].find("](") {
