@@ -43,7 +43,22 @@ describe('lib/coverage lane definitions', () => {
   });
 
   test('coverageTargetDir pins inside the repo root for worktree isolation', () => {
-    expect(coverageTargetDir(ROOT)).toBe(join(ROOT, 'target', 'coverage-isolated'));
+    expect(coverageTargetDir(ROOT, 'example-rust')).toBe(
+      join(ROOT, 'target', 'coverage-isolated', 'example-rust'),
+    );
+  });
+
+  // One shared target dir put example-rust's integration test into the doc-validator report
+  // (cargo-llvm-cov reports every test binary under its target dir).
+  test('each rust lane gets a target dir of its own', () => {
+    const dirs = commandsForLane('rust', ROOT).map((cmd) => cmd.env?.['CARGO_TARGET_DIR']);
+    expect(new Set(dirs)).toEqual(
+      new Set(
+        ['example-rust', 'harness-doc-validator', 'harness-versioning'].map((pkg) =>
+          coverageTargetDir(ROOT, pkg),
+        ),
+      ),
+    );
   });
 
   test('rust umbrella lane is the three per-crate lanes in order', () => {
@@ -76,7 +91,7 @@ describe('lib/coverage lane definitions', () => {
       '100',
     ]);
     expect(cov.env).toEqual({
-      CARGO_TARGET_DIR: coverageTargetDir(ROOT),
+      CARGO_TARGET_DIR: coverageTargetDir(ROOT, 'example-rust'),
       CARGO_INCREMENTAL: '0',
     });
     expect(cov.cwd).toBeUndefined();
@@ -100,7 +115,7 @@ describe('lib/coverage lane definitions', () => {
       'cov',
     ]);
     expect(build.env).toEqual({
-      CARGO_TARGET_DIR: coverageTargetDir(ROOT),
+      CARGO_TARGET_DIR: coverageTargetDir(ROOT, pkg),
       CARGO_INCREMENTAL: '0',
     });
     expect(cov.args).toEqual([
@@ -120,7 +135,7 @@ describe('lib/coverage lane definitions', () => {
       '100',
     ]);
     expect(cov.env).toEqual({
-      CARGO_TARGET_DIR: coverageTargetDir(ROOT),
+      CARGO_TARGET_DIR: coverageTargetDir(ROOT, pkg),
       CARGO_INCREMENTAL: '0',
     });
   });
@@ -181,7 +196,7 @@ describe('coverage entrypoint', () => {
       expect(args).toEqual(cmd.args);
       expect(options.cwd).toBe(ROOT);
       expect(options.stdio).toBe('inherit');
-      expect(options.env['CARGO_TARGET_DIR']).toBe(coverageTargetDir(ROOT));
+      expect(options.env['CARGO_TARGET_DIR']).toBe(cmd.env?.['CARGO_TARGET_DIR']);
       expect(d.logs[index]).toContain(`[cov:rust] ${cmd.command}`);
     });
   });

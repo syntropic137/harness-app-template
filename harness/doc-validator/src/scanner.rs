@@ -233,6 +233,22 @@ mod tests {
     }
 
     #[test]
+    fn skips_links_with_an_empty_target() {
+        let links = extract_links("[empty]() [blank](  ) [ok](./ok.md)");
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target, "./ok.md");
+    }
+
+    #[test]
+    fn footnote_labels_keep_only_non_empty_slug_labels() {
+        let labels = footnote_labels("[^] [^bad label] [^under_score] [^ok-1]");
+        assert_eq!(
+            labels.into_iter().collect::<Vec<_>>(),
+            vec!["ok-1".to_string()]
+        );
+    }
+
+    #[test]
     fn ignores_empty_headings_and_unclosed_footnotes() {
         let anchors = extract_anchors("# \n[^missing\n#### Too Deep\n#NoSpace\n## Present");
         assert_eq!(anchors.len(), 1);
