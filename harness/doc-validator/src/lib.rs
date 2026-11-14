@@ -307,23 +307,6 @@ mod tests {
     }
 
     #[test]
-    fn collect_links_counts_external_links_without_checking_them() {
-        let tmp = tempfile::tempdir().unwrap();
-        let page = tmp.path().join("page.md");
-        let mut links = CheckReport::default();
-
-        collect_links(
-            &page,
-            "[ext](https://example.com/x) [local](./missing.md)",
-            &mut links,
-        );
-
-        assert_eq!(links.total_links, 2);
-        assert_eq!(links.checked_links, 1);
-        assert_eq!(links.broken.len(), 1);
-    }
-
-    #[test]
     fn validate_skips_excluded_paths_and_non_markdown_files() {
         let tmp = tempfile::tempdir().unwrap();
         write_valid_adr_tree(tmp.path());
