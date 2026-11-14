@@ -387,22 +387,34 @@ function ensureApssInstalled(deps: BootstrapDeps, cwd: string): void {
     deps.stderr.error('bootstrap:   fix: cargo install apss && just apss-install');
     return;
   }
-  // `apss install` hard-codes its post-build binary lookup under the repo, so
-  // an inherited CARGO_TARGET_DIR (common on shared build-cache hosts) sends it
-  // looking in the wrong place. Same unset the `just apss-install` recipe does.
-  if (runInherit(deps.spawn, 'env', ['-u', 'CARGO_TARGET_DIR', 'apss', 'install'], cwd) !== 0) {
+  if (runInherit(deps.spawn, 'env', APSS_INSTALL, cwd) !== 0) {
     deps.stderr.error(
       'bootstrap: warning: `apss install` failed; run `just apss-install` manually',
     );
   }
 }
 
-/** Run `cargo check` then `uv sync`. Returns true if either failed and it exited. */
-function runFinalChecks(deps: BootstrapDeps, cwd: string): boolean {
+// `apss install` hard-codes its post-build binary lookup under the repo, so an
+// inherited CARGO_TARGET_DIR (common on shared build-cache hosts) sends it
+// looking in the wrong place. --no-hooks: lefthook owns the git hooks, and a
+// plain install appends its own check to them. Same as `just apss-install`.
+export const APSS_INSTALL = ['-u', 'CARGO_TARGET_DIR', 'apss', 'install', '--no-hooks'];
+
+/**
+ * Run `cargo check` then `uv sync`. Returns true if either failed and it exited.
+ * `uv sync` runs only when the repo root has a pyproject.toml: a fork that
+ * removed the Python seed has no project for uv to sync, and uv fails on that.
+ */
+function runFinalChecks(deps: BootstrapDeps, ctx: BootstrapContext): boolean {
+  const { cwd } = ctx;
   if (runInherit(deps.spawn, 'cargo', ['check'], cwd) !== 0) {
     deps.stderr.error('bootstrap: cargo check failed');
     deps.exit(1);
     return true;
+  }
+  if (!ctx.exists(join(cwd, 'pyproject.toml'))) {
+    deps.stdout.log('bootstrap: no pyproject.toml; skipping uv sync');
+    return false;
   }
   if (runInherit(deps.spawn, 'uv', ['sync'], cwd) !== 0) {
     deps.stderr.error('bootstrap: uv sync failed');
@@ -432,7 +444,7 @@ export function main(deps: BootstrapDeps): void {
     return;
   }
 
-  if (runFinalChecks(deps, ctx.cwd)) {
+  if (runFinalChecks(deps, ctx)) {
     return;
   }
 

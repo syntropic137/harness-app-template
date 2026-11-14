@@ -694,11 +694,33 @@ describe('main', () => {
           stdout: sinks.stdout,
           stderr: sinks.stderr,
           exit: sinks.exit,
+          exists: (path) => path === '/proj/pyproject.toml',
         }),
       ),
     ).toThrow('__exit__');
     expect(sinks.exit).toHaveBeenCalledWith(1);
     expect(sinks.stderrError).toHaveBeenCalledWith('bootstrap: uv sync failed');
+  });
+
+  test('skips uv sync when the repo has no pyproject.toml', () => {
+    const sinks = captureSinks();
+    const spawn = vi.fn((command: string, args: readonly string[] = []) => {
+      if (args[0] === '--version') return { status: 0 };
+      if (command === 'uv') return { status: 1 };
+      return { status: 0 };
+    });
+    main(
+      baseDeps({
+        spawn: spawn as unknown as BootstrapDeps['spawn'],
+        stdout: sinks.stdout,
+        stderr: sinks.stderr,
+        exit: sinks.exit,
+      }),
+    );
+    expect(spawn).not.toHaveBeenCalledWith('uv', ['sync'], expect.anything());
+    expect(sinks.stdoutLog).toHaveBeenCalledWith('bootstrap: no pyproject.toml; skipping uv sync');
+    expect(sinks.stdoutLog).toHaveBeenCalledWith('bootstrap: complete');
+    expect(sinks.exit).not.toHaveBeenCalled();
   });
 
   test('runInherit treats null spawn status as failure code 1', () => {
@@ -985,7 +1007,14 @@ describe('main', () => {
         exists: (path: string) => !path.endsWith('.apss/bin/apss'),
       }),
     );
-    expect(calls).toContainEqual(['env', '-u', 'CARGO_TARGET_DIR', 'apss', 'install']);
+    expect(calls).toContainEqual([
+      'env',
+      '-u',
+      'CARGO_TARGET_DIR',
+      'apss',
+      'install',
+      '--no-hooks',
+    ]);
   });
 
   test('skips composing when .apss/bin/apss already exists', () => {
@@ -1004,7 +1033,14 @@ describe('main', () => {
         exists: () => true,
       }),
     );
-    expect(calls).not.toContainEqual(['env', '-u', 'CARGO_TARGET_DIR', 'apss', 'install']);
+    expect(calls).not.toContainEqual([
+      'env',
+      '-u',
+      'CARGO_TARGET_DIR',
+      'apss',
+      'install',
+      '--no-hooks',
+    ]);
     expect(sinks.stdoutLog).toHaveBeenCalledWith(
       'bootstrap: apss already composed (.apss/bin/apss)',
     );
