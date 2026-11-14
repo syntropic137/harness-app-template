@@ -130,9 +130,12 @@ export const SENSORS_COVERAGE_FLOOR = {
 } as const;
 
 function rustLaneCommands(lane: RustLane, root: string): CoverageCommand[] {
+  // APP_ENV=test: mocks call `assert_test_env!()` first (docs/development/mocks.md)
+  // and panic without it, and the rust-coverage CI job sets no APP_ENV of its own.
   const env = {
     CARGO_TARGET_DIR: coverageTargetDir(root, lane.packageName),
     CARGO_INCREMENTAL: '0',
+    APP_ENV: 'test',
   };
   const commands: CoverageCommand[] = [];
   if (lane.prebuildBin) {

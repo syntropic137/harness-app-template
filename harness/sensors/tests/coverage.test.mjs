@@ -24,6 +24,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   buildEnvelopeFromOptions,
+  cargoCovEnv,
   composeMetrics,
   main as coverageMain,
   parseJavascriptCoverageSummary,
@@ -252,6 +253,7 @@ test('coverage_scan.main returns non-zero on missing lane JSON', async () => {
   const io = { write: (s) => stdout.push(s) };
   const code = await coverageMain(['--rust-cov-json=/tmp/does-not-exist-rust-coverage.json'], io);
   assert.equal(code, 1);
+  // ubs:ignore a malformed envelope throws, and a throw fails the test
   const envelope = JSON.parse(stdout.join(''));
   assert.equal(envelope.available, false);
   assert.equal(envelope.hard_fail, true);
@@ -360,6 +362,7 @@ test('coverage: main() with --coverage flag tightens baseline.json on improvemen
 
   assert.equal(code, 0, 'coverage improvement should exit 0');
   assert.ok(writes.length >= 1, 'expected at least one baseline write for the tightened floor');
+  // ubs:ignore a malformed write throws, and a throw fails the test
   const written = JSON.parse(writes[writes.length - 1].content);
   assert.equal(written.dimensions.CV01.metrics['rust-line-coverage-pct'].baseline, 100);
   assert.equal(written.dimensions.CV01.metrics['min-line-coverage-pct'].baseline, 100);
@@ -439,4 +442,15 @@ test('coverage: main() with absent --coverage flag stays PASS when CV01 floor is
     io,
   );
   assert.equal(code, 0, 'no --coverage flag must not crash or fail the gate');
+});
+
+test('cargoCovEnv: every cargo-llvm-cov run sets APP_ENV=test over the caller env', () => {
+  // The crates' test fakes panic outside APP_ENV=test; CI's fitness job sets none.
+  const env = cargoCovEnv({ PATH: '/bin', APP_ENV: 'production', CARGO_INCREMENTAL: '1' }, '/t');
+  assert.deepEqual(env, {
+    PATH: '/bin',
+    APP_ENV: 'test',
+    CARGO_INCREMENTAL: '0',
+    CARGO_TARGET_DIR: '/t',
+  });
 });
