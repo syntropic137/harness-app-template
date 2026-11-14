@@ -132,8 +132,10 @@ guarantees this by:
 3. **Isolating `CARGO_TARGET_DIR`.** Concurrent cargo-llvm-cov
    runs in a shared target directory corrupt each other's profraw
    files. The adapter pins
-   `CARGO_TARGET_DIR=<workspace>/target/coverage-isolated` per run
-   so two worktrees or two CI matrices cannot cross-contaminate.
+   `CARGO_TARGET_DIR=<workspace>/target/coverage-isolated/<package>` per run
+   so two worktrees, two CI matrices or two Rust lanes of one run cannot
+   cross-contaminate (cargo-llvm-cov reports every test binary under its
+   target dir).
 
 ### Speed tier
 

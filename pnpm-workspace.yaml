@@ -59,6 +59,8 @@ overrides:
     # (DoS), vulnerable >=2.0.0 <2.11.0. Reaches us via ws_apps/docs -> next.
     # 2.11.23 is 4 days old; 2.11.24 exists but was published ~1 day before
     # pinning, which is exactly what minimumReleaseAge rejects.
+  zod: 4.6.7 # dep-audit GHSA-mrhx-c7xc-m3w5 (memory exhaustion on oversized input):
+    # vulnerable <4.6.6. Reaches us via harness/stack (moved to zod 4) and fumadocs-core/-mdx.
 
 auditConfig:
   ignoreGhsas:

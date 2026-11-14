@@ -35,6 +35,13 @@
 // that dir at report time, so a foreign run's PID-suffixed file looks like
 // one of ours). Pinning to <repo>/target/coverage-isolated keeps each
 // worktree's build artefacts and profraw inside the worktree.
+//
+// Lane isolation: each Rust lane gets its own subdirectory
+// (coverage-isolated/<package>). Since cargo 1.100's build-dir layout
+// (llvm-cov-target/<profile>/build/<pkg>/<hash>/out/), cargo-llvm-cov
+// reports every test binary it finds under its target dir, so one shared
+// dir put example-rust's integration test (0%) into the doc-validator
+// report and failed its 100% floor.
 import { join } from 'node:path';
 
 export interface CoverageCommand {
@@ -61,8 +68,8 @@ export function isCoverageLane(value: string): value is CoverageLane {
   return (COVERAGE_LANES as readonly string[]).includes(value);
 }
 
-export function coverageTargetDir(root: string): string {
-  return join(root, 'target', 'coverage-isolated');
+export function coverageTargetDir(root: string, packageName: string): string {
+  return join(root, 'target', 'coverage-isolated', packageName);
 }
 
 interface RustLane {
@@ -123,7 +130,10 @@ export const SENSORS_COVERAGE_FLOOR = {
 } as const;
 
 function rustLaneCommands(lane: RustLane, root: string): CoverageCommand[] {
-  const env = { CARGO_TARGET_DIR: coverageTargetDir(root), CARGO_INCREMENTAL: '0' };
+  const env = {
+    CARGO_TARGET_DIR: coverageTargetDir(root, lane.packageName),
+    CARGO_INCREMENTAL: '0',
+  };
   const commands: CoverageCommand[] = [];
   if (lane.prebuildBin) {
     commands.push({
