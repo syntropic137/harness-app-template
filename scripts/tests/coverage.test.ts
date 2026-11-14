@@ -93,6 +93,7 @@ describe('lib/coverage lane definitions', () => {
     expect(cov.env).toEqual({
       CARGO_TARGET_DIR: coverageTargetDir(ROOT, 'example-rust'),
       CARGO_INCREMENTAL: '0',
+      APP_ENV: 'test',
     });
     expect(cov.cwd).toBeUndefined();
   });
@@ -117,6 +118,7 @@ describe('lib/coverage lane definitions', () => {
     expect(build.env).toEqual({
       CARGO_TARGET_DIR: coverageTargetDir(ROOT, pkg),
       CARGO_INCREMENTAL: '0',
+      APP_ENV: 'test',
     });
     expect(cov.args).toEqual([
       'llvm-cov',
@@ -137,6 +139,7 @@ describe('lib/coverage lane definitions', () => {
     expect(cov.env).toEqual({
       CARGO_TARGET_DIR: coverageTargetDir(ROOT, pkg),
       CARGO_INCREMENTAL: '0',
+      APP_ENV: 'test',
     });
   });
 

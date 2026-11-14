@@ -244,6 +244,16 @@ function emptyEnvelope(reason) {
 }
 
 /**
+ * The environment one cargo-llvm-cov run gets: the caller's, plus its own
+ * target dir, CARGO_INCREMENTAL=0 and APP_ENV=test. Mocks call
+ * `assert_test_env!()` first (docs/development/mocks.md) and panic outside
+ * APP_ENV=test, and the fitness CI job sets no APP_ENV, so the scan sets it.
+ */
+export function cargoCovEnv(env, targetDir) {
+  return { ...env, CARGO_TARGET_DIR: targetDir, CARGO_INCREMENTAL: '0', APP_ENV: 'test' };
+}
+
+/**
  * Spawn `cargo llvm-cov --json --summary-only` against a workspace
  * manifest. Pins CARGO_TARGET_DIR to an isolated path so concurrent
  * runs in shared-target environments (the swarm VPS exports
@@ -268,7 +278,7 @@ function runCargoLlvmCov({ workspaceRoot, manifestRelPath, extraArgs = [], env =
     ];
     const result = spawnSync('cargo', args, {
       cwd: workspaceRoot,
-      env: { ...env, CARGO_TARGET_DIR: isolated, CARGO_INCREMENTAL: '0' },
+      env: cargoCovEnv(env, isolated),
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });
