@@ -8,11 +8,11 @@ const ServiceSchema = z.object({
   build: z.string(),
   port: PortNameSchema,
   healthcheck: z.string().optional(),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
 });
 
 const ConfigSchema = z.object({
-  services: z.record(ServiceSchema),
+  services: z.record(z.string(), ServiceSchema),
   database: z
     .object({
       kind: z.literal('postgres'),
