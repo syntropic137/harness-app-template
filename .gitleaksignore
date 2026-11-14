@@ -1,0 +1,14 @@
+# Findings in history that stay: the mcp-agent-mail bearer token committed in 2972cbc161 (cursor.mcp.json,
+# gemini.mcp.json and editor .bak copies) is revoked, and history is never rewritten. One fingerprint
+# per line (commit:file:rule:line); a new finding is never added here, only a revoked secret.
+2972cbc1617392df766b35b59b8e9d86d7784674:.claude/.settings.local.json.2142091.1780153865358724.0.bak:authorization-bearer-header:7
+2972cbc1617392df766b35b59b8e9d86d7784674:.claude/.settings.local.json.2143308.1780153877516411.0.bak:authorization-bearer-header:7
+2972cbc1617392df766b35b59b8e9d86d7784674:.claude/.settings.local.json.2143719.1780153901521143.0.bak:authorization-bearer-header:7
+2972cbc1617392df766b35b59b8e9d86d7784674:.cursor.mcp.json.2142091.1780153865405905.0.bak:authorization-bearer-header:7
+2972cbc1617392df766b35b59b8e9d86d7784674:.cursor.mcp.json.2143308.1780153877552949.0.bak:authorization-bearer-header:7
+2972cbc1617392df766b35b59b8e9d86d7784674:.cursor.mcp.json.2143719.1780153901555895.0.bak:authorization-bearer-header:7
+2972cbc1617392df766b35b59b8e9d86d7784674:cursor.mcp.json:authorization-bearer-header:7
+2972cbc1617392df766b35b59b8e9d86d7784674:.gemini.mcp.json.2142091.1780153865428014.0.bak:authorization-bearer-header:6
+2972cbc1617392df766b35b59b8e9d86d7784674:.gemini.mcp.json.2143308.1780153877567571.0.bak:authorization-bearer-header:6
+2972cbc1617392df766b35b59b8e9d86d7784674:.gemini.mcp.json.2143719.1780153901581988.0.bak:authorization-bearer-header:6
+2972cbc1617392df766b35b59b8e9d86d7784674:gemini.mcp.json:authorization-bearer-header:6

@@ -115,6 +115,67 @@ describe('staged-file secret scan (ADR-0009)', () => {
   });
 });
 
+// The project rule authorization-bearer-header (.gitleaks.toml): a committed
+// "Authorization": "Bearer <token>" header. The default detectors missed a
+// 64-hex mcp-agent-mail token in two MCP configs. The header is assembled at
+// runtime so this file never matches the rule.
+const AUTH_HEADER = ['"Author', 'ization": "Bea', 'rer '].join('');
+const FAKE_BEARER = [
+  '3f9c0a7e',
+  '51d24b88',
+  'c06e19af',
+  '7b2d4e53',
+  '9a8c1f06',
+  'e4b7d2a9',
+  '15c3f80e',
+  '6d2b9a47',
+].join('');
+
+function scanStagedJson(body: string): { status: number | null; out: string } {
+  const repo = makeTempRepo();
+  try {
+    writeFileSync(join(repo, 'mcp.json'), body);
+    runGit(repo, ['add', join(repo, 'mcp.json')]);
+    const result = spawnSync(
+      'gitleaks',
+      [
+        'protect',
+        '--staged',
+        '--redact',
+        '--no-banner',
+        '-v',
+        '--config',
+        join(ROOT, '.gitleaks.toml'),
+      ],
+      {
+        cwd: repo,
+        env: { ...cleanEnv(), GIT_DIR: join(repo, '.git'), GIT_WORK_TREE: repo },
+        encoding: 'utf8',
+      },
+    );
+    return { status: result.status, out: `${result.stdout}\n${result.stderr}` };
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+}
+
+describe('project rule: a committed Bearer header', () => {
+  it.skipIf(!gitleaksOnPath())('refuses a staged Authorization: Bearer token', () => {
+    const r = scanStagedJson(`{ "headers": { ${AUTH_HEADER}${FAKE_BEARER}" } }\n`);
+    expect(r.status, r.out).not.toBe(0);
+    expect(r.out).toContain('authorization-bearer-header');
+  });
+
+  it.skipIf(!gitleaksOnPath())('passes the placeholder and an env reference', () => {
+    const placeholder = scanStagedJson(
+      `{ "headers": { ${AUTH_HEADER}YOUR_BEARER_TOKEN_HERE" } }\n`,
+    );
+    expect(placeholder.status, placeholder.out).toBe(0);
+    const envRef = scanStagedJson(`{ "headers": { ${AUTH_HEADER}\${env:AGENT_MAIL_TOKEN}" } }\n`);
+    expect(envRef.status, envRef.out).toBe(0);
+  });
+});
+
 describe('secret-scan gate enforces (no silent soft-skip)', () => {
   // The lefthook hook body and the qa wrapper share the same fail-closed
   // shape: exit 1 + install hint when gitleaks is absent. We extract each

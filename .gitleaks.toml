@@ -1,0 +1,22 @@
+# Extends gitleaks' default rules (useDefault keeps every built-in detector).
+[extend]
+useDefault = true
+
+# A committed HTTP Authorization header with a Bearer token. The default detectors missed a 64-hex
+# mcp-agent-mail token in cursor.mcp.json/gemini.mcp.json from the template's first commit until
+# their removal: it is no known vendor's shape and too regular for the entropy rule. Any
+# "Authorization": "Bearer <16+ token chars>" in a scanned file is refused. A placeholder
+# (YOUR_BEARER_TOKEN_HERE in .claude/settings.local.example.json) passes; an env reference
+# (${env:X}, $X) never matches the token charset. The token in history is listed in
+# .gitleaksignore: it is revoked, and history is never rewritten.
+[[rules]]
+id = "authorization-bearer-header"
+description = "Bearer token in a committed Authorization header"
+regex = '''(?i)["']?authorization["']?\s*[:=]\s*["']?bearer\s+([A-Za-z0-9._~+/-]{16,}=*)'''
+secretGroup = 1
+keywords = ["bearer"]
+
+[[rules.allowlists]]
+description = "an upper-case placeholder is not a token"
+regexTarget = "secret"
+regexes = ['''^YOUR_[A-Z_]+$''']
